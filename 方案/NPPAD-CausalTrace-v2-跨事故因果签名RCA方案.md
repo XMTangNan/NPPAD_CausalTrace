@@ -762,6 +762,7 @@ marker 掩蔽。**实测观察**：P=154.0、VOL=287.8、TAVG=310.0、PSGA=67.0�
 | 2026-10-26 | 消融补神经符号三专项（−本体约束/−过程本体 MAD 替代/−解释）与 −E3-path 拓扑消融；G6 门控（D0 决策落盘）加入门控体系 | RCA-029/024 |
 | 2026-10-26（D1 执行修正，D0 前） | 学图窗独立于观测窗：学图用 [60,1500]（145 点含注入瞬态），观测/组模式仍 [300,1500]，基线窗不变 | RCA-030：marker 主窗分段恒定致 LiNGAM 系统性反向、frontier 全空；扩展窗复测 marker 出边恢复 |
 | 2026-10-26（D1 执行修正，D0 前） | marker→症状符号主证据改轨迹级 C^A（πA≥0.70 优先，cL/πL 兜底），拓扑仍只用 LiNGAM；E3-path 符号用 c_eff；C^A 每轨迹一稳态点、GAM(6 splines,lam=1)+50 次轨迹 Bootstrap、spread<0.05 不可估 | RCA-031：含瞬态同期 SEM 对滞后响应变量符号反转（WLR→P/WHPI 实测）；修正先于 D0，非结果驱动 |
+| 2026-10-27（D4 后补记） | R5 解释层落地为 LLM 主路径 + 符号约束（DeepSeek `deepseek-flash` + 因果图提示注入 + `check_faithfulness` 忠实性校验 + 降级模板），新增【通俗解读】段（业外人士可读比喻）；复用方案一 `explanation.py`，适配 v2.1 传播链字段；smoke 3/3 通过、已生成 5 条 LLM 版，其余模板（全量 LLM 暂缓） | 用户要求最终解释层级对齐论文（LLM+符号约束）并增加业外可读解读 |
 
 **v2.1 外部评审定稿（2026-10-26 同日，评审 22 条意见全部吸收，另有 3 条评审外自行收口）：**
 
@@ -1055,6 +1056,7 @@ E3_path(k) = max_g [ 0.5·reach + 0.5·depth ]
 - **可达域外异常不硬排**：A(x) 中不在 marker 因果可达域 R 内的变量，单独标注"异常但不在 marker 下游，未纳入传播链"（列入 JSON 的 `outside_reach` 字段与解释的不确定性段），不强行赋予链上位置；
 - 逐轨迹落盘 `root_cause_chain_{type}_{sev}.json`；
 - LLM 解释沿用方案一 prompt 纪律：四上下文槽位、禁用"根因是 marker"、方向冲突/竞争边/低 π 边强制标注不确定性；LLM 不可用时代码模板兜底；
+- 【LLM 解释实现（2026-10-27 补记，对齐论文 causal graph prompt injection）】复用方案一 `accidents/loca/explanation.py` 的 DeepSeek LLM 调用 + 因果图提示注入 + `check_faithfulness` 忠实性校验，适配 v2.1 传播链字段：把 RRF 双引擎排序 + cA/cL + 边标注 + 本体子系统名 + 第一层三证据分序列化为 prompt；忠实性校验（变量幻觉 ≥3 字母检测 + RRF 数值对拍）不通过则降级到冻结模板 `render_chain_text`；新增【通俗解读】段（业外人士可读比喻，不含专业变量名、不进忠实性校验）；密钥经 `DEEPSEEK_API_KEY`/`.env` 读取，模型 `deepseek-flash`；产物 `chains_llm/root_cause_chain_*.md`（专业解读 + 通俗解读）；
 - 第二层无变量级 GT，只做 vs 4.2 冻结关系的方向一致率统计，不计算"溯源准确率"。
 
 ## 13.11 消融矩阵
