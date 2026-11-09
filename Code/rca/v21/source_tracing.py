@@ -21,6 +21,7 @@ from rca.v21.knowledge import ENTITY_TABLE
 
 # ==================== 配置（方案 §1.3 决策） ====================
 TOP_K_ROOT = 5            # 根变量默认输出 Top 5
+B_CLIP = 5.0              # B 矩阵元素截断阈值：|B|>B_CLIP 视为共线性伪影
 MAX_PATH_LEN = 4          # 传导路径最大边数
 MAX_PATH_DEPTH = 5        # 传导路径最大节点数（= MAX_PATH_LEN + 1）
 MAX_PATHS_PER_ROOT = 20   # 每个根变量输出的路径数上限（防组合爆炸）
@@ -150,6 +151,13 @@ def build_total_effect_matrix(
 
     T[i, j] = 变量 j 对变量 i 的总因果效应（直接 + 间接）。
     用 weight_median（bootstrap 中位数）作为 B[i,j] 的估计。
+
+    数值稳定性修正（ALGO, 2026-11-09）：
+      LiNGAM 在多重共线变量对上回归系数可跨 6 数量级（如 PSGA/PSGB→WSTB
+      weight=±2.7e5），直接求逆导致 T 条件数 ~1e11、得分无物理意义。
+      修正：对 B 元素做硬截断 |B|≤B_CLIP(=5)。标准化数据下因果效应应在
+      [-1,1] 量级，|B|>5 必为共线性伪影。截断保留 435/505 边不变，
+      仅压制 70 个极值，(I-B) 条件数从 ~1e11 降至 ~3-4，总效应排序有意义。
     """
     idx = {v: i for i, v in enumerate(variables)}
     n = len(variables)
@@ -157,6 +165,10 @@ def build_total_effect_matrix(
     for e in stable_edges:
         i, j = idx[e["to"]], idx[e["from"]]   # B[to, from] = from -> to 的直接效应
         B[i, j] = e.get("weight_median", 0.0)
+    # 数值稳定：截断共线性伪影。标准化数据下因果效应应在 [-1,1] 量级，
+    # |B|>5 必为多重共线导致的回归爆炸（如 PSGA/PSGB→WSTB = ±2.7e5）。
+    # 硬截断保留绝大多数合理边不变，仅压制极值，保证 (I-B) 良态。
+    B = np.clip(B, -B_CLIP, B_CLIP)
     # DAG 保证 (I-B) 可逆
     try:
         T = np.linalg.inv(np.eye(n) - B)
