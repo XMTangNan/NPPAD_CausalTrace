@@ -7,6 +7,7 @@
 """
 import ast
 import importlib
+import pathlib
 
 import pytest
 
@@ -179,6 +180,26 @@ def test_v21_legacy_writers_are_outside_v23_closure():
     legacy = {"rca.v21.data", "rca.v21.signatures", "rca.v21.run_r0", "rca.v21.run_r3",
               "rca.v21.run_baselines", "rca.v21.run_chains", "rca.v21.run_source_tracing"}
     assert not (legacy & set(V23_CLOSURE))
+
+
+_STDLIB_OK = {"__future__", "pathlib", "typing", "json", "logging", "hashlib", "datetime"}
+
+
+def test_new_package_never_imports_legacy_paths():
+    """依赖方向：causalrca.* 只能依赖标准库或自身，禁止反向 import 旧路径。"""
+    root = pathlib.Path(importlib.import_module("causalrca").__file__).parent
+    files = sorted(root.rglob("*.py"))
+    assert files, "未找到 causalrca 包"
+    for p in files:
+        tree = ast.parse(p.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            roots = []
+            if isinstance(node, ast.Import):
+                roots = [a.name.split(".")[0] for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                roots = [node.module.split(".")[0]]
+            for r in roots:
+                assert r in _STDLIB_OK | {"causalrca"}, f"{p.name} 反向依赖了 {r}"
 
 
 def test_no_dynamic_globals_injection():

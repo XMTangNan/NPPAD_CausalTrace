@@ -5,21 +5,58 @@
 
 ## 1. 分层原则
 
-| 层 | 目录 | 职责 | 允许写入 |
-|----|------|------|----------|
-| 配置/注册表 | `rca/v21/accident_config.py`（新建） | 12 类事故元数据唯一来源：marker、注入时刻、窗口、分组、触发/关键响应、数据状态 | 只此一处定义事故元数据 |
-| 冻结常量 | `rca/rca_config_v21.py` | v2.1 预注册常量；v2.3 新增常量集中在 `V23_*` 段 | 不散落魔数 |
-| 数据/审计 | `rca/v21/data.py`、`data_audit.py`（新建） | 加载、划分、B4/B5/B6 审计 | 只读 `nppad_repo/`，只写 `output/rca_v23/` |
-| 算法 | `rca/v21/{variable_selector,signatures,source_tracing,tolerance,severity_aggregation,physics_constraints,deviation,knowledge}.py` | 纯算法/纯函数优先，入口脚本不做算法 | 不直接写产物路径 |
-| 执行器 | `rca/v21/run_*.py` | 读取上游 JSON、调用算法、落盘、打印摘要 | 一个执行器只写自己约定的子目录 |
-| 测试 | `Code/tests/` | 新模块必须配单测；回归脚本走 `run_all_v23.py` | 不写 `output/` |
+| 层 | 正式实现（唯一） | 兼容 shim（旧路径，勿新增逻辑） | 职责 |
+|----|------------------|-------------------------------|------|
+| 配置/注册表 | `causalrca/config/registry.py` | `rca/v21/accident_config.py` | 12 类事故元数据唯一来源：marker、注入时刻、窗口、分组、触发/关键响应、数据状态 |
+| 路径常量 | `causalrca/config/paths.py` | `config.py` | 仓库根、`output/` 根、通用窗口/种子/LLM 端点 |
+| 冻结常量 | `causalrca/config/constants_v21.py` | `rca/rca_config_v21.py` | v2.1 预注册常量（论文口径，禁止改值） |
+| v2.3 阈值 | `causalrca/config/constants_v23.py` | 各算法模块同名变量 | v2.3 新增阈值（截断/条件数/路径上限/RRF/LLM 容差） |
+| IO | `causalrca/io/artifact.py`、`causalrca/io/logging.py` | `rca/v21/artifact.py`、`core/utils.py` | 产物统一写入口 + 共享 logger |
+| 数据/审计 | `rca/v21/data.py`、`data_audit.py` | — | 加载、划分、B4/B5/B6 审计 |
+| 算法 | `rca/v21/{variable_selector,signatures,source_tracing,tolerance,severity_aggregation,physics_constraints,deviation,knowledge}.py` | — | 纯算法/纯函数优先，入口脚本不做算法 |
+| 执行器 | `rca/v21/run_*.py` | — | 读取上游 JSON、调用算法、落盘、打印摘要 |
+| 测试 | `Code/tests/` | — | 新模块必须配单测；结构约束见 `tests/test_architecture.py` |
+
+**代码代际（哪个目录属于哪一代）**
+
+| 目录 | 代际 | 状态 | 说明 |
+|------|------|------|------|
+| `causalrca/` | v2.3 目标包 | **正式实现，可改** | 分批迁移中：现存 `config/`、`io/`；其余子包按 S1–S5 逐步迁入 |
+| `rca/v21/*.py`（除 `artifact.py`/`accident_config.py`） | v2.1 → v2.3 | 正式实现（算法/执行器） | 算法与执行器尚未迁入新包，仍是唯一实现 |
+| `rca/v21/artifact.py`、`rca/v21/accident_config.py` | v2.1 路径 | **兼容 shim** | 显式 re-export，指向 `causalrca/` |
+| `config.py`、`rca/rca_config_v21.py`、`core/utils.py` | v1/v2.1 路径 | **兼容 shim** | 显式 re-export，禁止再写新逻辑 |
+| `rca/v21/run_r0.py`、`run_r3.py`、`run_baselines.py`、`run_chains.py`、`run_source_tracing.py`、`run_llm_explanation.py`、`run_v23_validation_set.py` | v2.1/v2.2 | 历史执行器（只读冻结产物） | 仍写 `output/rca_v21/`，不再更新，不得被 v2.3 链调用 |
+| `accidents/` | v1 | 历史归档 | 不参与 v2.3 链 |
+
+**依赖方向（只允许指向右/下，禁止反向）**
+
+```
+            causalrca/config/{paths,constants_v21,constants_v23,registry}
+                                  │  (无第三方依赖，不 import rca.* / core.*)
+                                  ▼
+            causalrca/io/{artifact,logging}
+                                  │
+                                  ▼
+   rca/v21 算法层（variable_selector → signatures → source_tracing → severity_aggregation …）
+                                  │
+                                  ▼
+   rca/v21/run_*.py 执行器  ──►  output/rca_v23/（只经 artifact 写）
+                                  │
+                                  ▼
+                        tests/（读代码与冻结产物）
+```
+
+铁律：`causalrca.config.*` 不得 import `rca.*`；`causalrca.io.*` 只依赖 `causalrca.config`；
+旧 shim 单向依赖新包（新包不得反向 import 旧路径）；v2.3 闭包不得直接 `mkdir`/`open(w)`/`json.dump`。
 
 **单一来源铁律**
 
-1. 事故元数据只来自 `accident_config.py`；`rca_config_v21.ACCIDENT_TYPES` 改为从注册表派生，禁止第二份 12 类列表。
+1. 事故元数据只来自 `causalrca/config/registry.py`（旧路径 `rca/v21/accident_config.py` 为 shim）；`rca_config_v21.ACCIDENT_TYPES` 从注册表派生，禁止第二份 12 类列表。
 2. 同一产物只有一条生成链：`signatures → tracing → graphs/reports → summary/diff`；下游只读上游 JSON，不重算、不复制。
 3. 图、榜单、差异报告、RCA 报告必须来自**同一次**签名/溯源结果（manifest 记录生成批次 `run_id`）。
 4. 缺数据的类别只在注册表中标记 `status=data_missing`，执行器跳过并落 `skipped_classes.json`；**禁止生成占位/伪结果**。
+5. v2.3 链的三份跨代输入（`split_manifest` / `shared_baseline` / `marker_scale`）由 A 阶段写入 `registry/`，
+   下游只读 v2.3 根；`output/rca_v21/` 仅作只读回退（`artifact.legacy_input()`），任何执行器不得回写。
 
 ## 2. 目标目录结构
 
@@ -27,10 +64,23 @@
 Code/
 ├── STRUCTURE.md                  # 本文件
 ├── error_tracking.md             # 错误跟踪（唯一问题台账）
+├── pyproject.toml                # 仅 pytest 配置与包元数据（不改变 PYTHONPATH=. 运行方式）
+├── causalrca/                    # [v2.3 正式包，分批迁入]
+│   ├── config/
+│   │   ├── paths.py              # 路径与通用常量（旧 config.py）
+│   │   ├── constants_v21.py      # v2.1 冻结常量（旧 rca/rca_config_v21.py）
+│   │   ├── constants_v23.py      # v2.3 新增阈值（截断/条件数/RRF/LLM 容差）
+│   │   └── registry.py           # 12 类注册表（旧 rca/v21/accident_config.py）
+│   └── io/
+│       ├── artifact.py           # v2.3 唯一写入口（旧 rca/v21/artifact.py）
+│       └── logging.py            # logger / ERROR_LOG / log_error（旧 core/utils.py 日志段）
+├── config.py                     # [shim] → causalrca/config/paths.py
+├── core/utils.py                 # [shim] 日志 → causalrca/io/logging.py；save_json 暂留
 ├── rca/
-│   ├── rca_config_v21.py         # v2.1 冻结常量 + V23_* 新增常量
+│   ├── rca_config_v21.py         # [shim] → causalrca/config/constants_v21.py
 │   └── v21/
-│       ├── accident_config.py    # [新] 12 类注册表（元数据唯一来源）
+│       ├── accident_config.py    # [shim] → causalrca/config/registry.py
+│       ├── artifact.py           # [shim] → causalrca/io/artifact.py（读写转发，兼容 monkeypatch）
 │       ├── data.py               # 加载/划分（按注册表状态门控）
 │       ├── data_audit.py         # [新] B4 数据审计 + B5 Z 病态 + B6 变点
 │       ├── variable_selector.py   # A1 论文锚定（候选加权、可剔除留痕）+ 四阶段漏斗
@@ -59,7 +109,9 @@ Code/
         ├── manifest.json          # run_id、各产物相对路径/大小/sha256（artifact.build_manifest）
         ├── registry/
         │   ├── accident_registry.json      # 12 类注册表快照 + ready/partial/missing 清单
-        │   └── split_manifest.json         # train/test 分组快照（v2.1 冻结输入留痕）
+        │   ├── split_manifest.json         # train/test 分组快照（v2.1 冻结输入留痕）
+        │   ├── shared_baseline.json        # 共享基线 μ/σ 快照（v2.1 冻结，S1 起由 A 阶段写入）
+        │   └── marker_scale.json           # marker 尺度快照（v2.1 冻结，S1 起由 A 阶段写入）
         ├── variable_sets/
         │   ├── selection_report_{K}.json   # 论文锚定 + 四阶段漏斗报告（V0–V7、v3_status 三态、dropped_anchor/anchor_impact）
         │   └── variable_selection_summary.json
@@ -94,7 +146,7 @@ Code/
 
 - 类别 `K` ∈ `{LOCA,LOCAC,SLBIC,SLBOC,SGATR,SGBTR,RW,RI,FLB,MD,LR,LLB}`；组 `g` ∈ `{low,mid,high}`。
 - 文件名一律 `{产物类型}_{K}[_{g}].{json|html|txt}`，全大写类别、小写组名。
-- JSON 顶层必须含 `schema`、`artifact`、`accident_type`、`group`（或 `null`）、`run_id`、`created_at`、`source`；由 `rca/v21/artifact.py` 统一注入，执行器不得手写 json.dump 落盘 v2.3 产物。
+- JSON 顶层必须含 `schema`、`artifact`、`accident_type`、`group`（或 `null`）、`run_id`、`created_at`、`source`；由 `causalrca/io/artifact.py` 统一注入（旧路径 `rca/v21/artifact.py` 仅为 shim），执行器不得手写 json.dump 落盘 v2.3 产物（由 `tests/test_architecture.py` 卡住）。
 - 不再出现 `v23_` 前缀子目录、`signatures_strict`、`signatures_no_ontology` 等并列目录；消融产物统一放 `output/rca_v23/ablations/{name}/`。
 - 文本/HTML 产物由 `artifact.write_text_artifact` 同时写同名 `.meta.json`（含 sha256 与 run_id）。
 
@@ -162,11 +214,15 @@ PYTHONPATH=. python -m rca.v21.run_v23_graphs --run-id <id>
 PYTHONPATH=. python -m rca.v21.severity_aggregation --run-id <id>
 PYTHONPATH=. python -m rca.v21.run_v23_llm_explanation --run-id <id>   # 模板 rule + 类级/全局（--backend llm 可选）
 PYTHONPATH=. python -m rca.v21.run_v23_report --run-id <id>
-PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（125 例）
+PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（137 例：133 passed / 4 既有失败）
 ```
 
-**运行约定（强制，方案 §6.4）**
+> 注：4 例既有失败全部在 `tests/test_v23_report_llm.py`，根因是 `output/rca_v23/tracing/` 与
+> `signatures/` 来自不同批次（`v23c-*` vs `v23-*`）导致跨阶段拒绝混源，与代码结构无关；
+> 需按 §6.4 重算产物后消除，登记见 `error_tracking.md`。`cd Code && pytest tests -q` 亦可
+> （`pyproject.toml` 仅补 `testpaths`/`pythonpath`，`PYTHONPATH=. python -m` 方式不变）。
 
+**运行约定（强制，方案 §6.4）**
 - 默认**禁止**每次改代码就跑全链；先用「受影响单测 + 单阶段重跑（复用上游 run_id）+ 冻结产物比对」验证。
 - 仅 E-R1 出对外数字 / E-R2 影响数值 / E-R3 产物结构或契约 / E-R4 跨阶段对不上 四类例外允许全链，且必须传 `--rerun-reason` 并写入 `run_v23_all_summary.json`；未声明原因的重跑不得引用。
 - 每轮全链留痕：run_id、rerun_reason、耗时、步数、相对上一轮的变量集/9 组 Top-1/稳定边变化。

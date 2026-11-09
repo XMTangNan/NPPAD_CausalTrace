@@ -887,3 +887,55 @@
 **收口计数（本轮）**：新增 1 条（DESIGN-023）closed；DESIGN-018/022 加返工注记；累计 open=0；**待裁决 1 项**：§4.3 关键响应集含精确重复测点对（forced 绝对保护），V3 因此 fail，处置方案三选一待用户确认。
 
 
+---
+
+## 结构类改动记录（S0–S4，分支 scaffold）
+
+**V23-DESIGN-024（closed）· 新建 `causalrca` 包 + 旧路径显式 re-export shim（S0）**
+
+- 唯一实现迁至 `causalrca/config/{paths,constants_v21,registry}.py` 与 `causalrca/io/{artifact,logging}.py`；
+  旧文件 `config.py`、`rca/rca_config_v21.py`、`rca/v21/accident_config.py`、`core/utils.py`、
+  `rca/v21/artifact.py` 改为显式 re-export（禁止 `globals().update(vars(...))`）。
+- `rca/v21/artifact.py` 额外做**读写转发**：测试/`run_v23_all` 直接赋值 `artifact.V23_SUBDIRS`、
+  `artifact.V23_OUTPUT`、`artifact.new_run_id`，转发到实现模块才生效；`delattr` 解释为恢复原值。
+- 五处 `__file__` 锚点一次改对：`paths`(parents[3]=仓库根)、`constants_v21`(parents[2]=Code)、
+  `registry`(parents[3])、`external_knowledge.py`/`run_source_tracing.py` 改用 `paths.CODE_ROOT`。
+- 建目录副作用仍在 `constants_v21`（与旧 `rca_config_v21` 同时机）；`causalrca/__init__`、
+  `config/__init__`、`io/__init__` 不 import 子模块，避免提前建目录。
+- 取值零变化：53 个字面量常量逐项比对 0 差异；窗口 121/152/145、12 类注册表、MARKER_COLS 4 项不变。
+
+**V23-DESIGN-025（closed）· 单产物根：三份跨代输入改由 A 阶段写入 v2.3 registry（S1）**
+
+- `run_variable_selector.snapshot_frozen_inputs()` 写 `registry/{split_manifest,shared_baseline,marker_scale}.json`；
+  `run_v23_end2end.load_inputs()` 优先读 v2.3 registry，缺文件才回退 v2.1 只读输入并打 warning。
+- `consensus_*` 访问改走 `artifact.legacy_input()`；新增 `artifact.repo_relative()` 使产物内来源路径与 CWD 无关。
+- 修两处 CWD 相对路径：`run_v23_validation.py` 的 `SIG_DIR/TRACING_DIR/V21_TRACING_DIR`（改 `V21_OUTPUT` 绝对路径）、
+  `run_v23_end2end` 的 `vs_report`（`Path("rca_v23")` 改仓库内相对路径）。
+- 对拍：LOCA/low，n_bootstrap=3，双路径（registry vs v2.1 回退）产物除 `run_id`/`created_at` 外**完全相同**
+  （55 条稳定边、Top1=RHMT）。未跑全链。
+
+**V23-DESIGN-026（closed）· v2.3 阈值集中到 `causalrca/config/constants_v23.py`（S3，只搬不改值）**
+
+- 收拢 `TOP_K_ROOT/B_CLIP/CLIP_SENSITIVITY/MAX_PATH_*/MAX_PATHS_PER_ROOT/STABILITY_COND_MAX/
+  STABILITY_CLIP_RATIO_MAX/EDGE_DIFF_THRESHOLD/MECH_JACCARD_THRESHOLD/RRF_K/LLM_FLOAT_TOL/
+  LLM_FAITHFUL_DECIMALS/LLM_TIMEOUT_S`；旧模块保留同名变量（`from ... import`），读取方与 monkeypatch 不受影响。
+- 数值全部与迁移前一致（`tests/test_architecture.py::test_v23_thresholds_are_centralized_and_unchanged` 卡住）。
+
+**V23-DESIGN-027（closed）· v2.3 闭包写盘入口守卫（S4）**
+
+- 新增 `V23_CLOSURE`（9 个 v2.3 产物模块）AST 扫描：出现 `open(w/a/x)`、`write_text`、`mkdir`、
+  `to_csv`、`savefig`、`dump` 即失败；同时禁止闭包内出现 `V21_OUTPUT`。
+- 现状核查：9 个模块全部通过（无直接写盘、无 v2.1 根引用），本次只加守卫不改实现。
+- v2.1 写盘模块（`data`/`signatures`/`run_r0`/`run_r3`/`run_baselines`/`run_chains`/`run_source_tracing`）
+  显式排除，保留其写 `output/rca_v21/` 的历史契约。
+
+**遗留（未做，待裁决/后续）**
+
+- S2 `sigma_floor_for` 两源合一：会改数值，等用户裁决。
+- V3 三态仍 fail（forced 重复测点对），处置 a/b/c 待裁决。
+- 4 例既有失败（`test_v23_report_llm.py`）：`output/rca_v23/tracing` 为 `v23c-20261110T053205` 批次，
+  与 `signatures`（`v23-20261110T050332`）混源；需按 §6.4 声明 rerun-reason 后重算产物才消除，本轮不动 `output/`。
+- S5 执行器大拆分、`legacy/` 归档、整体改名 `causal_trace/`：未启动。
+
+
+
