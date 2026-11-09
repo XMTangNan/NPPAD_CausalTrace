@@ -510,7 +510,15 @@ def _normalize_k2(doc: Dict, source: str) -> Dict:
 
 
 def _load_k2(k: str, g: str, sig: Dict) -> Dict:
-    """K2 三态：优先签名内挂载，其次 tracing/reports 下的独立产物；缺失如实标记。"""
+    """K2 三态：优先签名 auxiliary.k2，其次历史顶层键/独立产物；缺失如实标记。
+
+    V23-CODE-022：D 阶段把 K2 挂在 `signature["auxiliary"]["k2"]`，本函数原先只查
+    顶层 `physics*/k2` 键，导致 9 份解释与 9 份报告把已有证据误写成“未产出”。
+    """
+    aux = sig.get("auxiliary") or {}
+    aux_doc = aux.get("k2")
+    if isinstance(aux_doc, dict) and ("relations" in aux_doc or "n_violation" in aux_doc):
+        return _normalize_k2(aux_doc, f"signatures/signature_{k}_{g}.json#auxiliary.k2")
     for key in K2_SIGNATURE_KEYS:
         doc = sig.get(key)
         if isinstance(doc, dict) and ("relations" in doc or "n_violation" in doc):

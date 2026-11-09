@@ -428,6 +428,7 @@
 - **根因**：LiNGAM 在 PSGA/PSGB→WSTB 等共线对上给出 |weight|~1e5，`(I-B)^-1` 条件数 ~1e11。
 - **解决**：保留截断，但在 `data_audit`/manifest 中记录截断前后条件数、被截断边清单，并做 3/5/10 阈值敏感性，结果写报告。
 - **状态**：⚠️ 敏感性已产出（`clip_sensitivity_{K}_{g}.json`）：clip=5 后 cond 仍 1e1–1e3（SGATR_high 2038），并非旧注的“→3–4”；clip=3 时 FLB_mid Top-1 由 PSGB 变 WCHG（Top-5 集合不变）。默认 B_CLIP=5.0 未改，论文需引用该敏感性表
+- **补充观察（2026-11-10，V23-CODE-021 重跑暴露）**：SGATR 变量集合未变、仅列序变化（VOID 第 5→第 11），SGATR_high Top-1 由 RM2 变 RHBR（分数 0.835→1.451），说明 T=(I−B)⁻¹ 排序对输入列序敏感；本次不固定列序（会再改一轮全部结论），仅在论文“数值稳定性”一节如实报告，弃权门控见本批 V23-ALGO-001 决策
 
 ---
 
@@ -580,6 +581,25 @@
 - **类别**：CODE（测试卫生）
 - **证据**：跑 pytest 后 `output/rca_v23/audit/` 出现 `run_id=pytest-v23-data-audit` 的 LOCA 三份审计，覆盖了 B 阶段正式产物。
 - **解决**：测试用 `monkeypatch` 把 `V23_SUBDIRS["audit"]` 重定向到 `tmp_path`；并重新以 `run_id=v23b-audit-20261110` 生成 4 类正式审计。
+- **状态**：closed
+
+---
+
+## v2.3 收口阶段记录（2026-11-10，按外部专家意见逐条决策）
+
+### V23-CODE-021：end2end 读 v2.1 旧变量集，LOCA_high Top1=HUP 不在当前选集
+- **类别**：CODE（C 阶段输入）
+- **证据**：`run_v23_end2end.py:46` 原读 `V21_OUTPUT/"variable_selection"/variable_selection_summary.json`（11-03 旧集）；A 阶段产物实际写在 `V23_SUBDIRS["variable_sets"]`。旧集 LOCA 含 HUP，新集为 VOID；旧集 SGATR 的 VOID 在第 5 列，新集在第 11 列。
+- **根因**：A 阶段把变量集从 `output/rca_v21` 迁到 `output/rca_v23` 后，C 阶段读取路径未同步。
+- **解决**：改读 `V23_SUBDIRS["variable_sets"]`，`vs_report` 同步指向 `rca_v23/variable_sets/`；全链重跑 `run_id=v23-20261110T022554`（7/7 ok）。
+- **影响（唯一改结论的修复，如实报告）**：LOCA low QMGB→RRCA、mid WECS→QMGB、high HUP→QMGB；SGATR low/mid 不变（PSGA/PSGA）、high RM2→RHBR（变量集合相同，但 VOID 列序由第 5 变第 11，属 LiNGAM 列序敏感，见 V23-ALGO-001 补充观察）；FLB 三组不变（WCHG/PSGB/WHPI）。
+- **状态**：closed
+
+### V23-CODE-022：`_load_k2` 读顶层键，K2 实际挂在 `auxiliary.k2`，9 份解释 + 9 份报告错写“未产出”
+- **类别**：CODE（D4/D6/D7）
+- **证据**：`signature_{K}_{g}.json` 顶层无 `physics/physics_constraint/physics_constraints/k2/physics_residual` 键，D 阶段挂在 `signature["auxiliary"]["k2"]`（LOCA_high 为例 `n_relations_applicable=2`、`n_not_violated=2`）；`llm_explanation._load_k2` 只查顶层，故全部落“未产出（原因：…）”。
+- **根因**：D 阶段落盘结构与 LLM 读取契约不一致，二者各自单测未覆盖真实签名。
+- **解决**：`_load_k2` 优先读 `auxiliary.k2`，保留历史顶层键与独立产物作回退；新增真实签名 fixture（`tests/fixtures/signature_LOCA_high_real.json`，从正式产物原样抽取）与 3 例单测（auxiliary 读取、顶层回退/缺失、真实 payload）。重跑后 9 份解释与 9 份报告的 K2 段均为 `available=true`，`rca_report_LOCA_high.txt` 中“未产出”计数为 0。
 - **状态**：closed
 
 ---

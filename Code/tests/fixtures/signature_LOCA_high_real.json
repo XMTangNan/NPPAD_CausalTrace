@@ -1,0 +1,55 @@
+{
+  "schema": "causaltrtrace/v2.3",
+  "artifact": "signature_LOCA_high",
+  "run_id": "v23-20261110T022554",
+  "accident_type": "LOCA",
+  "group": "high",
+  "variables": [
+    "QMGB",
+    "FRZR",
+    "VOL",
+    "TAVG",
+    "P",
+    "VOID",
+    "RM1",
+    "RHMT",
+    "RRCA",
+    "WLR",
+    "WECS",
+    "WHPI",
+    "PRB",
+    "TRB",
+    "LVCR"
+  ],
+  "auxiliary": {
+    "k2": {
+      "representative_severity": 100,
+      "window": [
+        300.0,
+        1500.0
+      ],
+      "n_points": 121,
+      "n_relations_applicable": 2,
+      "n_violation": 0,
+      "n_not_violated": 2,
+      "n_undecidable": 0,
+      "undecidable_ratio": 0.0,
+      "relations": [
+        {
+          "relation_id": "R1_inventory_leak",
+          "relation_name": "一回路装量-泄漏",
+          "status": "not_violated",
+          "reason": "相关系数 -0.872 与预期符号一致",
+          "correlation": -0.8721
+        },
+        {
+          "relation_id": "R3_eci_trigger",
+          "relation_name": "安注触发",
+          "status": "not_violated",
+          "reason": "安注触发与压力降低一致（或均未发生）"
+        }
+      ],
+      "note": "满足约束≠方向证明、违反≠链错（可能遗漏项导致）；K2 为辅助证据，不参与 T=(I−B)⁻¹ 排序"
+    }
+  }
+}

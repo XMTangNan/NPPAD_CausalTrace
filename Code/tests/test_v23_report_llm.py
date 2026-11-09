@@ -17,6 +17,7 @@ from rca.v21 import run_v23_all as RA
 from rca.v21 import run_v23_report as RR
 
 REAL_V23 = Path(artifact.V23_OUTPUT)
+FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
 def _patch_output(monkeypatch, root):
@@ -64,6 +65,39 @@ def test_verify_faithfulness_accepts_all_supported_text():
     res = LE.verify_faithfulness(text, payload)
     assert res["faithful"] is True
     assert res["n_numbers_unsupported"] == 0 and res["n_vars_unknown"] == 0
+
+
+# ==================== K2 挂载路径（V23-CODE-022 回归） ====================
+def test_load_k2_reads_real_auxiliary_payload():
+    """真实签名 fixture：K2 挂在 auxiliary.k2，必须被正确读出（不能写“未产出”）。"""
+    sig = json.loads((FIXTURE_DIR / "signature_LOCA_high_real.json")
+                     .read_text(encoding="utf-8"))
+    aux = sig["auxiliary"]["k2"]
+    k2 = LE._load_k2("LOCA", "high", sig)
+    assert k2["available"] is True
+    assert k2["source"].endswith("#auxiliary.k2")
+    assert k2["n_relations"] == aux["n_relations_applicable"]
+    assert k2["n_violation"] == aux["n_violation"]
+    assert k2["n_not_violated"] == aux["n_not_violated"]
+    assert k2["n_undecidable"] == aux["n_undecidable"]
+    assert len(k2["relations"]) == aux["n_relations_applicable"]
+
+
+def test_load_k2_legacy_top_level_and_missing():
+    legacy = {"k2": {"relations": [{"relation_id": "R1", "status": "violation"}],
+                     "n_violation": 1}}
+    assert LE._load_k2("LOCA", "low", legacy)["n_violation"] == 1
+    missing = LE._load_k2("LOCA", "low", {})
+    assert missing["available"] is False and missing["reason"]
+
+
+def test_payload_k2_available_on_real_signature():
+    sig_path = REAL_V23 / "signatures" / "signature_LOCA_high.json"
+    if not sig_path.exists():
+        pytest.skip("缺真实产物 signatures/signature_LOCA_high.json")
+    payload = LE.build_payload("LOCA", "high")
+    assert payload["k2"]["available"] is True
+    assert payload["k2"]["n_relations"] >= 1
 
 
 # ==================== rule 后端（真实产物，离线） ====================

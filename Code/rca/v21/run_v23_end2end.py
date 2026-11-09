@@ -31,7 +31,7 @@ from rca.rca_config_v21 import (
     LEARN_WINDOW_START, LEARN_WINDOW_END, LEARN_WINDOW_POINTS,
     BASELINE_WINDOW_START, BASELINE_WINDOW_END, BASELINE_WINDOW_POINTS,
     LINGAM_N_BOOTSTRAP, CONSTANT_SIGMA, PHYSICAL_CANDIDATES,
-    SAFETY_STEP_VARS, TIME_STEP, V21_OUTPUT,
+    SAFETY_STEP_VARS, TIME_STEP, V21_OUTPUT, V23_SUBDIRS,
 )
 from rca.v21.accident_config import (
     READY_CODES, PARTIAL_CODES, MISSING_CODES, get_accident,
@@ -43,7 +43,9 @@ from rca.v21.knowledge import build_ontology, ENTITY_TABLE
 from rca.v21.signatures import bootstrap_lingam_template, fit_single_template
 from core.utils import logger
 
-VS_SUMMARY = V21_OUTPUT / "variable_selection" / "variable_selection_summary.json"
+# V23-CODE-021：必须读 A 阶段写入的 v2.3 变量集（V23_SUBDIRS["variable_sets"]），
+# 不能读 rca_v21/variable_selection（11-03 旧集，LOCA 仍含 HUP）。
+VS_SUMMARY = V23_SUBDIRS["variable_sets"] / "variable_selection_summary.json"
 CONSENSUS_SOURCE_NONE = "none: v2.3 单引擎，GAM 共识未接入"
 CONSENSUS_NOTE = "单引擎稳定边，不等同共识边"
 
@@ -61,7 +63,7 @@ def load_inputs() -> Dict:
         "scale": D.load_json("marker_scale.json"),
         "selected_vars": vs["selected_vars"],
         "vs_report": {
-            k: str(Path("rca_v21") / "variable_selection" / f"selection_report_{k}.json")
+            k: str(Path("rca_v23") / "variable_sets" / f"selection_report_{k}.json")
             for k in vs["selected_vars"]
         },
     }
@@ -249,7 +251,7 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
 
     artifact.write_artifact(
         sig_name, sig, "signatures", run_id=run_id, accident_type=k, group=g,
-        source=inputs["vs_report"].get(k, "rca_v21/variable_selection/"))
+        source=inputs["vs_report"].get(k, "rca_v23/variable_sets/"))
 
     common = {
         "template": {"k": k, "g": g, "marker": r["marker"],
