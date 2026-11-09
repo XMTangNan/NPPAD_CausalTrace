@@ -214,7 +214,7 @@ PYTHONPATH=. python -m rca.v21.run_v23_graphs --run-id <id>
 PYTHONPATH=. python -m rca.v21.severity_aggregation --run-id <id>
 PYTHONPATH=. python -m rca.v21.run_v23_llm_explanation --run-id <id>   # 模板 rule + 类级/全局（--backend llm 可选）
 PYTHONPATH=. python -m rca.v21.run_v23_report --run-id <id>
-PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（137 例：133 passed / 4 既有失败）
+PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（138 例：134 passed / 4 既有失败）
 ```
 
 > 注：4 例既有失败全部在 `tests/test_v23_report_llm.py`，根因是 `output/rca_v23/tracing/` 与
