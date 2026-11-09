@@ -189,7 +189,8 @@ def test_run_v23_all_records_failure_and_returns_nonzero(monkeypatch, tmp_path, 
     monkeypatch.setattr(RA, "step_variable_sets", lambda run_id: "ok")
     monkeypatch.setattr(RA, "step_audit", lambda run_id, classes: "ok")
     subs = _patch_output(monkeypatch, tmp_path / "rca_v23")
-    rc = RA.main(["--classes", "LOCA", "--groups", "mid"])
+    rc = RA.main(["--classes", "LOCA", "--groups", "mid",
+                  "--rerun-reason", "E-R3 单测：验证失败路径与步骤记录"])
     capsys.readouterr()
     assert rc == 1
     summary = json.loads(

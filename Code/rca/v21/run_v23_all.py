@@ -1,24 +1,33 @@
 """V2.3 D10：全链编排（同 run_id、产物同源、manifest 可核查）。
 
 顺序（必需步骤任一失败即停止，失败写入 summary 并退出码 1）：
-  1 tolerances   D2 公差标定 rca.v21.run_v23_tolerances.run_all(run_id=...)
-  2 end2end      C 阶段 签名 + 溯源（单模板 causal 计算）
-  3 graphs       C3 图件（只读签名/溯源）
-  4 aggregation  C3b/C3c 汇总 + 差异（run_id 强校验）
-  5 explanation_reports  D6 解释 + D7 报告（9 份，读上面的产物）
-  6 manifest     全量产物 sha256（manifest.json）
+  1 variable_sets  A1 注册表 + 四阶段变量选取（含论文锚定，同 run_id）
+  2 audit         B 数据审计 / Z 病态 / 变点
+  3 tolerances    D2 公差标定 rca.v21.run_v23_tolerances.run_all(run_id=...)
+  4 end2end       C 阶段 签名 + 溯源（单模板 causal 计算）
+  5 graphs        C3 图件（只读签名/溯源）
+  6 aggregation   C3b/C3c 汇总 + 差异（run_id 强校验）
+  7 deviation     D9 偏离度 4 级着色
+  8 explanation_reports  D6 解释 + D7 报告（9 份，读上面的产物）
+  9 manifest      全量产物 sha256（manifest.json）
 最后写 reports/run_v23_all_summary.json：各步状态/耗时/产物计数/跳过类/失败项。
+
+A/B（auto vs v2.1 变量集）已从主链摘出（V23-DESIGN-019）：
+  - 默认不跑；需要时显式 `--with-ab`（追加为第 9 步，manifest 前）；
+  - 既有 A/B 结果冻结为一次性消融产物，归档 output/rca_v23/ablations/
+    （frozen_ab_variable_selection_<run_id>.json），论文引用该冻结件，不再每轮重算。
 
 说明：
   - run_id 由本编排器先行生成，再注入 run_v23_end2end（它内部调用
     artifact.new_run_id），保证全链单一 run_id；若注入后返回值不同则立刻报错；
   - 每一步都 try/except 记录 status=ok|skipped|failed 与异常文本，绝不假装全部通过；
-  - --dry-run 只打印 10 步计划，不落盘、不改 mtime。
+  - --dry-run 只打印步骤计划，不落盘、不改 mtime。
 
 用法（cd Code）：
   PYTHONPATH=. ../.venv/bin/python -m rca.v21.run_v23_all
   PYTHONPATH=. ../.venv/bin/python -m rca.v21.run_v23_all --dry-run
   PYTHONPATH=. ../.venv/bin/python -m rca.v21.run_v23_all --skip-llm --n-bootstrap 20
+  PYTHONPATH=. ../.venv/bin/python -m rca.v21.run_v23_all --with-ab
 """
 from __future__ import annotations
 
@@ -53,21 +62,25 @@ STEPS: List[Dict[str, str]] = [
      "desc": "偏离度 4 级着色（deviation.run_all_deviations，同 run_id）"},
     {"name": "explanation_reports", "layer": "D6/D7",
      "desc": "根因解释（rule 离线）+ 9 份报告"},
-    {"name": "ab_variable_selection", "layer": "A/B",
-     "desc": "auto vs v2.1 变量集对照（run_ab_variable_selection，同 run_id）"},
     {"name": "manifest", "layer": "C7",
      "desc": "manifest.json 全量产物 sha256 + lineage"},
 ]
 
+# A/B 一次性消融（V23-DESIGN-019）：不在主链，仅 --with-ab 时插入 manifest 之前
+AB_STEP: Dict[str, str] = {
+    "name": "ab_variable_selection", "layer": "A/B(消融)",
+    "desc": "auto vs v2.1 变量集对照（run_ab_variable_selection，同 run_id；默认不跑）",
+}
+
 
 # ==================== 单步执行 ====================
-def _run_step(index: int, step: Dict, fn, results: List[Dict]) -> Dict:
+def _run_step(index: int, step: Dict, fn, results: List[Dict], total: int) -> Dict:
     """执行单步并记录 status/elapsed_s/detail/error，异常不逃逸。"""
     t0 = time.perf_counter()
     entry = {"index": index, "name": step["name"], "layer": step["layer"],
              "description": step["desc"], "status": "ok", "elapsed_s": 0.0,
              "detail": None, "error": None}
-    logger.info(f"[D10] ({index}/{len(STEPS)}) {step['name']} - {step['desc']}")
+    logger.info(f"[D10] ({index}/{total}) {step['name']} - {step['desc']}")
     try:
         entry["detail"] = fn()
     except Exception as exc:  # noqa: BLE001 - 失败必须落盘，不吞
@@ -195,16 +208,28 @@ def step_deviation(run_id: str, classes: List[str], groups: List[str]) -> Dict:
 
 def step_explanation_reports(run_id: str, classes: List[str], groups: List[str],
                              backend: str) -> Dict:
-    """D6 解释 + D7 报告；逐模板记录，仍按 9/9 计数以便核查。"""
-    from rca.v21.run_v23_llm_explanation import explain_one
+    """D6 解释 + D7 报告：模板级固定 rule；类级汇总 ×N + 全局结论 ×1（V23-DESIGN-020）。"""
+    from rca.v21.run_v23_llm_explanation import (
+        explain_one, explain_class, explain_global,
+    )
     expl: List[Dict] = []
     exploerr: List[str] = []
     for k in classes:
         for g in groups:
             try:
-                expl.append(explain_one(k, g, backend=backend))
+                expl.append(explain_one(k, g, backend="rule"))
             except Exception as exc:  # noqa: BLE001
                 exploerr.append(f"{k}_{g}: {type(exc).__name__}: {exc}")
+    summaries: List[Dict] = []
+    for k in classes:
+        try:
+            summaries.append(explain_class(k, backend=backend))
+        except Exception as exc:  # noqa: BLE001
+            exploerr.append(f"{k}(class): {type(exc).__name__}: {exc}")
+    try:
+        summaries.append(explain_global(classes, backend=backend))
+    except Exception as exc:  # noqa: BLE001
+        exploerr.append(f"global: {type(exc).__name__}: {exc}")
     try:
         reports = RT.run_all_reports(classes=classes, groups=groups, run_id=run_id)
         rep_err: List[str] = []
@@ -212,10 +237,14 @@ def step_explanation_reports(run_id: str, classes: List[str], groups: List[str],
         reports, rep_err = [], [f"{type(exc).__name__}: {exc}"]
     if exploerr or rep_err:
         raise RuntimeError(f"解释/报告未全成功：explanations={exploerr} reports={rep_err}")
-    return {"backend": backend,
+    return {"template_backend": "rule",
             "n_explanations": len(expl),
-            "n_degraded": sum(1 for e in expl if e["degraded"]),
+            "n_templates_degraded": sum(1 for e in expl if e["degraded"]),
             "n_unfaithful": sum(1 for e in expl if not e["faithful"]),
+            "n_summaries": len(summaries),
+            "n_summary_cache_hits": sum(1 for s in summaries if s["cache_hit"]),
+            "n_summary_degraded": sum(1 for s in summaries if s["degraded"]),
+            "summary_backend_requested": backend,
             "n_reports": len(reports)}
 
 
@@ -231,18 +260,43 @@ def step_manifest(run_id: str):
     return str(path)
 
 
+def _plan_steps(with_ab: bool) -> List[Dict]:
+    """主链 9 步；--with-ab 时在 manifest 前插入一次性 A/B 消融。"""
+    steps = list(STEPS)
+    if with_ab:
+        steps.insert(len(steps) - 1, AB_STEP)
+    return steps
+
+
+def _step_fns(run_id: str, classes: List[str], groups: List[str],
+              n_bootstrap: int, backend: str) -> Dict[str, object]:
+    """步骤名 → 执行函数（参数已绑定，含本链 run_id）。"""
+    return {
+        "variable_sets": lambda: step_variable_sets(run_id),
+        "audit": lambda: step_audit(run_id, classes),
+        "tolerances": lambda: step_tolerances(run_id, classes),
+        "end2end": lambda: step_end2end(run_id, classes, groups, n_bootstrap),
+        "graphs": lambda: step_graphs(run_id, classes, groups),
+        "aggregation": lambda: step_aggregation(run_id, classes, groups),
+        "deviation": lambda: step_deviation(run_id, classes, groups),
+        "explanation_reports": lambda: step_explanation_reports(run_id, classes, groups, backend),
+        "ab_variable_selection": lambda: step_ab_variable_selection(run_id),
+        "manifest": lambda: step_manifest(run_id),
+    }
+
+
 # ==================== 主流程 ====================
-def _print_plan(classes: List[str], groups: List[str], n_bootstrap: int,
-                backend: str) -> None:
+def _print_plan(steps: List[Dict], classes: List[str], groups: List[str],
+                n_bootstrap: int, backend: str) -> None:
     print("=" * 78)
     print("CausalTrace v2.3 全链计划（dry-run，不落盘）")
     print(f"  classes={classes} groups={groups} n_bootstrap={n_bootstrap} "
           f"explanation_backend={backend}")
     print("=" * 78)
-    for i, step in enumerate(STEPS, start=1):
-        print(f"[{i}/{len(STEPS)}] {step['layer']:<9} {step['name']:<20} {step['desc']}")
+    for i, step in enumerate(steps, start=1):
+        print(f"[{i}/{len(steps)}] {step['layer']:<9} {step['name']:<20} {step['desc']}")
     print("=" * 78)
-    print(f"共 {len(STEPS)} 个步骤；任一步失败即停止并写 reports/run_v23_all_summary.json")
+    print(f"共 {len(steps)} 个步骤；任一步失败即停止并写 reports/run_v23_all_summary.json")
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -255,7 +309,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help=f"严重度组，默认 {GROUPS}")
     ap.add_argument("--skip-llm", action="store_true",
                     help="解释只用 rule 离线后端（等价于 --backend rule）")
-    ap.add_argument("--dry-run", action="store_true", help="只打印 10 步计划，不写盘")
+    ap.add_argument("--dry-run", action="store_true", help="只打印步骤计划，不写盘")
+    ap.add_argument("--with-ab", action="store_true",
+                    help="追加一次性 A/B 消融（auto vs v2.1 变量集）；默认不跑")
+    ap.add_argument("--rerun-reason", default=None,
+                    help="全链重跑原因（方案 §6.4 强制）：必须命中 E-R1/E-R2/E-R3/E-R4 并写清具体项")
     args = ap.parse_args(argv)
 
     classes = list(args.classes or READY_CODES)
@@ -269,29 +327,28 @@ def main(argv: Optional[List[str]] = None) -> int:
                      f"{LE.llm_unavailable_reason() or '环境变量齐全，可另行 --backend llm'}")
 
     if args.dry_run:
-        _print_plan(classes, groups, args.n_bootstrap, backend)
+        _print_plan(_plan_steps(args.with_ab), classes, groups,
+                    args.n_bootstrap, backend)
         print(f"  {llm_note}")
+        print(f"  rerun_reason={args.rerun_reason or '（dry-run 不校验）'}")
         return 0
+
+    if not args.rerun_reason:
+        raise SystemExit(
+            "全链重跑必须显式声明 --rerun-reason（方案 §6.4 强制）："
+            "必须命中 E-R1 出对外数字 / E-R2 影响数值 / E-R3 产物结构或契约 / "
+            "E-R4 跨阶段对不上，并写清具体项。未声明原因的重跑视为违规，产物不得引用。")
 
     run_id = artifact.new_run_id("v23")
     logger.info(f"[D10] run_id={run_id} classes={classes} groups={groups} "
-                f"n_bootstrap={args.n_bootstrap} backend={backend}")
+                f"n_bootstrap={args.n_bootstrap} backend={backend} "
+                f"with_ab={args.with_ab}")
 
+    steps = _plan_steps(args.with_ab)
+    fns = _step_fns(run_id, classes, groups, args.n_bootstrap, backend)
     results: List[Dict] = []
-    plan = [
-        (STEPS[0], lambda: step_variable_sets(run_id)),
-        (STEPS[1], lambda: step_audit(run_id, classes)),
-        (STEPS[2], lambda: step_tolerances(run_id, classes)),
-        (STEPS[3], lambda: step_end2end(run_id, classes, groups, args.n_bootstrap)),
-        (STEPS[4], lambda: step_graphs(run_id, classes, groups)),
-        (STEPS[5], lambda: step_aggregation(run_id, classes, groups)),
-        (STEPS[6], lambda: step_deviation(run_id, classes, groups)),
-        (STEPS[7], lambda: step_explanation_reports(run_id, classes, groups, backend)),
-        (STEPS[8], lambda: step_ab_variable_selection(run_id)),
-        (STEPS[9], lambda: step_manifest(run_id)),
-    ]
-    for i, (step, fn) in enumerate(plan, start=1):
-        entry = _run_step(i, step, fn, results)
+    for i, step in enumerate(steps, start=1):
+        entry = _run_step(i, step, fns[step["name"]], results, len(steps))
         if entry["status"] != "ok":
             break
 
@@ -304,7 +361,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                        "explanation_backend": backend,
                        "note": llm_note},
         "steps": results,
-        "n_steps_planned": len(STEPS),
+        "n_steps_planned": len(steps),
+        "with_ab": args.with_ab,
+        "rerun_reason": args.rerun_reason,
         "n_steps_done": len(results),
         "n_steps_ok": sum(1 for e in results if e["status"] == "ok"),
         "n_steps_failed": len(failed),
@@ -322,7 +381,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         artifact.build_manifest(run_id)
 
     print("=" * 78)
-    print(f"[D10] run_id={run_id} steps={summary['n_steps_ok']}/{len(STEPS)} ok "
+    print(f"[D10] run_id={run_id} steps={summary['n_steps_ok']}/{len(steps)} ok "
           f"failed={summary['n_steps_failed']}")
     for e in results:
         print(f"  - {e['index']}. {e['name']:<12} {e['status']:<8} "

@@ -64,6 +64,70 @@ def explain_one(k: str, g: str, backend: str = "rule") -> Dict:
     }
 
 
+def explain_class(k: str, backend: str = "rule",
+                  run_id: Optional[str] = None) -> Dict:
+    """类级汇总解释（每类 1 份，可走 llm；失败降级 rule，带同 run_id+哈希缓存）。"""
+    payload = LE.build_class_payload(k, run_id=run_id)
+    name = LE.CLASS_SUMMARY_NAME.format(k=k)
+    res = LE.generate_summary(name, payload, LE.render_rule_class_summary,
+                              "class", backend=backend)
+    doc = {
+        "scope": "class",
+        "accident_type": k,
+        "template_ids": payload["template_ids"],
+        "requested_backend": backend,
+        "backend": res["backend"],
+        "degraded": res["degraded"],
+        "degraded_reason": res["degraded_reason"],
+        "input_sha256": res["input_sha256"],
+        "cache_hit": res["cache_hit"],
+        "text": res["text"],
+        "faithfulness": res["faithfulness"],
+        "inputs": payload["inputs"],
+        "payload": payload,
+    }
+    path = artifact.write_artifact(
+        name, doc, "reports", run_id=payload["run_id"], accident_type=k,
+        source="reports/llm_explanation_{K}_{g}.json 聚合（low/mid/high）")
+    return {"scope": "class", "template": k, "path": str(path),
+            "run_id": payload["run_id"], "backend": res["backend"],
+            "degraded": res["degraded"], "cache_hit": res["cache_hit"],
+            "faithful": res["faithfulness"]["faithful"],
+            "n_template_refs": res["faithfulness"].get("n_template_refs")}
+
+
+def explain_global(classes: List[str], backend: str = "rule",
+                   run_id: Optional[str] = None) -> Dict:
+    """全局结论解释（1 份，跨类对比）。"""
+    payload = LE.build_global_payload(classes, run_id=run_id)
+    res = LE.generate_summary(LE.GLOBAL_SUMMARY_NAME, payload,
+                              LE.render_rule_global_summary, "global",
+                              backend=backend)
+    doc = {
+        "scope": "global",
+        "classes": list(classes),
+        "template_ids": payload["template_ids"],
+        "requested_backend": backend,
+        "backend": res["backend"],
+        "degraded": res["degraded"],
+        "degraded_reason": res["degraded_reason"],
+        "input_sha256": res["input_sha256"],
+        "cache_hit": res["cache_hit"],
+        "text": res["text"],
+        "faithfulness": res["faithfulness"],
+        "inputs": payload["inputs"],
+        "payload": payload,
+    }
+    path = artifact.write_artifact(
+        LE.GLOBAL_SUMMARY_NAME, doc, "reports", run_id=payload["run_id"],
+        source="reports/llm_explanation_class_*.json 聚合（跨类）")
+    return {"scope": "global", "template": "ALL", "path": str(path),
+            "run_id": payload["run_id"], "backend": res["backend"],
+            "degraded": res["degraded"], "cache_hit": res["cache_hit"],
+            "faithful": res["faithfulness"]["faithful"],
+            "n_template_refs": res["faithfulness"].get("n_template_refs")}
+
+
 def main(argv: Optional[List[str]] = None) -> str:
     ap = argparse.ArgumentParser(description="v2.3 D6 根因解释生成器（rule 离线 / llm 可选）")
     ap.add_argument("--classes", nargs="+", default=None,
@@ -71,7 +135,7 @@ def main(argv: Optional[List[str]] = None) -> str:
     ap.add_argument("--groups", nargs="+", default=None,
                     help=f"严重度组，默认 {GROUPS}")
     ap.add_argument("--backend", choices=["rule", "llm"], default="rule",
-                    help="rule=离线规则（默认）；llm=OpenAI 兼容接口（失败自动降级）")
+                    help="仅作用于类级/全局汇总解释；模板级 9 份固定 rule（V23-DESIGN-020）")
     ap.add_argument("--run-id", default=None, help="只接受该 run_id 的输入，防止混源")
     ap.add_argument("--no-manifest", action="store_true", help="不刷新 manifest.json")
     args = ap.parse_args(argv)
@@ -89,10 +153,26 @@ def main(argv: Optional[List[str]] = None) -> str:
             try:
                 if args.run_id:
                     LE.build_payload(k, g, run_id=args.run_id)  # 先校验同源
-                results.append(explain_one(k, g, backend=args.backend))
+                # 模板级固定 rule：不再逐模板调用 LLM（V23-DESIGN-020）
+                results.append(explain_one(k, g, backend="rule"))
             except Exception as exc:  # noqa: BLE001 - 逐模板记录，不掩盖
                 logger.error(f"[D6] {k}_{g} 解释生成失败：{type(exc).__name__}: {exc}")
                 errors.append(f"{k}_{g}: {type(exc).__name__}: {exc}")
+
+    summaries: List[Dict] = []
+    for k in classes:
+        try:
+            summaries.append(explain_class(k, backend=args.backend,
+                                           run_id=args.run_id))
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"[D6] {k} 类级汇总解释失败：{type(exc).__name__}: {exc}")
+            errors.append(f"{k}(class): {type(exc).__name__}: {exc}")
+    try:
+        summaries.append(explain_global(classes, backend=args.backend,
+                                        run_id=args.run_id))
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"[D6] 全局结论解释失败：{type(exc).__name__}: {exc}")
+        errors.append(f"global: {type(exc).__name__}: {exc}")
 
     run_id = args.run_id or (results[0]["run_id"] if results else None)
     if run_id is None:
@@ -102,23 +182,34 @@ def main(argv: Optional[List[str]] = None) -> str:
         "n_requested": len(classes) * len(groups),
         "n_ok": len(results),
         "n_failed": len(errors),
-        "requested_backend": args.backend,
+        "template_backend": "rule",
+        "summary_backend_requested": args.backend,
+        "n_class_summaries": sum(1 for s in summaries if s["scope"] == "class"),
+        "n_global_summaries": sum(1 for s in summaries if s["scope"] == "global"),
+        "n_summary_cache_hits": sum(1 for s in summaries if s["cache_hit"]),
+        "n_summary_degraded": sum(1 for s in summaries if s["degraded"]),
         "n_degraded": sum(1 for r in results if r["degraded"]),
-        "n_unfaithful": sum(1 for r in results if not r["faithful"]),
+        "n_unfaithful": (sum(1 for r in results if not r["faithful"])
+                         + sum(1 for s in summaries if not s["faithful"])),
         "llm_available": LE.llm_unavailable_reason() is None,
         "llm_unavailable_reason": LE.llm_unavailable_reason(),
         "items": results,
+        "summaries": summaries,
         "errors": errors,
     }
     artifact.write_artifact("llm_explanation_summary", summary, "reports",
                             run_id=run_id, source="reports/llm_explanation_{K}_{g}.json")
 
-    print(f"[D6] run_id={run_id} backend={args.backend} "
+    print(f"[D6] run_id={run_id} templates=rule "
           f"ok={len(results)}/{len(classes) * len(groups)} "
-          f"degraded={summary['n_degraded']} unfaithful={summary['n_unfaithful']}")
+          f"summaries={len(summaries)}（cache_hit={summary['n_summary_cache_hits']}, "
+          f"degraded={summary['n_summary_degraded']}）unfaithful={summary['n_unfaithful']}")
     for r in results:
         print(f"  - {r['template']}: backend={r['backend']} faithful={r['faithful']} "
               f"top1={r['top1']}")
+    for s in summaries:
+        print(f"  - {s['scope']}:{s['template']} backend={s['backend']} "
+              f"cache_hit={s['cache_hit']} faithful={s['faithful']}")
     if not args.no_manifest:
         artifact.build_manifest(run_id)
     if errors:

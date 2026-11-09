@@ -30,6 +30,7 @@ from rca.v21.accident_config import (
     ALL_CODES, key_responses, marker_of,
 )
 from rca.v21.knowledge import ENTITY_TABLE, ALLOWED_RELATIONS
+from rca.v21.paper_anchor import build_anchor, stage1_drop_reason
 from core.utils import logger, log_error
 
 
@@ -315,13 +316,32 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
             if best not in top_k:
                 top_k.append(best)
 
-    top_k = deduplicate(top_k, scores, forced=forced)
+    # ---------- 阶段3b：论文锚定（V23-DESIGN-018）----------
+    # 论文原文：最终变量集 = XGBoost 特征选择 + 领域专家验证（p.4）；但未给出名单。
+    # 因此锚定集取「专家冻结集」的可执行代理（工程假设），锚定变量一律进入保护集：
+    # 数据驱动只在锚定集之外补选，且不剔除锚定变量（冲突裁决见 paper_anchor.CONFLICT_POLICY）。
+    anchor_spec = build_anchor(accident_type, num_cols)
+    anchor_vars = [v for v in anchor_spec["anchor_variables"] if v in candidates]
+    anchor_dropped = []
+    for v in anchor_spec["anchor_variables"]:
+        if v in candidates:
+            continue
+        if v in anchor_spec["missing_in_data"]:
+            reason = "missing_in_data"   # 数据集未采集该列，锚定自然失效（不报错）
+        else:
+            reason = stage1_drop_reason(v, stage1_log) or "not_numeric_column"
+        anchor_dropped.append({"var": v, "reason": reason})
+    for v in anchor_vars:
+        if v not in top_k:
+            top_k.append(v)
+
+    top_k = deduplicate(top_k, scores, forced=list(forced) + anchor_vars)
 
     # ---------- 阶段4：因果发现适配（方案 §3.3 阶段4）----------
     selected = list(top_k)
     vif_log: List[Dict] = []
     # 保护集 = 强制变量（触发+关键响应）+ 每子系统代表（V2 不被 VIF 剔除破坏）
-    protected = set(forced) | set(subsystem_reps)
+    protected = set(forced) | set(subsystem_reps) | set(anchor_vars)
 
     # 4a. VIF 迭代剔除（仅非保护变量可被剔除）
     while len(selected) > len(protected):
@@ -377,6 +397,19 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
                           if v not in protected} if final_vifs else {}
     max_vif_all = max(final_vifs.values()) if final_vifs else None
 
+    # 锚定变量冲突记录：Z 病态 / 高 VIF 一律保留并标记（不静默剔除）
+    anchor_kept: List[Dict] = []
+    for v in anchor_vars:
+        if v not in selected:
+            continue
+        mu = float(raw_data[v].mean())
+        sd = float(raw_data[v].std())
+        z_path = bool(abs(mu) > 1e-9 and abs(sd / mu) < 0.01)
+        vif_v = None if not final_vifs else float(final_vifs.get(v, 0.0))
+        if z_path or (vif_v is not None and vif_v >= VIF_MAX):
+            anchor_kept.append({"var": v, "z_pathological": z_path, "vif": vif_v,
+                                "action": "keep+flag"})
+
     report = {
         "accident_type": accident_type,
         "n_candidates_stage1": len(candidates),
@@ -391,11 +424,29 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
         "n_selected": len(selected),
         "final_vif": final_vifs,
         "non_protected_vif": non_protected_vifs,
+        "v3_note": ("无非保护变量，V3 按空集视为通过（锚定/强制变量按冲突策略保留，"
+                    "其 VIF 见 final_vif 与 kept_pathological）"
+                    if not non_protected_vifs else ""),
         "max_vif": max(non_protected_vifs.values()) if non_protected_vifs else None,
         "max_vif_all": max_vif_all,
         "vif_max_threshold": VIF_MAX,
         "selected": selected,
         "variable_order_rule": VARIABLE_ORDER_RULE,
+        "paper_anchor": {
+            "source": anchor_spec["source"],
+            "citations": anchor_spec["citations"],
+            "paper_n_variables": anchor_spec["paper_n_variables"],
+            "paper_explicit_variables": anchor_spec["paper_explicit_variables"],
+            "explicit_is_empty_reason": anchor_spec["explicit_is_empty_reason"],
+            "anchor_proxy_source": anchor_spec["anchor_proxy_source"],
+            "anchor_variables": anchor_spec["anchor_variables"],
+            "anchor_used": anchor_vars,
+            "n_anchor_used": len(anchor_vars),
+            "dropped_stage1": anchor_dropped,
+            "kept_pathological": anchor_kept,
+            "conflict_policy": anchor_spec["conflict_policy"],
+            "note": anchor_spec["note"],
+        },
         "random_state": random_state,
         "non_gauss_frac": skew_frac,
         "checks": {
@@ -405,7 +456,7 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
                 for sub in required_subsystems
             ),
             "V3_vif_lt_500": (all(v < VIF_MAX for v in non_protected_vifs.values())
-                              if non_protected_vifs else False),
+                              if non_protected_vifs else True),
             "V4_trigger_included": trigger in selected,
             "V5_key_responses_included": all(v in selected for v in key_responses),
             "V6_reproducible": None,   # 由调用方二次运行后回填
@@ -414,11 +465,12 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
     }
 
     all_pass = all(v is not False for v in report["checks"].values())
+    _fmt = lambda x: "n/a" if x is None else f"{x:.1f}"  # noqa: E731
     logger.info(f"[变量选取] {accident_type}: {len(selected)} 变量入选 "
                 f"(V1={report['checks']['V1_count_15_25']}, "
                 f"V2={report['checks']['V2_subsystem_coverage']}, "
                 f"V3={report['checks']['V3_vif_lt_500']} "
-                f"(max_nonprot={report['max_vif']:.1f}, max_all={max_vif_all:.1f}), "
+                f"(max_nonprot={_fmt(report['max_vif'])}, max_all={_fmt(max_vif_all)}), "
                 f"V4={report['checks']['V4_trigger_included']}, "
                 f"V5={report['checks']['V5_key_responses_included']}, "
                 f"V7={report['checks']['V7_skew_gt_0.5_60pct']}) "

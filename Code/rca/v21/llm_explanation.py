@@ -13,6 +13,7 @@ Chat Completions + 因果图提示注入 + check_faithfulness + 降级模板）�
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -941,7 +942,8 @@ def _build_v23_prompt(payload: Dict) -> str:
     )
 
 
-def _call_chat_completions(prompt: str, timeout: Optional[float] = None) -> str:
+def _call_chat_completions(prompt: str, timeout: Optional[float] = None,
+                           system_prompt: str = V23_SYSTEM_PROMPT) -> str:
     """OpenAI 兼容 chat/completions（标准库 urllib，超时默认 30s，失败抛异常）。"""
     base = os.environ.get(V23_LLM_BASE_URL_ENV, "").strip().rstrip("/")
     key = os.environ.get(V23_LLM_API_KEY_ENV, "").strip()
@@ -1004,6 +1006,321 @@ def generate_explanation(payload: Dict, backend: str = "rule",
     return {"backend": "rule", "requested_backend": requested,
             "degraded": False, "degraded_reason": None,
             "text": text, "faithfulness": faith}
+
+
+# ==================================================================
+# V23-DESIGN-020：LLM 降频（模板级 rule / 类级汇总 ×3 / 全局结论 ×1）
+# ------------------------------------------------------------------
+# 铁律：
+#   1. 模板级 9 份解释一律 rule 后端，不再逐模板调用 LLM（省调用、确定性、可复查）；
+#   2. LLM 只用于 3 份类级汇总解释 + 1 份全局结论解释；
+#   3. 汇总解释必须引用具体模板 id（如 LOCA_low）与数字，忠实性校验改为
+#      「引用能否在产物（payload）中找到」：数字/变量名/模板 id 三查；
+#   4. 同 run_id + 输入 sha256 命中即复用已有文本（不重复调用），
+#      失败/无 key 一律降级 rule 并写 degraded_reason。
+# ==================================================================
+TEMPLATE_ID_RE = re.compile(r"\b([A-Z]{2,5})_(low|mid|high)\b")
+CLASS_SUMMARY_NAME = "llm_explanation_class_{k}"
+GLOBAL_SUMMARY_NAME = "llm_explanation_global"
+
+V23_SUMMARY_SYSTEM_PROMPT = (
+    "你是核电事故根因分析专家。你将收到一份聚合 JSON 证据（CausalTrace v2.3："
+    "多模板稳定边 + 溯源 Top + K2/K3 + 偏离度 + 跨组一致性）。严格规则：\n"
+    "1. 只能引用输入 JSON 中出现的数字、变量名与模板 id（如 LOCA_low），禁止编造；\n"
+    "2. 每一条结论都必须点名具体模板 id，并附该模板的数值（稳定边数/Top-1/效应等）；\n"
+    "3. 结论表述为“模型稳定识别出的有向关系”，不得写成“已证实因果”；\n"
+    "4. 单引擎口径：稳定边不等于多引擎共识，需标注 n_consensus=null；\n"
+    "5. 使用中文，结构清晰，不要输出 JSON 之外的新数字。"
+)
+
+
+def _payload_sha(payload: Dict) -> str:
+    """输入 payload 的规范化 sha256（缓存键；含 run_id，故同 run 内复用）。"""
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def build_class_payload(k: str, groups: Sequence[str] = ("low", "mid", "high"),
+                        run_id: Optional[str] = None) -> Dict:
+    """汇总一类事故全部模板的证据（只读 v2.3 产物，不重算因果）。"""
+    payloads = [build_payload(k, g, run_id=run_id) for g in groups]
+    templates: List[Dict] = []
+    limitations: List[str] = []
+    inputs: List[Dict] = []
+    seen_paths: set = set()
+    for p in payloads:
+        roots = p["root_candidates"]
+        top1 = roots[0] if roots else None
+        templates.append({
+            "template": p["template"],
+            "group": p["group"],
+            "marker": p["marker"],
+            "n_variables": p["n_variables"],
+            "n_stable_edges": p["n_stable_edges"],
+            "n_bootstrap": p["n_bootstrap"],
+            "top1": top1["variable"] if top1 else None,
+            "top1_total_effect": top1["total_effect"] if top1 else None,
+            "top5": [{"rank": c["rank"], "variable": c["variable"],
+                      "subsystem": c["subsystem"], "total_effect": c["total_effect"]}
+                     for c in roots],
+            "k2": {kk: p["k2"].get(kk) for kk in
+                   ("available", "n_relations", "n_violation", "n_undecidable")},
+            "k3": {kk: p["k3"].get(kk) for kk in
+                   ("available", "coverage", "n_matched", "n_chain_edges")},
+            "deviation": {"available": p["deviation"].get("available"),
+                          "n_variables": p["deviation"].get("n_variables"),
+                          "level_counts": p["deviation"].get("level_counts")},
+            "stability_degraded": bool((p["stability"] or {}).get("degraded")),
+            "cond_IminusB": p["cond_IminusB"],
+            "cond_IminusB_after_clip": p["cond_IminusB_after_clip"],
+        })
+        for item in p["limitations"]:
+            if item not in limitations:
+                limitations.append(item)
+        for item in p["inputs"]:
+            if item["path"] not in seen_paths:
+                seen_paths.add(item["path"])
+                inputs.append(item)
+
+    base = payloads[0]
+    return {
+        "schema": "causaltrace/v2.3/llm-class-payload",
+        "run_id": base["run_id"],
+        "accident_type": k,
+        "template_ids": [t["template"] for t in templates],
+        "templates": templates,
+        "cross_group": base["cross_group"],
+        "cross_group_diff": base["cross_group_diff"],
+        "limitations": limitations,
+        "inputs": inputs,
+        "allowed_terms": list(_V23_ALLOWED_TERMS),
+    }
+
+
+def build_global_payload(classes: Sequence[str],
+                         run_id: Optional[str] = None) -> Dict:
+    """汇总全部事故类的结论证据（3 类 × 3 组）。"""
+    class_docs = [build_class_payload(k, run_id=run_id) for k in classes]
+    items: List[Dict] = []
+    limitations: List[str] = []
+    inputs: List[Dict] = []
+    seen_paths: set = set()
+    for doc in class_docs:
+        tpls = doc["templates"]
+        k2_viol = [t["k2"]["n_violation"] for t in tpls
+                   if t["k2"].get("available") and t["k2"].get("n_violation") is not None]
+        k3_cov = [t["k3"]["coverage"] for t in tpls
+                  if t["k3"].get("available") and t["k3"].get("coverage") is not None]
+        items.append({
+            "accident_type": doc["accident_type"],
+            "template_ids": doc["template_ids"],
+            "top1_by_template": {t["template"]: t["top1"] for t in tpls},
+            "top1_by_group": (doc["cross_group"] or {}).get("top1_by_group"),
+            "top1_stable": (doc["cross_group"] or {}).get("top1_stable"),
+            "n_stable_edges_total": sum(int(t["n_stable_edges"] or 0) for t in tpls),
+            "n_templates": len(tpls),
+            "n_templates_degraded": sum(1 for t in tpls if t["stability_degraded"]),
+            "k2_violation_total": sum(k2_viol) if k2_viol else None,
+            "k3_coverage_min": min(k3_cov) if k3_cov else None,
+            "mean_pairwise_overlap": (doc["cross_group"] or {}).get("mean_pairwise_overlap"),
+        })
+        for item in doc["limitations"]:
+            if item not in limitations:
+                limitations.append(item)
+        for item in doc["inputs"]:
+            if item["path"] not in seen_paths:
+                seen_paths.add(item["path"])
+                inputs.append(item)
+
+    return {
+        "schema": "causaltrace/v2.3/llm-global-payload",
+        "run_id": class_docs[0]["run_id"],
+        "classes": list(classes),
+        "template_ids": [t for doc in class_docs for t in doc["template_ids"]],
+        "items": items,
+        "n_templates_total": sum(i["n_templates"] for i in items),
+        "n_classes_top1_stable": sum(1 for i in items if i.get("top1_stable")),
+        "n_classes": len(items),
+        "limitations": limitations,
+        "inputs": inputs,
+        "allowed_terms": list(_V23_ALLOWED_TERMS),
+    }
+
+
+def verify_summary_faithfulness(text: str, payload: Dict) -> Dict:
+    """汇总解释忠实性：数字/变量名须在 payload，模板 id 须在 payload.template_ids。"""
+    base = verify_faithfulness(text, payload)
+    allowed_ids = set(payload.get("template_ids") or [])
+    unknown_tpl: List[str] = []
+    n_tpl = 0
+    for m in TEMPLATE_ID_RE.finditer(text):
+        n_tpl += 1
+        if m.group(0) not in allowed_ids:
+            unknown_tpl.append(m.group(0))
+    base.update({
+        "n_template_refs": n_tpl,
+        "n_template_unknown": len(unknown_tpl),
+        "unknown_templates": unknown_tpl,
+        "faithful": base["faithful"] and not unknown_tpl,
+    })
+    return base
+
+
+def render_rule_class_summary(payload: Dict) -> str:
+    """类级汇总解释的离线规则渲染（确定性；每个数字来自 payload）。"""
+    k = payload["accident_type"]
+    tpls = payload["templates"]
+    L: List[str] = [f"【{k} 类级汇总解释（离线规则后端）】", ""]
+    L.append(f"run_id：{payload['run_id']}；覆盖模板 {len(tpls)} 个："
+             + "、".join(payload["template_ids"]) + "。")
+    L.append("")
+    L.append("一、逐模板结论")
+    for t in tpls:
+        L.append(f"  {t['template']}（marker {t['marker']}）：入模 {t['n_variables']} 个变量，"
+                 f"稳定边 {t['n_stable_edges']} 条，Top-1={t['top1']}，"
+                 f"总效应 {_f(t['top1_total_effect'])}"
+                 + ("，数值门控降级" if t["stability_degraded"] else ""))
+        if t["top5"]:
+            L.append("    Top-5：" + "，".join(
+                f"{c['rank']}.{c['variable']}({_f(c['total_effect'])})"
+                for c in t["top5"]))
+    L.append("")
+    L.append("二、跨组一致性")
+    cross = payload["cross_group"] or {}
+    if cross.get("available"):
+        t1 = cross.get("top1_by_group") or {}
+        L.append("  三组 Top-1：" + "，".join(f"{gname}={t1.get(gname)}" for gname in t1) + "。")
+        L.append(f"  Top-1 跨组稳定：{'是' if cross.get('top1_stable') else '否'}；"
+                 f"三组共同入榜变量 {cross.get('n_vars_in_all_groups')} 个；"
+                 f"相邻组平均 Top-5 重叠 {_f(cross.get('mean_pairwise_overlap'))}。")
+        d = payload["cross_group_diff"] or {}
+        if d.get("available"):
+            L.append(f"  差异报告：Top-1 切换 {d['n_top1_switches']} 次，"
+                     f"机理切换点 {d['n_mechanism_switches']} 个。")
+        else:
+            L.append(f"  差异报告未产出（原因：{d.get('reason')}）。")
+    else:
+        L.append(f"  未产出（原因：{cross.get('reason')}）。")
+    L.append("")
+    L.append("三、物理一致性与故障模板")
+    for t in tpls:
+        k2, k3 = t["k2"], t["k3"]
+        k2_txt = (f"K2 违反 {k2['n_violation']}/{k2['n_relations']} 条"
+                  if k2.get("available") else "K2 未产出")
+        k3_txt = (f"K3 覆盖 {_pct(k3['coverage'])}"
+                  f"（命中 {k3['n_matched']}/{k3['n_chain_edges']} 条）"
+                  if k3.get("available") else "K3 未产出")
+        L.append(f"  {t['template']}：{k2_txt}；{k3_txt}。")
+    L.append("")
+    L.append("四、偏离度提示")
+    for t in tpls:
+        dev = t["deviation"]
+        if dev.get("available"):
+            lc = dev.get("level_counts") or {}
+            L.append(f"  {t['template']}：{dev.get('n_variables')} 个变量 "
+                     f"正常 {lc.get('normal')}/中等 {lc.get('moderate')}/"
+                     f"较大 {lc.get('large')}/严重 {lc.get('severe')}。")
+        else:
+            L.append(f"  {t['template']}：偏离度未产出。")
+    L.append("")
+    L.append("五、局限")
+    for item in payload.get("limitations") or []:
+        L.append(f"  - {item}")
+    L.append("")
+    L.append("（本解释由离线规则后端依据同 run_id 产物生成，未调用大模型。）")
+    return "\n".join(L)
+
+
+def render_rule_global_summary(payload: Dict) -> str:
+    """全局结论解释的离线规则渲染（跨类对比；数字全部来自 payload）。"""
+    items = payload["items"]
+    L: List[str] = ["【全局结论解释（离线规则后端）】", ""]
+    L.append(f"run_id：{payload['run_id']}；事故类 {payload['n_classes']} 个，"
+             f"模板 {payload['n_templates_total']} 个；"
+             f"Top-1 跨组稳定的类 {payload['n_classes_top1_stable']}/{payload['n_classes']} 个。")
+    L.append("")
+    L.append("一、逐类结论")
+    for it in items:
+        t1 = it.get("top1_by_template") or {}
+        L.append(f"  {it['accident_type']}：稳定边合计 {it['n_stable_edges_total']} 条，"
+                 f"Top-1 跨组稳定={'是' if it.get('top1_stable') else '否'}，"
+                 f"降级模板 {it['n_templates_degraded']}/{it['n_templates']} 个。")
+        L.append("    模板 Top-1：" + "，".join(f"{tid}={t1.get(tid)}"
+                                                for tid in it["template_ids"]) + "。")
+        L.append(f"    K2 违反合计 "
+                 f"{'未产出' if it['k2_violation_total'] is None else it['k2_violation_total']}，"
+                 f"K3 最低覆盖 {_pct(it['k3_coverage_min'])}。")
+    L.append("")
+    L.append("二、跨类对比要点")
+    L.append("  单引擎口径：稳定边来自 LiNGAM 单引擎 bootstrap 频次，n_consensus=null，"
+             "不构成多引擎共识。")
+    L.append(f"  各类 Top-1 跨组稳定情况："
+             + "，".join(f"{it['accident_type']}="
+                        f"{'稳定' if it.get('top1_stable') else '不稳定'}" for it in items)
+             + "。")
+    L.append("")
+    L.append("三、局限")
+    for item in payload.get("limitations") or []:
+        L.append(f"  - {item}")
+    L.append("")
+    L.append("（本解释由离线规则后端依据同 run_id 产物生成，未调用大模型。）")
+    return "\n".join(L)
+
+
+def _build_summary_prompt(payload: Dict, scope: str) -> str:
+    if scope == "class":
+        ask = ("请生成该类事故的类级汇总解释，必须逐模板点名（如 LOCA_low）并给出"
+               "入模变量数、稳定边数、Top-1 与总效应；再总结跨组一致性与局限。")
+    else:
+        ask = ("请生成全局结论解释，逐类点名模板 id 与 Top-1，比较三类事故的异同，"
+               "并总结共性局限。")
+    return (ask + "\n只允许引用下面 JSON 中出现的数字、变量名与模板 id。\n\n"
+            + json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def generate_summary(name: str, payload: Dict, render_rule, scope: str,
+                     backend: str = "rule", timeout: Optional[float] = None) -> Dict:
+    """生成类级/全局汇总解释：同 run_id + 输入哈希命中即复用；失败降级 rule。"""
+    input_sha = _payload_sha(payload)
+    cached, _path = _read_optional("reports", name)
+    if (cached and cached.get("run_id") == payload["run_id"]
+            and cached.get("input_sha256") == input_sha and cached.get("text")):
+        logger.info(f"[D6] {name} 命中缓存（run_id={payload['run_id']}, sha={input_sha[:12]}）")
+        return {"scope": scope, "backend": cached.get("backend"),
+                "degraded": bool(cached.get("degraded")),
+                "degraded_reason": cached.get("degraded_reason"),
+                "text": cached["text"], "faithfulness": cached.get("faithfulness"),
+                "input_sha256": input_sha, "cache_hit": True}
+
+    rule_text = render_rule(payload)
+    if backend == "llm":
+        why = llm_unavailable_reason()
+        if why:
+            faith = verify_summary_faithfulness(rule_text, payload)
+            logger.warning(f"[D6] {name} llm 不可用（{why}），降级 rule")
+            return {"scope": scope, "backend": "rule", "degraded": True,
+                    "degraded_reason": why, "text": rule_text,
+                    "faithfulness": faith, "input_sha256": input_sha,
+                    "cache_hit": False}
+        try:
+            text = _call_chat_completions(_build_summary_prompt(payload, scope),
+                                          timeout=timeout,
+                                          system_prompt=V23_SUMMARY_SYSTEM_PROMPT)
+            used = "llm"
+            reason = None
+        except Exception as exc:  # noqa: BLE001 - 任何失败都显式降级
+            text, used = rule_text, "rule"
+            reason = f"llm 调用失败并降级 rule：{type(exc).__name__}: {exc}"
+            logger.warning(f"[D6] {name} {reason}")
+    else:
+        text, used, reason = rule_text, "rule", None
+
+    faith = verify_summary_faithfulness(text, payload)
+    if used == "rule" and not faith["faithful"]:
+        raise RuntimeError(f"rule 后端汇总解释未通过忠实性校验（实现缺陷）：{name} {faith}")
+    return {"scope": scope, "backend": used, "degraded": reason is not None,
+            "degraded_reason": reason, "text": text, "faithfulness": faith,
+            "input_sha256": input_sha, "cache_hit": False}
 
 
 # ==================== 自检（不真实调 LLM） ====================
