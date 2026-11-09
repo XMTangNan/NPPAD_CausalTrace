@@ -124,6 +124,63 @@ def test_v23_thresholds_are_centralized_and_unchanged():
     assert LE.FLOAT_TOL == C23.LLM_FLOAT_TOL
 
 
+# v2.3 产物闭包：这些模块只允许通过 causalrca.io.artifact 落盘
+V23_CLOSURE = (
+    "rca.v21.run_variable_selector",
+    "rca.v21.data_audit",
+    "rca.v21.run_v23_tolerances",
+    "rca.v21.run_v23_end2end",
+    "rca.v21.run_v23_graphs",
+    "rca.v21.severity_aggregation",
+    "rca.v21.run_v23_llm_explanation",
+    "rca.v21.run_v23_report",
+    "rca.v21.run_v23_all",
+)
+
+_WRITE_FUNCS = {"open", "write_text", "write_bytes", "mkdir", "to_csv", "savefig", "dump"}
+
+
+def _direct_writes(src: str):
+    """返回模块里绕过 artifact 的直接写盘调用（行号, 形式）。"""
+    hits = []
+    for node in ast.walk(ast.parse(src)):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        name = getattr(f, "attr", None) or getattr(f, "id", None)
+        if name not in _WRITE_FUNCS:
+            continue
+        if name != "open":
+            hits.append((node.lineno, name))
+            continue
+        mode = None
+        if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
+            mode = node.args[1].value
+        for kw in node.keywords:
+            if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
+                mode = kw.value.value
+        if isinstance(mode, str) and any(c in mode for c in "wax+"):
+            hits.append((node.lineno, f"open(mode={mode!r})"))
+    return hits
+
+
+def test_v23_closure_writes_only_via_artifact():
+    """S4：v2.3 闭包禁止直接 mkdir/open(w)/to_csv 写产物，且不得触碰 V21_OUTPUT。"""
+    for modname in V23_CLOSURE:
+        mod = importlib.import_module(modname)
+        src = open(mod.__file__, encoding="utf-8").read()
+        hits = _direct_writes(src)
+        assert not hits, f"{modname} 绕过 artifact 直接写盘: {hits}"
+        assert "V21_OUTPUT" not in src, f"{modname} 仍引用 v2.1 产物根（应走 artifact.legacy_input）"
+
+
+def test_v21_legacy_writers_are_outside_v23_closure():
+    """v2.1 写盘模块（data/signatures/run_*）保留旧契约，不得被误当成 v2.3 闭包成员。"""
+    legacy = {"rca.v21.data", "rca.v21.signatures", "rca.v21.run_r0", "rca.v21.run_r3",
+              "rca.v21.run_baselines", "rca.v21.run_chains", "rca.v21.run_source_tracing"}
+    assert not (legacy & set(V23_CLOSURE))
+
+
 def test_no_dynamic_globals_injection():
     """shim 禁止 globals().update(vars(...)) 式动态注入（会破坏 AST/IDE/类型检查）。"""
     for modname in ("rca.v21.artifact", "rca.rca_config_v21", "rca.v21.accident_config",
