@@ -322,4 +322,110 @@
 - **状态**：✅ 已定位并如实记录（chains.py 的 FROZEN_MARKER_DIRECTION 对齐 §4.2/§4.3 原文、select_template 修正为 D0 冻结的 argmax_path；方向一致率数值不改）；待 rca_report_v21.txt 判读段纳入
 
 ---
-*（后续问题在此追加）*
+
+## v2.3 全适配执行审计（2026-11-10，方案 v2.3 §6.1 / 附录 C-D 逐条核对）
+
+> 本节按方案 A→B→C→D 顺序登记实现缺口。状态口径沿用上文：✅ 已解决｜⚠️ 部分/待验证｜❌ 未解决，同时保留 open/closed 语义。
+> 数据现实：本地仅 LOCA/SGATR/FLB 各 100 条、LOCAC 5 条、Normal 1 条；其余 8 类无目录。**禁止编造数据或结果**。
+
+### V23-CODE-001：12 类事故配置表缺失，3 类配置内联在变量选取模块
+- **类别**：CODE / DESIGN（A3）
+- **证据**：`Code/rca/v21/accident_config.py` 不存在；`variable_selector.py:100-104` 内联 `ACCIDENT_KEY_RESPONSES` 仅 LOCA/SGATR/FLB；`run_v23_end2end.py:21` 直接用 `ACCIDENT_TYPES`（3 类）。
+- **根因**：A3 一直标记"待数据到位后建"，导致 12 类元数据无唯一来源，执行器只能硬编码 3 类。
+- **解决**：新建 `accident_config.py` 作为 12 类唯一注册表（marker/触发/关键响应/窗口/分组/数据状态），`rca_config_v21.ACCIDENT_TYPES` 改为从注册表派生；variable_selector 改读注册表。
+- **状态**：open
+
+### V23-CODE-002：`ACCIDENT_TYPES` 冻结为 3 类，12 类循环不可能发生
+- **类别**：CODE（A3/B2/C1）
+- **证据**：`rca/rca_config_v21.py:22` `ACCIDENT_TYPES = ["LOCA","SGATR","FLB"]`；`data.build_split_manifest`、`run_v23_end2end.main` 均遍历该常量。
+- **根因**：v2.1 冻结清单未随 v2.3 注册表升级。
+- **解决**：保留 `PILOT_ACCIDENT_TYPES` 兼容 v2.1 产物，新增 `ALL_ACCIDENT_TYPES`（12）与 `READY_ACCIDENT_TYPES`（按注册表 status 派生）；执行器只遍历 ready/partial。
+- **状态**：open
+
+### V23-DATA-001：8 类事故无本地数据，LOCAC 仅 5 条
+- **类别**：DATA（B1）
+- **证据**：`nppad_repo/Operation_csv_data/` 仅有 `LOCA/SGATR/FLB` 各 100 个 CSV、`LOCAC` 5 个、`Normal` 1 个；无 SLBIC/SLBOC/SGBTR/RW/RI/MD/LR/LLB 目录。
+- **根因**：上游数据未下载/未提供；LOCAC 上游即 5 条（评审 §9 未核实项）。
+- **解决**：注册表将 8 类标 `data_missing`、LOCAC 标 `partial`（仅描述性，不进 36 份验收）；执行器跳过并落 `skipped_classes.json`，不得生成占位产物。
+- **状态**：⚠️ 已如实登记，等待数据（不阻断 3 类闭环）
+
+### V23-CODE-003：`data.py` 不支持 12 类加载与缺数据门控
+- **类别**：CODE（B2）
+- **证据**：`data.py:28-34` `csv_path/load_trajectory` 直接拼路径，缺文件时 `pd.read_csv` 抛 `FileNotFoundError`；`build_split_manifest` 对 3 类硬编码配额。
+- **解决**：加载前查注册表 status；缺数据类抛显式 `ClassDataMissing`；split 仅对 ready 类；partial 类只提供加载不做三分组。
+- **状态**：open
+
+### V23-DESIGN-001：无 `data_audit.py`，B4/B5/B6 全缺
+- **类别**：DESIGN / CODE（B4–B6）
+- **证据**：仓库无 `data_audit.py`；无 `data_audit_*.json` / `z_pathology_audit_*.json` / `changepoint_report_*.json`；`variable_selector.py:245-249` 的 σ_floor 仍是 1%·|μ| 兜底，未接逐变量物理下限。
+- **解决**：新建 `data_audit.py`：B4 常量列/轨迹数/窗口校验；B5 σ/|μ| 审计 + 主窗 max|z| + 病态清单 + 稳健σ；B6 PELT/CUSUM 变点 + marker 稳定性评级。产物统一落 `output/rca_v23/audit/`。
+- **状态**：open
+
+### V23-CODE-004：v2.3 根因 JSON 缺 `n_consensus`/`n_conflict`，与图/汇总不同源
+- **类别**：CODE（C2）
+- **证据**：`run_v23_end2end.py:72-92` 的 `graph_summary` 只写 `n_nodes/n_stable_edges/n_bootstrap`；`run_source_tracing.py:81-98`（v2.2）才写 `n_consensus`。二者 schema 不同。
+- **解决**：在 v2.3 溯源执行器统一写 `n_consensus/n_conflict/n_bootstrap`，并由 `manifest.json` 的 `run_id` 保证与签名同批。
+- **状态**：open
+
+### V23-CODE-005：v2.3 分组 HTML 无生成脚本，现存图不可复现
+- **类别**：CODE（C3）
+- **证据**：全仓 `v23_graphs` 仅被 `severity_aggregation.py:265` 写入汇总图；`output/rca_v21/v23_graphs/graph_{K}_{g}.html`（11-10 00:01）无对应 `run_*.py`。
+- **解决**：新建 `run_v23_graphs.py`，只读 `output/rca_v23/signatures` + `tracing` 生成 `graphs/graph_{K}_{g}.html` 与汇总图，含 C3a 信息门控水印。
+- **状态**：open
+
+### V23-DESIGN-002：v2.3 产物多根多源，同一结果存在多份来源
+- **类别**：DESIGN（产物结构）
+- **证据**：`output/rca_v21/` 下并存 `v23_signatures/`、`v23_tracing/`、`v23_graphs/`、`v23_llm/`、`tracing/`、`signatures/`、`signatures_strict/`；`severity_aggregation.py`、`run_v23_*` 各自拼路径。
+- **解决**：按 `Code/STRUCTURE.md` 收敛到唯一根 `output/rca_v23/`；旧目录冻结只读；所有执行器通过 `V23_OUTPUT` 常量取路径。
+- **状态**：open
+
+### V23-CODE-006：汇总图/差异报告停留在 11-04，与 11-10 重算根因不同源
+- **类别**：CODE（C3b/C3c）
+- **证据**：`v23_tracing/diff_report_*.json` 与 `v23_graphs/graph_{K}_summary.html` 时间戳 11-04 23:09，而 `root_candidates_*.json` 为 11-10 00:01。
+- **解决**：`run_v23_all.py` 强制顺序：签名→溯源→分组图→汇总/差异→报告，全部写同一 `run_id`；禁止单独重跑下游。
+- **状态**：open
+
+### V23-STAT-001：所有分组 `n_consensus == n_stable_edges`，共识边退化
+- **类别**：STAT / CODE（C2）
+- **证据**：v2.3 主流程未加载 GAM 共识分类（`consensus_*.json` 未参与），部分图把全部稳定边默认标 `consensus`，导致 top-k 共识率恒为 1。
+- **根因**：v2.3 只用 LiNGAM 单引擎签名，却沿用双引擎"共识边"字段语义。
+- **解决**：明确 v2.3 单引擎口径：`n_consensus` 仅在存在 GAM 共识文件时统计，否则写 `null` 并在报告中标注"单引擎稳定边"；禁止把稳定边等同共识边。
+- **状态**：open
+
+### V23-DESIGN-003：K2 残差三态与偏离度是孤立脚本，未进 signature 与图
+- **类别**：DESIGN（D4/D9）
+- **证据**：`physics_constraints.py`、`deviation.py` 存在，但 `signatures.py`、`source_tracing.py`、`graph_visualization.py` 均未 import；`v23_graphs` 无偏离度着色/无残差标注。
+- **解决**：在签名阶段挂载 K2 三态与 deviation summary，在 `root_candidates`/HTML 中输出；偏离度只作辅助层，不改排序（§5.10）。
+- **状态**：open
+
+### V23-DESIGN-004：D3/D5 外部知识与 K3 模板全缺
+- **类别**：DESIGN（D3/D5）
+- **证据**：无 `external_knowledge/` 目录、无任何 `.yaml`；无 `fault_templates.yaml`、无 `external_knowledge.py`。
+- **解决**：按 §5.2 建 `Code/external_knowledge/` 五份 YAML + `external_knowledge.py` 合并接口；K3 模板必须来自 README/工程手册，禁止从训练数据+标签提取。
+- **状态**：open
+
+### V23-CODE-007：LLM 解释为演示级，未接 v2.3 签名/图/忠实性
+- **类别**：CODE（D6）
+- **证据**：`run_v23_llm_explanation.py` 读取 `v23_signatures`/`v23_tracing`，但产物 9 份全部 `degraded`/模板文本；`llm_explanation.py` 未见 API 调用与忠实性校验闭环。
+- **解决**：升级为可用版：结构化 prompt（图+Top5+路径+K2/K3+偏离度）、忠实性校验（变量名/数值/边存在性）、失败自动降级并标 `llm_used=false`。
+- **状态**：open
+
+### V23-CODE-008：`run_v23_report.py` 读取已改名的校验键
+- **类别**：CODE（A4/报告）
+- **证据**：`run_v23_report.py:30` 读取 `c['V3_vif_lt_10']`，而 `variable_selector.py:383` 输出的键为 `V3_vif_lt_500`（附录 D 错误 6 已改名）。
+- **解决**：报告读取改为 `.get('V3_vif_lt_500')` 并打印阈值；旧键若存在做兼容读取。
+- **状态**：open
+
+### V23-CODE-009：新模块无单测，测试仅覆盖 v2.1
+- **类别**：CODE（测试）
+- **证据**：`Code/tests/` 9 个文件均 import v2.1 模块；无 `accident_config/data_audit/physics_constraints/external_knowledge/run_v23_all` 测试。
+- **解决**：新增 `tests/test_v23_*.py`，覆盖注册表完整性、缺数据门控、Z 病态/变点纯函数、K2 三态、外部知识合并、端到端小样本 smoke。
+- **状态**：open
+
+### V23-ALGO-001：`B` 矩阵共线伪影截断已临时补丁，缺敏感性分析
+- **类别**：ALGO
+- **证据**：`source_tracing.py:24,171` 新增 `B_CLIP=5.0` 与 `np.clip`；提交 53cf0a5。
+- **根因**：LiNGAM 在 PSGA/PSGB→WSTB 等共线对上给出 |weight|~1e5，`(I-B)^-1` 条件数 ~1e11。
+- **解决**：保留截断，但在 `data_audit`/manifest 中记录截断前后条件数、被截断边清单，并做 3/5/10 阈值敏感性，结果写报告。
+- **状态**：⚠️ 补丁已提交，敏感性待补
+
