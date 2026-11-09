@@ -570,6 +570,27 @@ def _load_k3(k: str, sig: Dict) -> Dict:
     }
 
 
+def _load_tolerance_stats(k: str) -> Dict:
+    """公差 σ 口径统计：多少通道的 σ_robust 实际由 σ_floor 兜底（V23-DESIGN-016）。"""
+    doc, _path = _read_optional("tolerances", f"tolerance_{k}")
+    if not doc:
+        return {"available": False}
+    th = doc.get("thresholds") or {}
+    n_total = len(th)
+    n_floor = 0
+    sources: Dict[str, int] = {}
+    for v in th.values():
+        sr = _num_or_none(v.get("sigma_robust"))
+        sf = _num_or_none(v.get("sigma_floor"))
+        if sr is not None and sf is not None and abs(sr - sf) <= 1e-12:
+            n_floor += 1
+            src = str(v.get("sigma_floor_source") or "unknown")
+            sources[src] = sources.get(src, 0) + 1
+    return {"available": True, "n_total": n_total, "n_floor": n_floor,
+            "floor_sources": sources,
+            "baseline_points": (doc.get("quality") or {}).get("baseline_points")}
+
+
 def _load_deviation(k: str, g: str) -> Dict:
     """偏离度 4 级计数；未产出写原因（不生成空表）。"""
     doc, _path = _read_optional("reports", f"deviation_{k}_{g}")
@@ -708,6 +729,18 @@ def build_payload(k: str, g: str, run_id: Optional[str] = None) -> Dict:
             f"{k3['n_matched']} 条命中")
     if not deviation["available"]:
         limitations.append("偏离度未产出：无法给出 4 级偏离提示")
+    else:
+        limitations.append(
+            "偏离度为模板内相对档位（按本模板 d_raw 的 p50/p70/p85 切分），"
+            "跨模板不可比绝对偏移量；各模板档位计数相同是分位分档的必然结果，"
+            "不代表物理偏移强度一致")
+    tol_stats = _load_tolerance_stats(k)
+    if tol_stats["available"] and tol_stats["n_floor"]:
+        src_text = "、".join(f"{s} {n}" for s, n in sorted(tol_stats["floor_sources"].items()))
+        limitations.append(
+            f"σ 口径：{tol_stats['n_floor']}/{tol_stats['n_total']} 个通道的 σ_robust "
+            f"取自定义下限 σ_floor（{src_text}，非数据 MAD），这些通道的 Z 值与偏移强度"
+            f"对实际方差灵敏度受限")
 
     inputs = []
     for sub, path in (("tracing", rc_path), ("signatures", sig_path),
@@ -717,7 +750,7 @@ def build_payload(k: str, g: str, run_id: Optional[str] = None) -> Dict:
                            "sha256": artifact.sha256_file(path)})
 
     payload = {
-        "schema": "causaltrtrace/v2.3/llm-payload",
+        "schema": "causaltrace/v2.3/llm-payload",
         "run_id": run_id,
         "accident_type": k,
         "group": g,

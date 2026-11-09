@@ -185,7 +185,7 @@ def main() -> None:
                 "n_ontology_reverse_total": {"auto": auto_rev, "v21": v21_rev},
             },
             "verdict": (
-                f"变量集 Jaccard={jaccard:.2f}；"
+                f"变量集 Jaccard={jaccards[k]:.4f}；"
                 f"稳定边 auto={auto_stable:.1f} vs v2.1={v21_stable:.1f}；"
                 f"frontier auto={auto_frontier:.1f} vs v2.1={v21_frontier:.1f}；"
                 f"Top1 一致 {top1_same}/3 组。"

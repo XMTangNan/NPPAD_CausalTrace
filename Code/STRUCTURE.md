@@ -80,7 +80,7 @@ Code/
         ├── reports/rca_report_{K}_{g}.json
         ├── reports/rca_report_{K}_{g}.txt
         ├── reports/llm_explanation_{K}_{g}.json
-        ├── reports/run_v23_all_summary.json        # D10 全链 7 步状态
+        ├── reports/run_v23_all_summary.json        # D10 全链 10 步状态
         ├── knowledge/knowledge_validation.json
         └── ablations/{auto_vs_v21.json,...}        # 消融/对照（唯一允许再分一层的子目录）
 ```
@@ -140,10 +140,10 @@ Code/
 
 ```
 cd Code
-# 全链一次跑完（公差→签名/溯源→图→汇总/差异→偏离度→解释/报告→manifest），单 run_id
+# 全链一次跑完（变量选取/审计→公差→签名/溯源→图→汇总/差异→偏离度→解释/报告→A/B→manifest），单 run_id
 PYTHONPATH=. python -m rca.v21.run_v23_all --n-bootstrap 100
 PYTHONPATH=. python -m rca.v21.run_v23_all --classes LOCA,SGATR,FLB --n-bootstrap 100
-PYTHONPATH=. python -m rca.v21.run_v23_all --dry-run          # 只打印 7 步计划
+PYTHONPATH=. python -m rca.v21.run_v23_all --dry-run          # 只打印 10 步计划
 PYTHONPATH=. python -m rca.v21.run_v23_all --skip-llm         # 跳过 LLM（默认 rule 后端）
 
 # 分步重跑（仍必须传同一 --run-id，否则汇总/报告拒绝混源）
@@ -156,12 +156,12 @@ PYTHONPATH=. python -m rca.v21.run_v23_graphs --run-id <id>
 PYTHONPATH=. python -m rca.v21.severity_aggregation --run-id <id>
 PYTHONPATH=. python -m rca.v21.run_v23_llm_explanation --run-id <id>
 PYTHONPATH=. python -m rca.v21.run_v23_report --run-id <id>
-PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（118 例）
+PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（125 例）
 ```
 
 `run_v23_all` 结束落盘：
 - `output/rca_v23/manifest.json`：`run_id`、各产物相对路径/大小/sha256（六类扩展名全覆盖）；
-- `output/rca_v23/reports/run_v23_all_summary.json`：7 步 `status: ok|skipped|failed`、耗时、产物计数、跳过类、LLM 可用性；
+- `output/rca_v23/reports/run_v23_all_summary.json`：10 步 `status: ok|skipped|failed`、耗时、产物计数、跳过类、LLM 可用性；
 - 任一步失败 → summary 记 `failed` 并非 0 退出，绝不静默跳过。
 
 **不再使用**：`output/rca_v21/v23_*` 下的 `tracing_report_v23.txt` 等旧汇总（11-04 产物，已冻结只读）。验收结论以 `reports/summary_{K}.json`、`reports/diff_{K}.json` 与 `manifest.json` 为准。

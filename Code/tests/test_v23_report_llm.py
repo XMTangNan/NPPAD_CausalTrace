@@ -170,10 +170,11 @@ def test_run_v23_all_dry_run_prints_six_steps_without_writing(monkeypatch, tmp_p
     subs = _patch_output(monkeypatch, tmp_path / "rca_v23")
     rc = RA.main(["--dry-run", "--classes", "LOCA"])
     out = capsys.readouterr().out
+    n_steps = len(RA.STEPS)
     assert rc == 0
-    assert "共 7 个步骤" in out
-    for i in range(1, 8):
-        assert f"[{i}/7]" in out
+    assert f"共 {n_steps} 个步骤" in out
+    for i in range(1, n_steps + 1):
+        assert f"[{i}/{n_steps}]" in out
     # 不写盘：所有子目录为空
     assert all(not list(d.iterdir()) for d in subs.values())
     assert not (subs["reports"] / "run_v23_all_summary.json").exists()
@@ -184,6 +185,9 @@ def test_run_v23_all_records_failure_and_returns_nonzero(monkeypatch, tmp_path, 
     import rca.v21 as v21_pkg
     monkeypatch.delattr(v21_pkg, "run_v23_tolerances", raising=False)
     monkeypatch.setitem(sys.modules, "rca.v21.run_v23_tolerances", None)
+    # 前置 A1/B 两步用桩替代，避免用例真的去跑变量选取与数据审计
+    monkeypatch.setattr(RA, "step_variable_sets", lambda run_id: "ok")
+    monkeypatch.setattr(RA, "step_audit", lambda run_id, classes: "ok")
     subs = _patch_output(monkeypatch, tmp_path / "rca_v23")
     rc = RA.main(["--classes", "LOCA", "--groups", "mid"])
     capsys.readouterr()
@@ -191,9 +195,8 @@ def test_run_v23_all_records_failure_and_returns_nonzero(monkeypatch, tmp_path, 
     summary = json.loads(
         (subs["reports"] / "run_v23_all_summary.json").read_text(encoding="utf-8"))
     steps = summary["steps"]
-    assert len(steps) == 1
-    assert steps[0]["name"] == "tolerances"
-    assert steps[0]["status"] == "failed"
-    assert "D2 公差执行器未就绪" in steps[0]["error"]
+    assert [s["name"] for s in steps] == ["variable_sets", "audit", "tolerances"]
+    assert steps[-1]["status"] == "failed"
+    assert "D2 公差执行器未就绪" in steps[-1]["error"]
     assert summary["n_steps_failed"] == 1
     assert summary["failed"]

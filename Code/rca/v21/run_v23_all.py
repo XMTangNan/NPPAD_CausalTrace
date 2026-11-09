@@ -13,7 +13,7 @@
   - run_id 由本编排器先行生成，再注入 run_v23_end2end（它内部调用
     artifact.new_run_id），保证全链单一 run_id；若注入后返回值不同则立刻报错；
   - 每一步都 try/except 记录 status=ok|skipped|failed 与异常文本，绝不假装全部通过；
-  - --dry-run 只打印 7 步计划，不落盘、不改 mtime。
+  - --dry-run 只打印 10 步计划，不落盘、不改 mtime。
 
 用法（cd Code）：
   PYTHONPATH=. ../.venv/bin/python -m rca.v21.run_v23_all
@@ -32,11 +32,15 @@ from core.utils import logger
 from rca.v21 import artifact
 from rca.v21 import llm_explanation as LE
 from rca.v21 import report_template as RT
-from rca.v21.accident_config import READY_CODES, REGISTRY
+from rca.v21.accident_config import READY_CODES, PARTIAL_CODES, REGISTRY
 
 GROUPS: List[str] = ["low", "mid", "high"]
 
 STEPS: List[Dict[str, str]] = [
+    {"name": "variable_sets", "layer": "A1",
+     "desc": "注册表 + 四阶段变量选取（run_variable_selector，同 run_id）"},
+    {"name": "audit", "layer": "B",
+     "desc": "数据审计 / Z 病态 / 变点（data_audit.run_all，同 run_id）"},
     {"name": "tolerances", "layer": "D2",
      "desc": "公差标定 run_v23_tolerances.run_all(run_id=...)"},
     {"name": "end2end", "layer": "C",
@@ -49,8 +53,10 @@ STEPS: List[Dict[str, str]] = [
      "desc": "偏离度 4 级着色（deviation.run_all_deviations，同 run_id）"},
     {"name": "explanation_reports", "layer": "D6/D7",
      "desc": "根因解释（rule 离线）+ 9 份报告"},
+    {"name": "ab_variable_selection", "layer": "A/B",
+     "desc": "auto vs v2.1 变量集对照（run_ab_variable_selection，同 run_id）"},
     {"name": "manifest", "layer": "C7",
-     "desc": "manifest.json 全量产物 sha256"},
+     "desc": "manifest.json 全量产物 sha256 + lineage"},
 ]
 
 
@@ -97,6 +103,30 @@ def _skipped_classes() -> List[Dict]:
 
 
 # ==================== 具体步骤实现 ====================
+def _same_run_id(fn, run_id: str):
+    """把执行器内部的 new_run_id 固定为本链 run_id（同源，禁止另起批次号）。"""
+    orig = artifact.new_run_id
+    artifact.new_run_id = lambda prefix="v23": run_id  # noqa: ARG005
+    try:
+        return fn()
+    finally:
+        artifact.new_run_id = orig
+
+
+def step_variable_sets(run_id: str):
+    """A1：注册表快照 + 四阶段变量选取；与下游同 run_id。"""
+    from rca.v21.run_variable_selector import main as vs_main
+    _same_run_id(vs_main, run_id)
+    return "registry + variable_sets 完成"
+
+
+def step_audit(run_id: str, classes: List[str]):
+    """B4/B5/B6：数据审计；LOCAC 一并审计（与 v2.3 批次同范围）。"""
+    from rca.v21 import data_audit as DA
+    res = DA.run_all(codes=list(classes) + list(PARTIAL_CODES), run_id=run_id)
+    return {"n_audited": res.get("n_audited"), "n_skipped": res.get("n_skipped")}
+
+
 def step_tolerances(run_id: str, classes: List[str]):
     """D2 公差执行器（另一 agent 提供）：未就绪时明确报错，不静默跳过。
 
@@ -189,6 +219,13 @@ def step_explanation_reports(run_id: str, classes: List[str], groups: List[str],
             "n_reports": len(reports)}
 
 
+def step_ab_variable_selection(run_id: str):
+    """A/B 对照：auto vs v2.1 变量集，依赖 A1 已落盘的变量集，同一 run_id。"""
+    from rca.v21.run_ab_variable_selection import main as ab_main
+    _same_run_id(ab_main, run_id)
+    return "A/B 对照完成"
+
+
 def step_manifest(run_id: str):
     path = artifact.build_manifest(run_id)
     return str(path)
@@ -218,7 +255,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help=f"严重度组，默认 {GROUPS}")
     ap.add_argument("--skip-llm", action="store_true",
                     help="解释只用 rule 离线后端（等价于 --backend rule）")
-    ap.add_argument("--dry-run", action="store_true", help="只打印 7 步计划，不写盘")
+    ap.add_argument("--dry-run", action="store_true", help="只打印 10 步计划，不写盘")
     args = ap.parse_args(argv)
 
     classes = list(args.classes or READY_CODES)
@@ -242,13 +279,16 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     results: List[Dict] = []
     plan = [
-        (STEPS[0], lambda: step_tolerances(run_id, classes)),
-        (STEPS[1], lambda: step_end2end(run_id, classes, groups, args.n_bootstrap)),
-        (STEPS[2], lambda: step_graphs(run_id, classes, groups)),
-        (STEPS[3], lambda: step_aggregation(run_id, classes, groups)),
-        (STEPS[4], lambda: step_deviation(run_id, classes, groups)),
-        (STEPS[5], lambda: step_explanation_reports(run_id, classes, groups, backend)),
-        (STEPS[6], lambda: step_manifest(run_id)),
+        (STEPS[0], lambda: step_variable_sets(run_id)),
+        (STEPS[1], lambda: step_audit(run_id, classes)),
+        (STEPS[2], lambda: step_tolerances(run_id, classes)),
+        (STEPS[3], lambda: step_end2end(run_id, classes, groups, args.n_bootstrap)),
+        (STEPS[4], lambda: step_graphs(run_id, classes, groups)),
+        (STEPS[5], lambda: step_aggregation(run_id, classes, groups)),
+        (STEPS[6], lambda: step_deviation(run_id, classes, groups)),
+        (STEPS[7], lambda: step_explanation_reports(run_id, classes, groups, backend)),
+        (STEPS[8], lambda: step_ab_variable_selection(run_id)),
+        (STEPS[9], lambda: step_manifest(run_id)),
     ]
     for i, (step, fn) in enumerate(plan, start=1):
         entry = _run_step(i, step, fn, results)

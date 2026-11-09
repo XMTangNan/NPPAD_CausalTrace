@@ -25,3 +25,9 @@ Code/output/
 .DS_Store
 Thumbs.db
 *:Zone.Identifier
+
+# 第三方参考资料（Granger-RCA 论文抽取文本/参考实现，非本项目源码）
+.aerca_extract.txt
+.aerca_model.py
+.aerca_senn.py
+

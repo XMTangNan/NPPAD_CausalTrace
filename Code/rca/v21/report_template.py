@@ -141,7 +141,9 @@ def generate_rca_report(k: str, g: str, run_id: Optional[str] = None) -> Dict:
 
     sections["4_physics_k2"] = dict(payload["k2"])
     sections["5_fault_template_k3"] = dict(payload["k3"])
-    sections["6_deviation"] = {**payload["deviation"], "note": "偏离度 ≠ 根因"}
+    sections["6_deviation"] = {**payload["deviation"],
+                               "note": ("偏离度 ≠ 根因；档位为本模板内相对分位"
+                                        "（p50/p70/p85），跨模板不可比绝对量")}
     sections["7_limitations"] = {"items": list(payload.get("limitations") or [])}
     sections["8_reproducibility"] = {
         "run_id": payload["run_id"],

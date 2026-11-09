@@ -16,7 +16,7 @@ from typing import Any, Dict, Iterable, Optional
 from rca.rca_config_v21 import V23_OUTPUT, V23_SUBDIRS
 from core.utils import logger
 
-SCHEMA = "causaltrtrace/v2.3"
+SCHEMA = "causaltrace/v2.3"
 
 
 def new_run_id(prefix: str = "v23") -> str:
@@ -74,9 +74,23 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _probe_lineage(path: Path):
+    """读 JSON 产物顶层 run_id/schema（非 JSON 或损坏返回 (None, None)）。"""
+    if path.suffix != ".json":
+        return None, None
+    try:
+        with open(path, encoding="utf-8") as f:
+            head = json.load(f)
+    except Exception:  # noqa: BLE001 — 血缘探测不得影响 manifest 生成
+        return None, None
+    if not isinstance(head, dict):
+        return None, None
+    return head.get("run_id"), head.get("schema")
+
+
 def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.png", "*.html", "*.md", "*.txt"),
                    skip: Iterable[str] = ("manifest.json",)) -> Path:
-    """扫描 rca_v23 全量产物，写 manifest.json（path/size/sha256/run_id）。"""
+    """扫描 rca_v23 全量产物，写 manifest.json（path/size/sha256/run_id/lineage）。"""
     skip = set(skip)
     entries = []
     for sub in sorted(V23_SUBDIRS):
@@ -86,8 +100,20 @@ def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.
                 if p.name in skip:
                     continue
                 rel = p.relative_to(V23_OUTPUT).as_posix()
+                own_run, own_schema = _probe_lineage(p)
                 entries.append({"path": rel, "dir": sub, "bytes": p.stat().st_size,
-                                "sha256": sha256_file(p)})
+                                "sha256": sha256_file(p),
+                                "run_id": own_run, "schema": own_schema})
+    runs: Dict[str, int] = {}
+    n_json_no_run = 0
+    n_non_json = 0
+    for e in entries:
+        if e["run_id"]:
+            runs[e["run_id"]] = runs.get(e["run_id"], 0) + 1
+        elif e["path"].endswith(".json"):
+            n_json_no_run += 1
+        else:
+            n_non_json += 1
     doc = {
         "schema": SCHEMA,
         "artifact": "manifest",
@@ -95,6 +121,14 @@ def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "root": V23_OUTPUT.as_posix(),
         "n_files": len(entries),
+        "lineage": {
+            "run_id_of_manifest": run_id,
+            "runs": runs,
+            "n_json_without_run_id": n_json_no_run,
+            "n_non_json_files": n_non_json,
+            "note": ("run_id 取自产物 JSON 顶层；非 JSON（报告 txt/html 等）单列计数。"
+                     "runs 中出现其他 run_id 即上游批次输入，可据此定位来源批次"),
+        },
         "files": entries,
     }
     path = V23_OUTPUT / "manifest.json"

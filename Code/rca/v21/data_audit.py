@@ -49,10 +49,14 @@ MIN_SEVERITY_POINTS = 10           # 变点检测所需最少严重度点（LOCA
 
 
 # ==================== 通用小工具 ====================
-def _common(code: str, run_id: Optional[str], schema: str) -> Dict:
+def _common(code: str, run_id: Optional[str], artifact: str) -> Dict:
+    """统一顶层字段：schema 用全链唯一值，artifact 记本文件类型（V23-CODE-024）。"""
+    from rca.v21.artifact import SCHEMA
+
     cfg = get_accident(code) or {}
     return {
-        "schema": schema,
+        "schema": SCHEMA,
+        "artifact": artifact,
         "accident_type": code,
         "group": cfg.get("group"),
         "run_id": run_id,
@@ -386,7 +390,7 @@ def audit_class_data(code: str, severities: Sequence[int],
     columns = list(columns) if columns is not None else list(ENTITY_TABLE.keys())
     sevs = sorted(int(s) for s in severities)
 
-    audit: Dict = _common(code, run_id, "causaltrace.v23.data_audit")
+    audit: Dict = _common(code, run_id, "data_audit")
     audit.update({"columns_expected": len(columns),
                   "main_window": list(main_win),
                   "baseline_window": list(base_win)})
@@ -502,7 +506,7 @@ def audit_z_pathology(code: str, baseline_severities: Sequence[int] = (1,),
     if not baseline_sevs:
         baseline_sevs = [sevs[0]] if sevs else []
 
-    out: Dict = _common(code, run_id, "causaltrace.v23.z_pathology_audit")
+    out: Dict = _common(code, run_id, "z_pathology_audit")
     out.update({"main_window": list(main_win), "baseline_window": list(base_win),
                 "thresholds": {"potential_pathology_cv": POTENTIAL_PATHOLOGY_CV,
                                "z_pathology": Z_PATHOLOGY_THRESHOLD},
@@ -590,7 +594,7 @@ def audit_changepoints(code: str, run_id: Optional[str] = None,
     sevs = list_class_severities(code)
     marker = _class_marker(code, cfg)
 
-    out: Dict = _common(code, run_id, "causaltrace.v23.changepoint_report")
+    out: Dict = _common(code, run_id, "changepoint_report")
     out.update({"marker": marker, "main_window": list(main_win),
                 "n_severities": len(sevs),
                 "methods": {"cusum": {"threshold": cusum_threshold,

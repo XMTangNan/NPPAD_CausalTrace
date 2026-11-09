@@ -617,9 +617,64 @@
 - **解决**：`_load_k2` 优先读 `auxiliary.k2`，保留历史顶层键与独立产物作回退；新增真实签名 fixture（`tests/fixtures/signature_LOCA_high_real.json`，从正式产物原样抽取）与 3 例单测（auxiliary 读取、顶层回退/缺失、真实 payload）。重跑后 9 份解释与 9 份报告的 K2 段均为 `available=true`，`rca_report_LOCA_high.txt` 中“未产出”计数为 0。
 - **状态**：closed
 
+### V23-CODE-023：Top-1 依赖变量列序（SGATR_high RM2→RHBR），改为固定字母序
+- **类别**：CODE（C 阶段因果发现输入口径）
+- **证据**：SGATR 变量集成员完全不变、仅 VOID 由第 5 列移到第 11 列，`SGATR_high` 的 Top-1 即由 RM2 变 RHBR；上一轮"不固定列序、论文如实报告"的解释无法让第三方复现结论。
+- **根因**：DirectLiNGAM 的逐变量回归顺序受输入列序影响，选择器输出顺序（按得分降序）成为隐式实现细节。
+- **解决**：`variable_selector.VARIABLE_ORDER_RULE="alphabetical_ascii"`；`select_variables` 返回前统一排序并写入 `variable_order_rule`；`signatures.bootstrap_lingam_template` 入口再按同一规则同步重排 `variables` 与 `blocks` 列（防任何调用方绕过）。新增 2 例单测：`test_variable_order_permutation_invariance`（置换输入顺序后稳定边集合/前沿不变）、`test_bootstrap_fits_on_canonical_order`（以列偏置断言实际喂给 LiNGAM 的列序恒为字母序）。
+- **为什么选字母序而非本体序**：本体序隐含"物理可信度越高越靠前"的偏好，且随本体表增删漂移；字母序与得分/数据/本体表完全解耦。
+- **影响（改数字，如实报告）**：相对上一轮 `v23-20261110T032302`，LOCA_low RRCA→RHMT；SGATR low PSGA→HTR、mid PSGA→NSGA、high RHBR→NSGA；LOCA_mid/high（QMGB/QMGB）与 FLB 三组（WCHG/PSGB/WHPI）不变。A/B 的 `auto` 侧随列序一并重算，`detailed` 与全链结果一致（LOCA_low 均 RHMT）。
+- **状态**：closed
+
+### V23-DESIGN-017：方案正文 VIF<10 与 §3.5 表 <500 自相矛盾
+- **类别**：DESIGN（文档口径）
+- **证据**：§3 漏斗图、§3.5 前置条件、§4 约束框、§4 校验表、§7.1 V3 行仍写 `VIF<10`，而 §3.5 校验表与代码（`VIF_MAX=500`）已是 `<500`。
+- **解决**：上述 5 处 + 伪代码 2 处 + 风险表统一为 `<500`；校验表补"子系统代表变量"保护行，与 `_protected_vars` 实际口径（触发/关键响应/子系统代表）一致。§3.5 新增"变量列序口径（V23-CODE-023）"段落。
+- **影响**：仅文档口径，不改变任何数字。
+- **状态**：closed
+
+### V23-CODE-024：产物 schema 拼写错误 `causaltrtrace/v2.3`
+- **类别**：CODE（产物契约）
+- **证据**：`artifact.py:19` 与 `llm_explanation` payload 均写 `causaltrtrace`（多一个 t），118 个 JSON 产物携带；审计产物另用 `causaltrace.v23.*` 双风格。
+- **解决**：统一为 `causaltrace/v2.3`；`data_audit._common` 改用 `artifact.SCHEMA`，artifact 名单独记入 `artifact` 字段。**不做迁移脚本**：全链 10 步在同一 run_id 下全量重算，旧文件被覆盖，避免新老 schema 混存。
+- **影响**：产物字段值变化，不影响数值结果。
+- **状态**：closed
+
+### V23-CODE-025：A/B verdict 打印 Jaccard=0.35，LOCA 实际 0.2069
+- **类别**：CODE（A/B 输出）
+- **根因**：汇总循环引用了上一循环残留的局部变量 `jaccard`（`jaccard_vars` 字段本身正确）。
+- **解决**：改取 `jaccards[k]` 并统一 4 位小数；重跑实测 LOCA=0.2069、SGATR=0.3462、FLB=0.3462。
+- **状态**：closed
+
+### V23-CODE-026：tracing_report 打印 `partial=[]`/`data_missing=[]`，与 skipped_classes.json 9 条矛盾
+- **类别**：CODE（C 阶段报告）
+- **根因**：按本次 `--classes` 计算，而非按实际跳过清单；只跑 ready 类时必然为空。
+- **解决**：从 `skipped` 条目按 `status` 归类输出；重跑实测 `partial(1)=['LOCAC']`、`data_missing(8)=['SLBIC','SLBOC','SGBTR','RW','RI','MD','LR','LLB']`。
+- **状态**：closed
+
+### V23-DESIGN-015：STRUCTURE.md 承诺的 `knowledge/knowledge_validation.json` 不存在
+- **类别**：DESIGN（目录契约）
+- **证据**：`knowledge/` 目录为空，STRUCTURE.md 第 84 行列有该文件。
+- **解决**：新增 `knowledge.validate_knowledge_layer()`，在 end2end 内以同 run_id 落盘。实测 3 类各 15 变量全部在 ENTITY_TABLE 登记（未登记 0）；allowed 关系命中 5/3/2 条（登记总数 11/8/7）；forbidden 规则 15/16/15；competitive 1/1/0；证据状态全部 frozen；子系统覆盖 9/6/8。
+- **状态**：closed
+
+### V23-DESIGN-016：偏离度"模板内相对档位"与 σ_floor 局限未写进报告
+- **类别**：DESIGN（报告口径）
+- **证据**：9 个模板档位计数完全相同（44/17/13/14，n=88），是分位分档的必然结果；外部意见另称"53/93 通道 σ 来自 σ_floor"。
+- **解决**：三处明写——`deviation.py` 的 `note`、报告第六章 note、LLM 解释 `limitations`："相对档位、跨模板不可比绝对量；档位计数相同不代表物理强度一致"；σ 局限按实测渲染。
+- **数据更正（不照抄外部说法）**：σ_robust 由 σ_floor 兜底的通道为 **87/93（LOCA）、88/93（SGATR）、88/93（FLB）**；其中 `fallback 53 + physical 34`。外部所说"53/93"是 fallback 来源数，不是 σ_floor 生效总数，以实测为准。
+- **状态**：closed
+
+### V23-CODE-027：manifest 中 22 个文件来自 v23a/v23b 批次、未标血缘
+- **类别**：CODE（产物血缘）
+- **证据**：变量集 `v23a-...`（00:38）、审计 `v23b-audit-...`（01:31）与主链 run_id 不同，manifest 只记路径与 sha256。
+- **解决**：`run_v23_all` 由 7 步扩为 **10 步**（新增 variable_sets、audit、ab_variable_selection，均注入同一 run_id，方法 `_same_run_id`）；`build_manifest` 每条记录 `run_id`/`schema`，顶层新增 `lineage{runs, n_json_without_run_id, n_non_json_files}`。
+- **实测**：`run_id=v23-20261110T034433`，141 个文件 = 118 个 JSON 全部同 run_id + 23 个非 JSON（报告 txt/html），`n_json_without_run_id=0`，无跨批次残留。
+- **状态**：closed
+
 ---
 
-## v2.3 全链验收记录（2026-11-10 收口，run_id=v23-20261110T032302）
+## v2.3 全链验收记录（历史，run_id=v23-20261110T032302，已被 V23-CODE-023 列序修复取代）
 
 **命令**：`cd Code && PYTHONPATH=. python -m rca.v21.run_v23_all --n-bootstrap 100`
 **结果**：7/7 步 `ok`、`failed=0`；`manifest.json` 140 个文件全部登记 sha256；
@@ -658,5 +713,32 @@
 
 **保持登记（非决策项）**：V23-DATA-001（8 类无数据）、V23-DATA-003（LOCAC 仅 5 条）、RCA-010（归 v2.1 范围）。
 **open 计数：0**（上述 3 条为“等待数据/范围外”登记，不计 open）。
+
+---
+
+## v2.3 全链验收记录（最终冻结，run_id=v23-20261110T034433）
+
+**命令**：`cd Code && PYTHONPATH=. python -m rca.v21.run_v23_all --n-bootstrap 100`
+**结果**：10/10 步 `ok`、`failed=0`；单步耗时 variable_sets 6.62s / audit 3.35s / tolerances 0.43s / end2end 270.50s / graphs 0.02s / aggregation 0.01s / deviation 0.04s / explanation_reports 0.03s / ab 770.60s / manifest 0.02s；`pytest tests/ -q` → **125 passed**。
+
+| 项 | 结果 | 来源 |
+|---|---|---|
+| 产物 | 141 个文件；118 个 JSON 全部 `run_id=v23-20261110T034433`，23 个非 JSON 单列，无跨批次残留 | `manifest.json` |
+| 注册表 | 12/12 登记；ready=3、partial=1、data_missing=8 | `registry/accident_registry.json` |
+| 变量选取 | V1–V7 全通过，各 15 变量；列序=字母序（`variable_order_rule`） | `variable_sets/` |
+| 数据审计 | LOCA/SGATR/FLB/LOCAC 4 类 ×3 份；8 类显式跳过 | `audit/` |
+| 公差 | 3 类 `baseline_points=11`、93 变量；σ_floor 生效 87/93、88/93、88/93（fallback 53 + physical 34） | `tolerances/` |
+| 签名/溯源 | 9 模板 ×100 bootstrap；稳定性门控降级 0/9；K2 available 9/9 | `signatures/`、`tracing/` |
+| 知识校验 | 3 类 15/15 变量登记；allowed 命中 5/3/2（登记 11/8/7）；forbidden 15/16/15；证据全 frozen | `knowledge/knowledge_validation.json` |
+| 偏离度 | 模板内相对档位 44/17/13/14（9 组一致，n=88），绝对档 severe 13–69 作附注 | `reports/deviation_*.json` |
+| 图/汇总/解释 | 13 份 HTML；3 类 summary+diff；9 份 rule 解释 `faithful=True` + 9 份报告 | `graphs/`、`reports/` |
+| A/B | Jaccard LOCA 0.2069 / SGATR 0.3462 / FLB 0.3462；`top1_same=0/3`；backbone_hit auto/v21 = 2.78%/1.98%（LOCA）、0%/0.79%（SGATR）、0%（FLB auto） | `ablations/ab_variable_selection.json` |
+
+**根因 Top-1（冻结值）**：LOCA = RHMT / QMGB / QMGB；SGATR = HTR / NSGA / NSGA；FLB = WCHG / PSGB / WHPI。
+
+**相对上一轮 `v23-20261110T032302` 的变化（仅由固定列序引起）**：LOCA_low RRCA→RHMT；SGATR low PSGA→HTR、mid PSGA→NSGA、high RHBR→NSGA；LOCA_mid/high、FLB 三组不变。详见 V23-CODE-023。
+
+**收口计数（本轮）**：新增 8 条（CODE-023/024/025/026/027、DESIGN-015/016/017）全部 closed；累计 open=0。
+**保持登记**：V23-DATA-001、V23-DATA-003、RCA-010。
 
 

@@ -39,7 +39,7 @@ from rca.v21.accident_config import (
 from rca.v21 import data as D
 from rca.v21 import artifact
 from rca.v21 import source_tracing as ST
-from rca.v21.knowledge import build_ontology, ENTITY_TABLE
+from rca.v21.knowledge import build_ontology, ENTITY_TABLE, validate_knowledge_layer
 from rca.v21.signatures import bootstrap_lingam_template, fit_single_template
 from core.utils import logger
 
@@ -462,6 +462,13 @@ def main(argv: Optional[Sequence[str]] = None) -> str:
                         f"cond={r['cond_IminusB']} top1={r['top1']}")
             results.append(r)
 
+    # 知识层覆盖校验（V23-DESIGN-015）：STRUCTURE.md 承诺的 knowledge_validation.json
+    # 在此与签名同 run_id 产出，不再留空目录（ready 即本次实际建模的类）。
+    artifact.write_artifact(
+        "knowledge_validation",
+        validate_knowledge_layer({k: inputs["selected_vars"][k] for k in ready}),
+        "knowledge", run_id=run_id, source="rca/v21/knowledge.py")
+
     skipped: List[Dict] = [skipped_entry(c) for c in missing]
     if not args.no_partial_smoke:
         for c in partial:
@@ -528,8 +535,13 @@ def main(argv: Optional[Sequence[str]] = None) -> str:
         lines.append(f"[REPRO] {r['k']}_{r['g']} n_stable_edges={r['n_stable_edges']} "
                      f"top5={','.join(r['top5'])}")
     lines.append("")
-    lines.append(f"partial={partial}：仅 smoke，不生成签名/榜单")
-    lines.append(f"data_missing={missing}：已写 tracing/skipped_classes.json")
+    # 跳过清单以实际落盘的 skipped_classes.json 为准（V23-CODE-024）：
+    # 原先按本次 --classes 计算，只选 ready 类时会打印 partial=[]/data_missing=[]，
+    # 与 skipped_classes.json 的 9 条记录自相矛盾。
+    partial_list = [e.get("code") for e in skipped if e.get("status") == "partial"]
+    missing_list = [e.get("code") for e in skipped if e.get("status") == "data_missing"]
+    lines.append(f"partial({len(partial_list)})={partial_list}：仅 smoke，不生成签名/榜单")
+    lines.append(f"data_missing({len(missing_list)})={missing_list}：已写 tracing/skipped_classes.json")
     if repro is not None:
         lines.append("REPRO_OK" if repro["same"] else f"REPRO_FAIL {repro}")
     artifact.write_text_artifact("tracing_report_v23", "\n".join(lines) + "\n",

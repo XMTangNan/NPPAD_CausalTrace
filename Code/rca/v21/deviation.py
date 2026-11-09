@@ -174,7 +174,9 @@ def compute_deviation(accident_type: str, severity: int,
         "percentiles": pcts,
         "deviations": sorted_dev,
         "note": ("通道偏移强度（模板内相对）：档位按本模板 d_raw 的 "
-                 "p50/p70/p85 切分，p95 以上另标“极端”；d=min(d_raw,10) 与 "
+                 "p50/p70/p85 切分，p95 以上另标“极端”；档位是模板内排序，"
+                 "跨模板不可比绝对偏移量（不同模板档位计数相同是分位分档的必然结果，"
+                 "不代表物理强度一致）；d=min(d_raw,10) 与 "
                  "d_abs_level（旧 3/5/7σ 绝对档）仅作附注；偏离度 ≠ 根因"),
     }
 

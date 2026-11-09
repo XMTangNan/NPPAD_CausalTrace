@@ -437,6 +437,42 @@ def build_ontology(accident_type: str, variables: List[str]) -> Dict:
     return ontology
 
 
+def validate_knowledge_layer(selected_vars: Dict[str, List[str]]) -> Dict:
+    """校验符号知识层对实际变量集的覆盖（产出 knowledge/knowledge_validation.json）。
+
+    只做可核对的计数，不臆造结论：每个入选变量是否在 ENTITY_TABLE 登记、
+    该类留存的 allowed 关系有多少落进变量集、forbidden/competitive 规则数、
+    allowed 关系的证据状态分布（冻结/待补）。
+    """
+    from collections import Counter
+
+    per_class: Dict[str, Dict] = {}
+    for k, vars_ in selected_vars.items():
+        variables = list(vars_)
+        ont = build_ontology(k, variables)
+        unregistered = [v for v in variables if v not in ENTITY_TABLE]
+        evidence = Counter(str(r.get("evidence")) for r in ont["allowed"])
+        per_class[k] = {
+            "n_variables": len(variables),
+            "n_entity_registered": len(variables) - len(unregistered),
+            "n_entity_unregistered": len(unregistered),
+            "unregistered_variables": unregistered,
+            "n_allowed_in_registry": len(ALLOWED_RELATIONS.get(k, [])),
+            "n_allowed_in_set": len(ont["allowed"]),
+            "n_forbidden_rules": len(ont["forbidden"]),
+            "n_competitive_pairs": len(ont["competitive"]),
+            "allowed_evidence": dict(evidence),
+            "n_subsystems": len({ENTITY_TABLE.get(v, {}).get("subsystem", "未登记")
+                                 for v in variables}),
+        }
+    return {
+        "classes": per_class,
+        "ontology_total_edges": sum(len(v) for v in ALLOWED_RELATIONS.values()),
+        "note": ("allowed 关系只在变量集内保留；n_entity_unregistered>0 表示该变量"
+                 "未进 ENTITY_TABLE（物理含义缺失，本体约束对它不生效）"),
+    }
+
+
 def _edge_category(ontology: Dict, src: str, dst: str) -> str:
     """返回 forbidden / competitive / allowed / unknown。"""
     for fe in ontology["forbidden"]:
