@@ -1,136 +1,370 @@
-"""V2.3 D7: 结构化 RCA 报告模板（C6 模板兜底）。
+"""V2.3 D7：9 份结构化 RCA 报告（3 类 × 3 组）。
 
-将根因排名 + 传导路径 + 异常状态 + K2/K3 证据组装为可校验的结构化报告。
-LLM 不可用时作为兜底解释。
+设计原则（方案 v2.3 §6.1 D7）：
+  1. 单一证据来源：一律经由 llm_explanation.build_payload 只读 v2.3 产物，
+     不重算因果、不读 v2.1/v2.2 旧目录；
+  2. 章节固定 8 节（结论与 Top-5 / 因果图摘要 / 跨组一致性 / 物理一致性 K2 /
+     故障模板 K3 / 偏离度 / 局限性 / 复现信息），json 与 txt 结构一一对应；
+  3. 数据缺失写“未产出（原因：…）”，绝不输出空表假装完整；
+  4. LLM 解释若未通过忠实性校验，报告正文顶部警示。
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
-from rca.v21 import data as D
-from rca.v21.knowledge import ENTITY_TABLE
-from core.utils import logger, save_json, save_text
+from core.utils import logger
+from rca.v21 import artifact
+from rca.v21 import llm_explanation as LE
+from rca.v21.accident_config import READY_CODES
 
-TRACE_DIR = Path(D.V21_OUTPUT) / "v23_tracing"
-SIG_DIR = Path(D.V21_OUTPUT) / "v23_signatures"
-OUT_DIR = Path(D.V21_OUTPUT) / "v23_rca_reports"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+GROUPS: List[str] = ["low", "mid", "high"]
 
-GROUP_ORDER = ["low", "mid", "high"]
+SECTION_KEYS: List[str] = [
+    "1_conclusion_top5",
+    "2_graph_summary",
+    "3_cross_group",
+    "4_physics_k2",
+    "5_fault_template_k3",
+    "6_deviation",
+    "7_limitations",
+    "8_reproducibility",
+]
+SECTION_TITLES: Dict[str, str] = {
+    "1_conclusion_top5": "结论与 Top-5 根因",
+    "2_graph_summary": "因果图摘要",
+    "3_cross_group": "跨组一致性",
+    "4_physics_k2": "物理一致性 K2（三态）",
+    "5_fault_template_k3": "故障模板 K3（覆盖率/反向边）",
+    "6_deviation": "偏离度（4 级计数；偏离度 ≠ 根因）",
+    "7_limitations": "局限性",
+    "8_reproducibility": "复现信息",
+}
+REPORT_CMD_TMPL = ("cd Code && PYTHONPATH=. ../.venv/bin/python -m "
+                   "rca.v21.run_v23_report --classes {k} --groups {g} --run-id {run_id}")
+ROLE_CN = {
+    "upstream_driver": "上游驱动源",
+    "conduction_hub": "传导枢纽",
+    "intermediate": "中间传导",
+    "physical_root": "物理根因",
+    "injection_source": "注入源",
+}
 
 
-def _build_conduction_path(top1: str, topology: Dict, max_depth: int = 3) -> List[str]:
-    """从 Top1 根因出发，沿出边构建传导路径。"""
-    path = [top1]
-    current = top1
-    for _ in range(max_depth):
-        # 找出边中 consensus_rate 最高的下游
-        outs = [(e["to"], e.get("consensus_rate", 0))
-                for e in topology if e["from"] == current]
-        if not outs:
-            break
-        outs.sort(key=lambda x: -x[1])
-        nxt = outs[0][0]
-        if nxt in path:
-            break
-        path.append(nxt)
-        current = nxt
-    return path
+def _role(role: Optional[str]) -> str:
+    return ROLE_CN.get(role or "", role or "未标注")
 
 
-def generate_rca_report(k: str, g: str) -> Dict:
-    """生成单模板的结构化 RCA 报告。"""
-    rc = D.load_json(str(TRACE_DIR / f"root_candidates_{k}_{g}.json"))
-    sig = D.load_json(str(SIG_DIR / f"signature_{k}_{g}.json"))
+def _miss(reason: str) -> str:
+    return f"未产出（原因：{reason}）"
 
-    candidates = rc["root_candidates"]
-    top1 = candidates[0]
-    top5 = candidates[:5]
 
-    # 传导路径
-    path = _build_conduction_path(top1["variable"], sig["stable_edges"])
+def _f(x, suffix: str = "") -> str:
+    v = LE._num_or_none(x)
+    return "未产出" if v is None else f"{v:.{LE.FAITHFUL_DECIMALS}f}{suffix}"
 
-    # K1 本体标签
-    top1_info = ENTITY_TABLE.get(top1["variable"], {})
 
-    # Top5 证据向量
-    evidence = []
-    for c in top5:
-        ent = ENTITY_TABLE.get(c["variable"], {})
-        evidence.append({
-            "variable": c["variable"],
-            "subsystem": ent.get("subsystem", ""),
-            "meaning": ent.get("meaning", ""),
-            "role": c.get("role", ""),
-            "in_degree": c.get("in_degree", 0),
-            "out_degree": c.get("out_degree", 0),
-            "tracing_score": c.get("tracing_score", 0),
-        })
+def _pct(x) -> str:
+    v = LE._num_or_none(x)
+    return "未产出" if v is None else f"{v * 100:.{LE.FAITHFUL_DECIMALS}f}%"
 
-    report = {
-        "accident_type": k,
-        "severity_group": g,
-        "template": f"{k}_{g}",
-        "root_cause_top1": {
-            "variable": top1["variable"],
-            "subsystem": top1_info.get("subsystem", ""),
-            "meaning": top1_info.get("meaning", ""),
-            "role": top1.get("role", ""),
-            "tracing_score": top1.get("tracing_score", 0),
-        },
-        "conduction_path": path,
-        "top5_evidence": evidence,
-        "n_consensus_edges": len(sig["stable_edges"]),
-        "n_variables": len(sig["variables"]),
-        "report_version": "NPPAD-CausalTrace-v2.3-rca-template",
+
+def _fmt_edge(e) -> str:
+    """K3 边条目统一转文本（模板/稳定边/缺失原因三种形态）。"""
+    return LE._fmt_edge(e)
+
+
+def _load_llm_explanation(k: str, g: str) -> Optional[Dict]:
+    """读同 run_id 的 D6 解释产物（缺失不算错误，报告照出）。"""
+    path = Path(artifact.V23_SUBDIRS["reports"]) / f"llm_explanation_{k}_{g}.json"
+    if not path.exists():
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(f"[D7] 读取 {path} 失败：{exc}")
+        return None
+
+
+def generate_rca_report(k: str, g: str, run_id: Optional[str] = None) -> Dict:
+    """生成单模板报告 dict（8 节固定键）；数据缺失如实标注。"""
+    payload = LE.build_payload(k, g, run_id=run_id)
+    roots = payload["root_candidates"]
+
+    sections: Dict[str, Dict] = {}
+    sections["1_conclusion_top5"] = {
+        "n_candidates": len(roots),
+        "candidates": roots[:5],
+        "top1": roots[0]["variable"] if roots else None,
+        "note": "按总因果效应 T=(I−B)⁻¹ 排序；单引擎稳定边口径",
     }
-    return report
+
+    sections["2_graph_summary"] = {
+        "engine": payload["engine"],
+        "n_variables": payload["n_variables"],
+        "n_available_vars": payload["n_available_vars"],
+        "gate_ratio": payload["gate_ratio"],
+        "n_bootstrap": payload["n_bootstrap"],
+        "n_stable_edges": payload["n_stable_edges"],
+        "b_clip": payload["b_clip"],
+        "n_clipped_edges": payload["n_clipped_edges"],
+        "cond_IminusB": payload["cond_IminusB"],
+        "cond_IminusB_after_clip": payload["cond_IminusB_after_clip"],
+        "consensus_available": payload["consensus_available"],
+        "n_consensus": payload["n_consensus"],
+        "baseline_coverage": payload["baseline_coverage"],
+    }
+
+    cross = payload["cross_group"]
+    cdiff = payload["cross_group_diff"]
+    sections["3_cross_group"] = {
+        "available": bool(cross.get("available")),
+        "reason": cross.get("reason"),
+        "top1_by_group": cross.get("top1_by_group"),
+        "top1_stable": cross.get("top1_stable"),
+        "mean_pairwise_overlap": cross.get("mean_pairwise_overlap"),
+        "n_vars_in_all_groups": cross.get("n_vars_in_all_groups"),
+        "pairwise": cross.get("pairwise"),
+        "edge_counts": cross.get("edge_counts"),
+        "diff": {
+            "available": bool(cdiff.get("available")),
+            "reason": cdiff.get("reason"),
+            "n_top1_switches": cdiff.get("n_top1_switches"),
+            "n_mechanism_switches": cdiff.get("n_mechanism_switches"),
+            "n_edge_count_diffs": cdiff.get("n_edge_count_diffs"),
+            "transitions": cdiff.get("transitions"),
+        },
+    }
+
+    sections["4_physics_k2"] = dict(payload["k2"])
+    sections["5_fault_template_k3"] = dict(payload["k3"])
+    sections["6_deviation"] = {**payload["deviation"], "note": "偏离度 ≠ 根因"}
+    sections["7_limitations"] = {"items": list(payload.get("limitations") or [])}
+    sections["8_reproducibility"] = {
+        "run_id": payload["run_id"],
+        "command": REPORT_CMD_TMPL.format(k=k, g=g, run_id=payload["run_id"]),
+        "upstream_command": ("cd Code && PYTHONPATH=. ../.venv/bin/python -m "
+                             f"rca.v21.run_v23_all --classes {k} --groups {g} "
+                             f"--n-bootstrap {payload['n_bootstrap']}"),
+        "inputs": payload["inputs"],
+    }
+
+    llm_doc = _load_llm_explanation(k, g)
+    llm_info: Dict = {"available": llm_doc is not None}
+    if llm_doc is not None and llm_doc.get("run_id") not in (None, payload["run_id"]):
+        llm_info = {"available": False,
+                    "run_id": llm_doc.get("run_id"),
+                    "reason": (f"解释产物 run_id={llm_doc.get('run_id')} 与本报告 "
+                               f"{payload['run_id']} 不同源，已忽略")}
+        llm_doc = None
+    warning = None
+    if llm_doc is not None:
+        faith = llm_doc.get("faithfulness") or {}
+        llm_info.update({
+            "backend": llm_doc.get("backend"),
+            "degraded_reason": llm_doc.get("degraded_reason"),
+            "faithful": faith.get("faithful"),
+            "n_numbers_unsupported": faith.get("n_numbers_unsupported"),
+            "unsupported": faith.get("unsupported") or [],
+            "unknown": faith.get("unknown") or [],
+            "run_id": llm_doc.get("run_id"),
+        })
+        if faith.get("faithful") is False:
+            warning = (f"警示：LLM 解释未通过忠实性校验——未支撑数字 "
+                       f"{faith.get('n_numbers_unsupported')} 个 {faith.get('unsupported')}，"
+                       f"未知变量名 {faith.get('n_vars_unknown')} 个 {faith.get('unknown')}；"
+                       f"正文以规则后端解释为准。")
+
+    return {
+        "template": f"{k}_{g}",
+        "accident_type": k,
+        "group": g,
+        "marker": payload["marker"],
+        "run_id": payload["run_id"],
+        "section_order": list(SECTION_KEYS),
+        "sections": sections,
+        "llm_explanation": llm_info,
+        "warning": warning,
+    }
 
 
 def report_to_text(report: Dict) -> str:
-    """结构化报告转可读文本（LLM 降级兜底）。"""
-    r = report["root_cause_top1"]
-    lines = [
-        f"=== NPPAD 根因分析报告：{report['template']} ===",
-        f"",
-        f"【根因判定】",
-        f"  Top1 根因: {r['variable']} ({r['meaning']})",
-        f"  子系统: {r['subsystem']}",
-        f"  角色: {r['role']}",
-        f"  溯源得分: {r['tracing_score']}",
-        f"",
-        f"【传导路径】",
-        f"  {' → '.join(report['conduction_path'])}",
-        f"",
-        f"【Top5 候选证据】",
-    ]
-    for i, e in enumerate(report["top5_evidence"], 1):
-        lines.append(f"  {i}. {e['variable']} ({e['subsystem']}): "
-                     f"in={e['in_degree']}, out={e['out_degree']}, "
-                     f"score={e['tracing_score']}")
-    lines.extend([
-        f"",
-        f"【图统计】共识边 {report['n_consensus_edges']} 条, 变量 {report['n_variables']} 个",
-        f"",
-        f"⚠️ 本报告由结构化模板生成（C6 兜底），未调用 LLM。",
-        f"   根因判定基于拓扑溯源（in_degree + weighted_reach + consensus_rate）。",
-    ])
-    return "\n".join(lines)
+    """报告渲染为可读中文文本（与 json 章节同序同源）。"""
+    s = report["sections"]
+    L: List[str] = []
+    L.append(f"CausalTrace v2.3 根因分析报告 · {report['accident_type']} / {report['group']} 组")
+    L.append(f"marker={report['marker']}，run_id={report['run_id']}")
+    if report.get("warning"):
+        L.append("")
+        L.append(f"[{report['warning']}]")
+    L.append("")
+
+    # 一、结论
+    L.append(f"一、{SECTION_TITLES['1_conclusion_top5']}")
+    c = s["1_conclusion_top5"]
+    if c["n_candidates"]:
+        for i, cand in enumerate(c["candidates"], start=1):
+            L.append(f"  第{i}名 {cand['variable']}（{cand['subsystem']}，{_role(cand['role'])}）："
+                     f"总效应 {_f(cand['total_effect'])}，入度 {cand['in_degree']}，"
+                     f"出度 {cand['out_degree']}，可达 {cand['reach_size']}")
+        L.append(f"  Top-1：{c['top1']}；{c['note']}")
+    else:
+        L.append(f"  {_miss('根因候选为空，先检查 run_v23_end2end 溯源产物')}")
+    L.append("")
+
+    # 二、图摘要
+    g2 = s["2_graph_summary"]
+    L.append(f"二、{SECTION_TITLES['2_graph_summary']}")
+    L.append(f"  引擎 {g2['engine']}，入模变量 {g2['n_variables']} 个"
+             f"（本体 {g2['n_available_vars']} 个，门控比例 {_pct(g2['gate_ratio'])}），"
+             f"bootstrap {g2['n_bootstrap']} 次。")
+    L.append(f"  稳定边 {g2['n_stable_edges']} 条；B 截断阈值 {_f(g2['b_clip'])}，"
+             f"被截断边 {g2['n_clipped_edges']} 条。")
+    L.append(f"  条件数 cond(I−B)：截断前 {_f(g2['cond_IminusB'])}，"
+             f"截断后 {_f(g2['cond_IminusB_after_clip'])}。")
+    L.append(f"  共识：n_consensus={'null' if g2['n_consensus'] is None else g2['n_consensus']}"
+             f"（单引擎口径，稳定边不构成多引擎共识）。")
+    baseline = g2.get("baseline_coverage") or {}
+    if baseline:
+        L.append(f"  基线覆盖：期望 {baseline.get('expected_points')} 点，"
+                 f"实际均 {_f(baseline.get('mean_actual_points'))} 点，"
+                 f"{baseline.get('n_truncated')} 条恢复段不完整。")
+    L.append("")
+
+    # 三、跨组一致性
+    g3 = s["3_cross_group"]
+    L.append(f"三、{SECTION_TITLES['3_cross_group']}")
+    if g3["available"]:
+        t1 = g3.get("top1_by_group") or {}
+        L.append("  三组 Top-1：" + "，".join(f"{gn}={t1.get(gn)}" for gn in t1) + "。")
+        L.append(f"  Top-1 跨组稳定：{'是' if g3.get('top1_stable') else '否'}；"
+                 f"三组共同入榜变量 {g3.get('n_vars_in_all_groups')} 个；"
+                 f"相邻组平均 Top-5 重叠 {_f(g3.get('mean_pairwise_overlap'))}。")
+        for p in g3.get("pairwise") or []:
+            pair = p.get("pair") or ["", ""]
+            L.append(f"  组对 {pair[0]}→{pair[1]}：重叠 {p.get('overlap')} 个，"
+                     f"Jaccard {_f(p.get('jaccard'))}。")
+        d = g3["diff"]
+        if d["available"]:
+            L.append(f"  差异报告：Top-1 切换 {d['n_top1_switches']} 次，"
+                     f"机理切换点 {d['n_mechanism_switches']} 个，"
+                     f"边数差异超阈值组对 {d['n_edge_count_diffs']} 个。")
+        else:
+            L.append(f"  {_miss(d.get('reason') or 'diff 产物缺失')}")
+    else:
+        L.append(f"  {_miss(g3.get('reason') or 'summary 产物缺失')}")
+    L.append("")
+
+    # 四、K2
+    g4 = s["4_physics_k2"]
+    L.append(f"四、{SECTION_TITLES['4_physics_k2']}")
+    if g4.get("available"):
+        L.append(f"  适用关系 {g4['n_relations']} 条：违反 {g4['n_violation']}，"
+                 f"未违反 {g4['n_not_violated']}，不可判定 {g4['n_undecidable']}"
+                 f"（不可判定比例 {_pct(g4['undecidable_ratio'])}）。")
+        for r in g4.get("relations") or []:
+            L.append(f"    {r['relation_id']}: {r['status']}")
+        L.append(f"  来源：{g4['source']}；{g4.get('note')}")
+    else:
+        L.append(f"  {_miss(g4.get('reason') or 'K2 产物缺失')}")
+    L.append("")
+
+    # 五、K3
+    g5 = s["5_fault_template_k3"]
+    L.append(f"五、{SECTION_TITLES['5_fault_template_k3']}")
+    if g5.get("available"):
+        L.append(f"  expected_chain {g5.get('n_chain_edges')} 条相邻边中命中 "
+                 f"{g5.get('n_matched')} 条，覆盖率 {_pct(g5['coverage'])}；"
+                 f"verification={g5.get('verification')}。")
+        L.append(f"  稳定边反向 {g5['n_reverse_edges']} 条（{LE.REVERSE_EDGE_NOTE}）。")
+        if g5.get("reverse_edges"):
+            L.append("  反向边：" + "、".join(_fmt_edge(e) for e in g5["reverse_edges"]))
+        if g5.get("missing_edges"):
+            L.append("  模板链缺失：" + "、".join(_fmt_edge(e) for e in g5["missing_edges"]))
+    else:
+        L.append(f"  {_miss(g5.get('reason') or 'K3 模板缺失')}")
+    L.append("")
+
+    # 六、偏离度
+    g6 = s["6_deviation"]
+    L.append(f"六、{SECTION_TITLES['6_deviation']}")
+    if g6.get("available"):
+        lc = g6.get("level_counts") or {}
+        L.append(f"  变量 {g6.get('n_variables')} 个：正常 {lc.get('normal')}、"
+                 f"中等 {lc.get('moderate')}、较大 {lc.get('large')}、严重 {lc.get('severe')}。")
+        L.append(f"  来源：{g6.get('source')}；{g6.get('note')}")
+    else:
+        L.append(f"  {_miss(g6.get('reason') or '偏离度产物缺失')}")
+    L.append("")
+
+    # 七、局限
+    L.append(f"七、{SECTION_TITLES['7_limitations']}")
+    items = s["7_limitations"]["items"]
+    if items:
+        for it in items:
+            L.append(f"  - {it}")
+    else:
+        L.append("  未登记局限项")
+    L.append("")
+
+    # 八、复现
+    g8 = s["8_reproducibility"]
+    L.append(f"八、{SECTION_TITLES['8_reproducibility']}")
+    L.append(f"  run_id：{g8['run_id']}")
+    L.append(f"  命令：{g8['command']}")
+    L.append(f"  上游全链：{g8['upstream_command']}")
+    if g8["inputs"]:
+        L.append("  输入 sha256：")
+        for i in g8["inputs"]:
+            L.append(f"    {i['path']}  {i['sha256']}")
+    else:
+        L.append(f"  {_miss('未解析到输入文件')}")
+    L.append("")
+    L.append("（本报告由规则模板生成，全部数字来自同 run_id 的 v2.3 JSON 产物。）")
+    return "\n".join(L)
 
 
-def run_all_reports():
-    """为所有 3 类×3 组生成 RCA 报告。"""
-    from rca.rca_config_v21 import ACCIDENT_TYPES
-    for k in ACCIDENT_TYPES:
-        for g in GROUP_ORDER:
-            report = generate_rca_report(k, g)
-            save_json(report, f"RCA_report_{k}_{g}", result_dir=OUT_DIR)
-            save_text(report_to_text(report), f"RCA_report_{k}_{g}", result_dir=OUT_DIR)
-            logger.info(f"[D7-report] {k}_{g}: Top1={report['root_cause_top1']['variable']}, "
-                        f"路径={'→'.join(report['conduction_path'])}")
+def write_report(report: Dict) -> Dict[str, str]:
+    """落盘 output/rca_v23/reports/rca_report_{K}_{g}.json 与 .txt（txt 带 .meta.json）。"""
+    k, g = report["accident_type"], report["group"]
+    name = f"rca_report_{k}_{g}"
+    run_id = report["run_id"]
+    source = ("tracing/root_candidates_{k}_{g}.json;signatures/signature_{k}_{g}.json;"
+              "reports/summary_{k}.json;reports/diff_{k}.json").format(k=k, g=g)
+    json_path = artifact.write_artifact(
+        name, report, "reports", run_id=run_id, accident_type=k, group=g,
+        source=source)
+    txt_path = artifact.write_text_artifact(
+        name, report_to_text(report), "reports", run_id=run_id,
+        accident_type=k, group=g, source=source)
+    return {"json": str(json_path), "txt": str(txt_path)}
+
+
+def run_all_reports(classes: Optional[List[str]] = None,
+                    groups: Optional[List[str]] = None,
+                    run_id: Optional[str] = None) -> List[Dict]:
+    """3 类 × 3 组 = 9 份报告；单模板失败不掩盖，汇总后抛出。"""
+    classes = list(classes or READY_CODES)
+    groups = list(groups or GROUPS)
+    done: List[Dict] = []
+    errors: List[str] = []
+    for k in classes:
+        for g in groups:
+            try:
+                rep = generate_rca_report(k, g, run_id=run_id)
+                paths = write_report(rep)
+                done.append({"template": rep["template"],
+                             "run_id": rep["run_id"], "paths": paths})
+            except Exception as exc:  # noqa: BLE001 - 逐模板记录失败原因
+                logger.error(f"[D7] {k}_{g} 报告生成失败：{type(exc).__name__}: {exc}")
+                errors.append(f"{k}_{g}: {type(exc).__name__}: {exc}")
+    if errors:
+        raise RuntimeError(f"报告生成失败 {len(errors)} 份：{errors}")
+    return done
 
 
 if __name__ == "__main__":
-    run_all_reports()
+    r = generate_rca_report("LOCA", "mid")
+    print(report_to_text(r))

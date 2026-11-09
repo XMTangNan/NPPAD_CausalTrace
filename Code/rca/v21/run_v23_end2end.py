@@ -465,10 +465,22 @@ def main(argv: Optional[Sequence[str]] = None) -> str:
         skipped += [{"code": c, "status": "partial", "partial": True,
                      "reason": "本 run 跳过 partial smoke"} for c in partial]
 
+    # 注册表全量如实登记：即使本次 --classes 只选 ready 类，partial/missing 也要出现，
+    # 避免 skipped_classes.json 因选择范围而“看起来没有缺数据类”。
+    recorded = {e.get("code") for e in skipped}
+    for c in list(PARTIAL_CODES) + list(MISSING_CODES):
+        if c in recorded:
+            continue
+        skipped.append({"code": c,
+                        "status": "partial" if c in PARTIAL_CODES else "data_missing",
+                        "partial": c in PARTIAL_CODES,
+                        "reason": "本 run 未选择该类（--classes 仅含 ready 类）"})
+
     artifact.write_artifact(
         "skipped_classes",
         {"entries": skipped,
-         "n_ready": len(ready), "n_partial": len(partial), "n_missing": len(missing),
+         "n_ready": len(READY_CODES), "n_partial": len(PARTIAL_CODES),
+         "n_missing": len(MISSING_CODES),
          "note": "partial 只做单模板 smoke（不生成签名/榜单）；data_missing 直接跳过，"
                  "禁止占位结果"},
         "tracing", run_id=run_id, source="rca/v21/accident_config.py")

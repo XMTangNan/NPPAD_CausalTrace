@@ -2,14 +2,19 @@
 
 对 consensus 边验证物理关系，三态：违反 / 未违反 / 不可判定。
 满足约束≠方向证明、违反≠链错（可能遗漏项导致）。
+
+接线（V23-DESIGN-003）：`evaluate_all_relations` 支持按组代表严重度取主窗切片；
+`evaluate_groups` 一次给三组结果，供 `signatures` 挂载 auxiliary.k2 与图内面板。
 """
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 
+from rca.rca_config_v21 import GROUP_ORDER, SEVERITY_BANDS
+from rca.v21.accident_config import get_accident
 from rca.v21 import data as D
 
 # 5 类近似物理关系定义（方案 §5.3.2）
@@ -155,8 +160,31 @@ def check_relation(rel: Dict, df: pd.DataFrame, dt: float = 1.0) -> Dict:
             "correlation": round(corr, 4), "n_points": len(df)}
 
 
-def evaluate_all_relations(accident_type: str, df: pd.DataFrame) -> Dict:
-    """对指定事故评估所有适用的物理关系。"""
+def main_window(accident_type: str) -> Tuple[float, float]:
+    """该类主分析窗（元数据唯一来源 accident_config）。"""
+    return tuple(get_accident(accident_type)["main_window"])
+
+
+def representative_severity(accident_type: str, group: str) -> int:
+    """组内代表严重度 = 该组实际存在轨迹中的最大 severity（不臆造缺失轨迹）。"""
+    lo, hi = SEVERITY_BANDS[group]
+    sevs = [s for s in D.list_class_severities(accident_type) if lo <= s <= hi]
+    if not sevs:
+        raise ValueError(f"{accident_type}/{group}: 严重度区间 [{lo},{hi}] 无可用轨迹")
+    return int(max(sevs))
+
+
+def evaluate_all_relations(accident_type: str, df: Optional[pd.DataFrame] = None, *,
+                           severity: Optional[int] = None,
+                           window: Optional[Sequence[float]] = None) -> Dict:
+    """对指定事故评估所有适用的物理关系（默认取主窗切片）。"""
+    win = tuple(window) if window is not None else main_window(accident_type)
+    if df is None:
+        sev = 1 if severity is None else int(severity)
+        df = D.load_trajectory(accident_type, sev)
+        severity = sev
+    df = D.window_slice(df, win[0], win[1])
+
     results = []
     for rel in PHYSICS_RELATIONS:
         if accident_type not in rel["applicable_accidents"]:
@@ -173,22 +201,47 @@ def evaluate_all_relations(accident_type: str, df: pd.DataFrame) -> Dict:
 
     return {
         "accident_type": accident_type,
+        "severity": severity,
+        "window": [float(win[0]), float(win[1])],
+        "n_points": int(len(df)),
         "n_relations_applicable": n_total,
         "n_violation": n_violation,
         "n_not_violated": n_not,
         "n_undecidable": n_undec,
         "undecidable_ratio": round(n_undec / max(n_total, 1), 4),
         "relations": results,
-        "note": "满足约束≠方向证明、违反≠链错（可能遗漏项导致）",
+        "note": "满足约束≠方向证明、违反≠链错（可能遗漏项导致）；"
+                "K2 为辅助证据，不参与 T=(I−B)⁻¹ 排序",
+    }
+
+
+def evaluate_groups(accident_type: str,
+                    window: Optional[Sequence[float]] = None) -> Dict:
+    """三组代表严重度（组内最大 severity）的主窗残差三态结果。"""
+    win = tuple(window) if window is not None else main_window(accident_type)
+    groups: Dict[str, Dict] = {}
+    for g in GROUP_ORDER:
+        sev = representative_severity(accident_type, g)
+        df = D.load_trajectory(accident_type, sev)
+        res = evaluate_all_relations(accident_type, df, severity=sev, window=win)
+        res["group"] = g
+        groups[g] = res
+    return {
+        "accident_type": accident_type,
+        "window": [float(win[0]), float(win[1])],
+        "groups": groups,
+        "note": "每组取组内最大 severity 轨迹的主窗切片；满足约束≠方向证明、违反≠链错",
     }
 
 
 if __name__ == "__main__":
     for k in ["LOCA", "SGATR", "FLB"]:
-        df = D.load_trajectory(k, 1)
-        res = evaluate_all_relations(k, df)
-        print(f"\n{k}: {res['n_relations_applicable']} 关系适用, "
-              f"违反={res['n_violation']}, 未违反={res['n_not_violated']}, "
-              f"不可判定={res['n_undecidable']}")
-        for r in res["relations"]:
-            print(f"  {r['relation_id']} ({r['relation_name']}): {r['status']} — {r['reason']}")
+        res = evaluate_groups(k)
+        print(f"\n{k}: 主窗 {res['window']}")
+        for g, r in res["groups"].items():
+            print(f"  [{g}] sev={r['severity']}: {r['n_relations_applicable']} 关系适用, "
+                  f"违反={r['n_violation']}, 未违反={r['n_not_violated']}, "
+                  f"不可判定={r['n_undecidable']}")
+            for rel in r["relations"]:
+                print(f"    {rel['relation_id']} ({rel['relation_name']}): "
+                      f"{rel['status']} — {rel['reason']}")

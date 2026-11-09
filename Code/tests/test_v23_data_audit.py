@@ -92,9 +92,14 @@ def test_data_missing_class_raises():
 
 
 # ==================== 端到端：三份产物落盘 ====================
-def test_run_audit_loca_writes_three_reports():
+def test_run_audit_loca_writes_three_reports(tmp_path, monkeypatch):
+    # 单测不得污染正式产物目录：把 audit 子目录重定向到 tmp_path
+    import rca.v21.data_audit as DA
+    subdirs = dict(V23_SUBDIRS)
+    subdirs["audit"] = tmp_path
+    monkeypatch.setattr(DA, "V23_SUBDIRS", subdirs)
     summary = run_audit("LOCA", run_id="pytest-v23-data-audit")
-    audit_dir = Path(V23_SUBDIRS["audit"])
+    audit_dir = Path(tmp_path)
     names = ["data_audit_LOCA.json", "z_pathology_audit_LOCA.json",
              "changepoint_report_LOCA.json"]
     for name in names:

@@ -9,6 +9,8 @@
 - 节点=变量（marker 高亮，Root Top-5 描边加粗，Top1 最粗）
 - 边=稳定边（粗细=f_e，箭头=方向），单引擎状态下每条边 consensus=null
 - 面板=Top-5 根因表（变量/总效应/排名/来源路径数）+ C3a 信息门控说明 + 图例
+- 辅助证据面板（D3）：K2 残差三态小表、K3 故障模板覆盖条、偏离度四色边框/图例，
+  统一注明"基础排序仅用 T=(I−B)⁻¹ 总效应；K2/K3/偏离度为辅助证据，不改变排名"
 - 图例口径：稳定边（LiNGAM bootstrap f_e≥0.70, dir_e≥0.90），禁止称"共识边"
 
 用法（cd Code）：
@@ -54,6 +56,9 @@ td.num{text-align:right;font-family:Consolas,monospace}
 .rank1{font-weight:700;color:#c0392b}
 .note{font-size:11.5px;color:#5d6d7e;line-height:1.7}
 .gate{background:#fdf6e3;border-left:3px solid #f39c12;padding:9px 12px;font-size:12px}
+.bar{height:12px;background:#eceff1;border-radius:6px;overflow:hidden;margin:6px 0}
+.bar>div{height:100%;background:#2980b9}
+.dot{display:inline-block;width:10px;height:10px;border-radius:2px}
 .foot{padding:10px 26px 26px;font-size:11px;color:#7f8c8d}
 """
 
@@ -125,6 +130,86 @@ _ROLE_LABEL = {
     "terminal": "末端症状",
 }
 
+# ==================== 辅助证据（K2/K3/偏离度，均不改排名）====================
+DEVIATION_COLORS = {
+    "normal": "#2ecc71",     # 正常-绿
+    "moderate": "#f1c40f",   # 中等-黄
+    "large": "#e67e22",      # 较大-橙
+    "severe": "#e74c3c",     # 严重-红
+}
+DEVIATION_LEGEND = "偏离度≠根因（d=min(|x−μ|/σ_robust,10)，仅辅助展示）"
+AUX_RANK_NOTE = ("基础排序仅用 T=(I−B)⁻¹ 总效应；K2/K3/偏离度为辅助证据，不改变排名")
+K2_STATUS_LABEL = {"violation": "违反", "not_violated": "未违反", "undecidable": "不可判定"}
+K2_STATUS_COLOR = {"violation": "#e74c3c", "not_violated": "#2ecc71",
+                   "undecidable": "#95a5a6"}
+
+
+def _k2_card(k2: Optional[Dict]) -> str:
+    if not k2:
+        return ('<div class="card" style="max-width:430px"><h2>物理一致性（K2）</h2>'
+                '<div class="note">本 run 签名未含 auxiliary.k2（D 阶段签名重算后填充）。</div>'
+                f'<div class="note">{html.escape(AUX_RANK_NOTE)}</div></div>')
+    rows = ""
+    for r in k2.get("relations", []):
+        st = r.get("status", "")
+        color = K2_STATUS_COLOR.get(st, "#7f8c8d")
+        corr = r.get("correlation")
+        rows += (f'<tr><td>{html.escape(str(r.get("relation_id", "-")))}</td>'
+                 f'<td style="color:{color};font-weight:600">'
+                 f'{html.escape(K2_STATUS_LABEL.get(st, st))}</td>'
+                 f'<td class="note">{html.escape(str(r.get("reason", "-")))}</td>'
+                 f'<td class="num">{"" if corr is None else corr}</td></tr>')
+    return (
+        '<div class="card" style="max-width:430px"><h2>物理一致性（K2 残差三态）</h2>'
+        f'<div class="note">代表严重度 sev={k2.get("representative_severity")}；'
+        f'主窗 {k2.get("window")}；适用 {k2.get("n_relations_applicable")} 条：'
+        f'违反 {k2.get("n_violation")} / 未违反 {k2.get("n_not_violated")} / '
+        f'不可判定 {k2.get("n_undecidable")}</div>'
+        '<table><tr><th>关系</th><th>三态</th><th>原因</th><th>相关系数</th></tr>'
+        f'{rows}</table>'
+        '<div class="note" style="margin-top:6px">满足约束≠方向证明、违反≠链错'
+        f'（可能遗漏项导致）。{html.escape(AUX_RANK_NOTE)}</div></div>')
+
+
+def _k3_card(k3: Optional[Dict]) -> str:
+    if not k3 or not k3.get("available", True):
+        reason = (k3 or {}).get("reason", "本 run 签名未含 auxiliary.k3（D 阶段签名重算后填充）")
+        return ('<div class="card" style="max-width:430px"><h2>故障模板（K3）</h2>'
+                f'<div class="note">{html.escape(str(reason))}</div>'
+                f'<div class="note">{html.escape(AUX_RANK_NOTE)}</div></div>')
+    cov = float(k3.get("coverage") or 0.0)
+    rev = "".join(f'<li>{html.escape(r.get("stable", ""))} ⟂ 模板 '
+                  f'{html.escape(r.get("template", ""))}</li>'
+                  for r in k3.get("reversed_edges", [])) or "<li>无</li>"
+    miss = {}
+    for m in k3.get("missing_edges", []):
+        miss[m.get("reason", "-")] = miss.get(m.get("reason", "-"), 0) + 1
+    miss_txt = "，".join(f"{k}={v}" for k, v in miss.items()) or "无"
+    return (
+        '<div class="card" style="max-width:430px"><h2>故障模板（K3）覆盖</h2>'
+        f'<div class="bar"><div style="width:{cov * 100:.1f}%"></div></div>'
+        f'<div class="note">coverage=<b>{cov:.1%}</b>'
+        f'（命中 {k3.get("n_matched")}/{k3.get("n_chain_edges")} 条模板链边，'
+        f'反向 {k3.get("n_reversed")}）；模板={html.escape(str(k3.get("template_code")))}'
+        f'，核实={html.escape(str(k3.get("verification")))}</div>'
+        f'<div class="note" style="margin-top:6px">反向边：<ul>{rev}</ul></div>'
+        f'<div class="note">缺失边：{html.escape(miss_txt)}</div>'
+        f'<div class="note" style="margin-top:6px">{html.escape(AUX_RANK_NOTE)}</div></div>')
+
+
+def _deviation_card(dev: Optional[Dict]) -> str:
+    counts = (dev or {}).get("level_counts", {})
+    sw = "".join(
+        f'<span><i class="dot" style="background:{color}"></i>{name}'
+        f'（{counts.get(name, 0)}）</span>'
+        for name, color in DEVIATION_COLORS.items())
+    return ('<div class="card" style="max-width:340px"><h2>偏离度着色</h2>'
+            f'<div class="legend" style="flex-wrap:wrap">{sw}</div>'
+            f'<div class="note" style="margin-top:6px">代表严重度 '
+            f'sev={(dev or {}).get("severity", "-")}，变量数 {(dev or {}).get("n_variables", 0)}；'
+            f'{html.escape(DEVIATION_LEGEND)}</div>'
+            f'<div class="note">{html.escape(AUX_RANK_NOTE)}</div></div>')
+
 
 # ==================== 分组图 ====================
 def _layout(variables: Sequence[str], nodes: Dict[str, Dict], marker: str
@@ -141,6 +226,11 @@ def render_group_html(k: str, g: str, sig: Dict, rc: Dict, topo: Dict,
     roots = rc["root_candidates"]
     root_vars = [c["variable"] for c in roots]
     top1 = root_vars[0] if root_vars else None
+
+    # 辅助证据（签名 auxiliary；缺省则面板退化为"未接入"，不改排名）
+    aux = sig.get("auxiliary") or {}
+    dev = aux.get("deviation") or {}
+    dev_levels = dev.get("levels") or {}
 
     sub_nodes, sub_edges = GV._extract_conduction_subgraph(stable, root_vars)
     variables = [v for v in topo["variables"] if v in sub_nodes or v == marker]
@@ -168,14 +258,13 @@ def render_group_html(k: str, g: str, sig: Dict, rc: Dict, topo: Dict,
         info = nodes_metrics.get(v, {})
         role = "injection_source" if v == marker else info.get("role", "intermediate")
         fill = GV.ROLE_COLORS.get(role, GV.DEFAULT_COLOR)
+        dev_color = DEVIATION_COLORS.get(dev_levels.get(v, ""))
         if v == marker:
             stroke, sw, fill = "#4a148c", 4.0, "#e74c3c"
-        elif v == top1:
-            stroke, sw = "#1a1a2e", 4.0
-        elif v in root_vars:
-            stroke, sw = "#34495e", 2.6
         else:
-            stroke, sw = "#b9c2c9", 1.2
+            stroke = dev_color or ("#1a1a2e" if v == top1
+                                   else "#34495e" if v in root_vars else "#b9c2c9")
+            sw = 4.0 if v == top1 else (2.6 if v in root_vars else 1.2)
         rank = root_vars.index(v) + 1 if v in root_vars else None
         badge = f" #{rank}" if rank else (" ●marker" if v == marker else "")
         meaning = ENTITY_TABLE.get(v, {}).get("meaning", v)
@@ -183,7 +272,8 @@ def render_group_html(k: str, g: str, sig: Dict, rc: Dict, topo: Dict,
         tip = (f"{v}（{meaning}）\n角色={_ROLE_LABEL.get(role, role)}\n"
                f"in_degree={info.get('in_degree', 0)} out_degree={info.get('out_degree', 0)}\n"
                f"reach_size={info.get('reach_size', 0)} depth={info.get('depth', 0)}\n"
-               f"总效应={'%.4f' % te if isinstance(te, (int, float)) else '-'}")
+               f"总效应={'%.4f' % te if isinstance(te, (int, float)) else '-'}\n"
+               f"偏离度等级={dev_levels.get(v, '未计算')}（偏离度≠根因）")
         node_svgs.append(
             f'<g><rect x="{pos["x"]:.1f}" y="{pos["y"]:.1f}" width="{GV.NODE_W}" '
             f'height="{GV.NODE_H}" rx="6" fill="{fill}" stroke="{stroke}" '
@@ -228,6 +318,7 @@ def render_group_html(k: str, g: str, sig: Dict, rc: Dict, topo: Dict,
                    "dir_e": e["dir_e"], "weight_median": e.get("weight_median"),
                    "consensus": None} for e in sub_edges],
         "root_candidates": roots,
+        "auxiliary": aux,
     }
 
     return f"""<!DOCTYPE html>
@@ -258,6 +349,9 @@ def render_group_html(k: str, g: str, sig: Dict, rc: Dict, topo: Dict,
       引擎=lingam，n_bootstrap={rc.get('n_bootstrap')}。
     </div>
   </div>
+  {_k2_card(aux.get("k2"))}
+  {_k3_card(aux.get("k3"))}
+  {_deviation_card(aux.get("deviation"))}
 </div>
 <div class="foot">NPPAD-CausalTrace v2.3 C 阶段 · 同源产物 run_id={html.escape(run_id)}</div>
 <script id="graph-data" type="application/json">{json.dumps(data, ensure_ascii=False)}</script>

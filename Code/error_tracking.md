@@ -376,8 +376,8 @@
 ### V23-DESIGN-002：v2.3 产物多根多源，同一结果存在多份来源
 - **类别**：DESIGN（产物结构）
 - **证据**：`output/rca_v21/` 下并存 `v23_signatures/`、`v23_tracing/`、`v23_graphs/`、`v23_llm/`、`tracing/`、`signatures/`、`signatures_strict/`；`severity_aggregation.py`、`run_v23_*` 各自拼路径。
-- **解决**：按 `Code/STRUCTURE.md` 收敛到唯一根 `output/rca_v23/`；旧目录冻结只读；所有执行器通过 `V23_OUTPUT` 常量取路径。
-- **状态**：open
+- **解决**：按 `Code/STRUCTURE.md` 收敛到唯一根 `output/rca_v23/`；旧目录冻结只读；所有执行器通过 `V23_OUTPUT`/`V23_SUBDIRS` 取路径，写入统一走 `artifact.write_artifact`。
+- **状态**：closed（2026-11-10；`output/rca_v21/v23_*` 不再被写入；v2.3 产物全部带 schema/run_id/source）
 
 ### V23-CODE-006：汇总图/差异报告停留在 11-04，与 11-10 重算根因不同源
 - **类别**：CODE（C3b/C3c）
@@ -396,7 +396,7 @@
 - **类别**：DESIGN（D4/D9）
 - **证据**：`physics_constraints.py`、`deviation.py` 存在，但 `signatures.py`、`source_tracing.py`、`graph_visualization.py` 均未 import；`v23_graphs` 无偏离度着色/无残差标注。
 - **解决**：在签名阶段挂载 K2 三态与 deviation summary，在 `root_candidates`/HTML 中输出；偏离度只作辅助层，不改排序（§5.10）。
-- **状态**：open
+- **状态**：closed（2026-11-10；签名 `auxiliary.{k2,k3,deviation}` 由 `bootstrap_lingam_template` 自动挂载；HTML 增 K2 三态表、K3 覆盖条、偏离度四色边框，并注“不改变排名”）
 
 ### V23-DESIGN-004：D3/D5 外部知识与 K3 模板全缺
 - **类别**：DESIGN（D3/D5）
@@ -408,7 +408,7 @@
 - **类别**：CODE（D6）
 - **证据**：`run_v23_llm_explanation.py` 读取 `v23_signatures`/`v23_tracing`，但产物 9 份全部 `degraded`/模板文本；`llm_explanation.py` 未见 API 调用与忠实性校验闭环。
 - **解决**：升级为可用版：结构化 prompt（图+Top5+路径+K2/K3+偏离度）、忠实性校验（变量名/数值/边存在性）、失败自动降级并标 `llm_used=false`。
-- **状态**：open
+- **状态**：closed（2026-11-10；默认 `backend=rule` 离线可跑、`faithful=True`；`backend=llm` 需双环境变量，不可达时降级并写 `degraded_reason`。注：本环境无 API key，LLM 路径仅单测覆盖，未做真实联网验证）
 
 ### V23-CODE-008：`run_v23_report.py` 读取已改名的校验键
 - **类别**：CODE（A4/报告）
@@ -420,7 +420,7 @@
 - **类别**：CODE（测试）
 - **证据**：`Code/tests/` 9 个文件均 import v2.1 模块；无 `accident_config/data_audit/physics_constraints/external_knowledge/run_v23_all` 测试。
 - **解决**：新增 `tests/test_v23_*.py`，覆盖注册表完整性、缺数据门控、Z 病态/变点纯函数、K2 三态、外部知识合并、端到端小样本 smoke。
-- **状态**：⚠️ 部分完成（2026-11-10：`test_v23_accident_config` 16 例、`test_v23_data_audit` 7 例、`test_v23_knowledge_external` 13 例；K2 三态与 run_v23_all 测试待 D 阶段）
+- **状态**：closed（2026-11-10；共 118 例：accident_config 16、data_audit 7、knowledge_external 13、pipeline 4、physical 10、report_llm 7 + v2.1 原 61）
 
 ### V23-ALGO-001：`B` 矩阵共线伪影截断已临时补丁，缺敏感性分析
 - **类别**：ALGO
@@ -519,5 +519,89 @@
 - **证据**：`severity_aggregation.py` 现输出 `reports/summary_{K}.json`、`reports/diff_{K}.json`；旧产物为 `output/rca_v21/v23_tracing/diff_report_{K}_{g}.json`。
 - **解决**：以 `Code/STRUCTURE.md` 为准，旧目录冻结只读；对外引用统一用 `reports/` 新路径。
 - **状态**：closed（2026-11-10；旧路径不再写入，STRUCTURE 已同步）
+
+---
+
+## v2.3 D 阶段实施记录（2026-11-10，K2/K3/偏离度/报告/LLM/全链）
+
+### V23-CODE-016：`tolerance.py` 把 12 类 marker（WSTA/RHRD/PPM/TBLD/WLD）从所有类中剔除
+- **类别**：CODE（D2 公差）
+- **证据**：原 `excluded = set(MARKERS.values()) | set(SAFETY_STEP_VARS)`；MARKERS 扩到 12 类后，LOCA 的 RHRD/PPM/TBLD/WLD 等正常模型变量被误排除，阈值变量数虚降。
+- **解决**：改为 `excluded = {MARKERS[accident_type]} | set(SAFETY_STEP_VARS)`；LOCA 实测 `excluded_vars=[WECS,WHPI,WLR]`（WLR 为本类 marker，WECS/WHPI 为安全动作）。
+- **状态**：closed
+
+### V23-CODE-017：LLM/报告层存在第二套 K3 覆盖率口径（变量入模率 vs 边命中率）
+- **类别**：CODE（D5/D6）
+- **证据**：`llm_explanation._load_k3` 原按“expected_chain 变量是否在签名变量集中”统计（LOCA 覆盖率 100%），而 `external_knowledge.match_fault_template` 按“相邻边是否命中稳定边”统计（LOCA 20%），同一模板出现两个数。
+- **解决**：`_load_k3` 改为只读签名 `auxiliary.k3`，缺失时才调用 `match_fault_template`；全仓库只保留边覆盖一种口径，报告/解释文本同步改为“N 条相邻边命中 M 条”。
+- **状态**：closed
+
+### V23-CODE-018：`artifact.build_manifest` 未纳入 `*.txt`
+- **类别**：CODE（D10）
+- **证据**：`rca_report_*.txt` 只以 `.txt.meta.json` 进入 manifest，正文未登记 sha256。
+- **解决**：include 增加 `*.txt`；最终 manifest 覆盖 json/csv/png/html/md/txt 六类。
+- **状态**：closed
+
+### V23-DESIGN-011：偏离度严重档饱和，3/5/7σ 分档对 NPPAD 阶跃不适用
+- **类别**：DESIGN / STAT（D9）
+- **证据**：`reports/deviation_LOCA_low.json` 33/43 变量为 severe，`SGATR_mid` 30/34；而 normal 档仅 0–21 个。
+- **根因**：NPPAD 在 t=110 注入事故后多数通道阶跃，sev-1 基线 σ 极小，`d=min(|x−μ|/σ,10)` 迅速触顶。
+- **解决**：保留 4 级着色并注明“偏离度≠根因”；论文中把该指标改述为“通道偏移强度”，另给 `d` 的截断计数与饱和比例。
+- **状态**：open（口径需重冻：或改用分组内分位数，或对 d 做 log 压缩）
+
+### V23-DATA-004：公差基线的稳态段 t=0–990 含注入前数据
+- **类别**：DATA（D2）
+- **证据**：`run_v23_tolerances` 输出 LOCA 稳态点 100 个、窗口 [0,990]；`t_inject=110`，即基线包含 0–110 的正常段与注入后段。
+- **影响**：若把注入后段计入 μ/σ，会系统性放大 σ，削弱偏离度敏感度。
+- **解决**：暂保留（与 v2.1 口径一致，避免破坏已有结论），在论文限制中说明；是否改为“仅 t<t_inject”需导师拍板。
+- **状态**：open（需决策）
+
+### V23-DESIGN-012：K3 模板链覆盖率低且反向边多
+- **类别**：DESIGN（D5）
+- **证据**：LOCA low/mid/high coverage=0.40/0.20/0.20（反向 2/2/0）；SGATR=0.143/0.143/0（反向 2/2/3）；FLB=0/0.125/0.125（反向 0/1/0）。
+- **根因**：模板 `expected_chain` 来自方案 §4.3 的机理叙述（如 P→TAVG→安注），而学到的稳定边以过程量强相关为主，方向常与机理链相反（反馈/控制回路）。
+- **解决**：如实输出 coverage 与反向边清单，不调参凑高覆盖；待人工复核模板链与学图方向后重冻。
+- **状态**：open
+
+### V23-DESIGN-013：K2 物理关系每类仅 2–3 条适用
+- **类别**：DESIGN（D4）
+- **证据**：`auxiliary.k2.n_relations_applicable`：LOCA=2、SGATR=3、FLB=2（全库仅 5 条关系，`applicable_accidents` 限定类）。
+- **影响**：三态证据稀疏，单条 violation 占比可达 1/3，解释力有限。
+- **解决**：产物照实给三态与相关系数；扩充关系库列入后续工作（方案 §5.3.2 未冻结更多关系）。
+- **状态**：open
+
+### V23-CODE-019：`skipped_classes.json` 只登记“本次 --classes 里没选的类”，默认运行看起来没有缺数据类
+- **类别**：CODE（D10/C1）
+- **证据**：默认 `--classes` 仅 ready 3 类时，`skipped_classes.json` 的 `entries=[]`、`n_missing=0`，与注册表 8 类 data_missing 的事实矛盾。
+- **解决**：执行器改为始终登记 `PARTIAL_CODES + MISSING_CODES` 全量，未选类写明“本 run 未选择该类（--classes 仅含 ready 类）”；`n_partial/n_missing` 取注册表计数而非本次选择计数。
+- **状态**：closed（2026-11-10；默认运行 entries 覆盖 LOCAC + 8 类）
+
+### V23-CODE-020：`test_v23_data_audit` 的端到端用例写进正式产物目录
+- **类别**：CODE（测试卫生）
+- **证据**：跑 pytest 后 `output/rca_v23/audit/` 出现 `run_id=pytest-v23-data-audit` 的 LOCA 三份审计，覆盖了 B 阶段正式产物。
+- **解决**：测试用 `monkeypatch` 把 `V23_SUBDIRS["audit"]` 重定向到 `tmp_path`；并重新以 `run_id=v23b-audit-20261110` 生成 4 类正式审计。
+- **状态**：closed
+
+---
+
+## v2.3 全链验收记录（2026-11-10，run_id=v23-20261110T013122）
+
+**命令**：`cd Code && PYTHONPATH=. python -m rca.v21.run_v23_all --n-bootstrap 100`
+**结果**：7/7 步 `ok`、`failed=0`；`manifest.json` 140 个文件（json/txt/html/png/csv/md）全部登记 sha256；
+`reports/run_v23_all_summary.json` 记录各步耗时与跳过类。
+
+| 项 | 结果 | 来源 |
+|---|---|---|
+| 12 类注册表 | 12/12 登记；ready=3、partial=1、data_missing=8 | `registry/accident_registry.json` |
+| 变量选取（3 ready 类） | V1–V7 全通过，各选 15 变量 | `variable_sets/selection_report_{K}.json` |
+| 数据审计 | LOCA/SGATR/FLB/LOCAC 4 类各 3 份；8 类显式跳过 | `audit/*_{K}.json` |
+| 签名/溯源 | 9 模板 ×100 bootstrap；`n_consensus=null`；`REPRO_OK` 两次一致 | `signatures/`、`tracing/` |
+| 图 | 13 份 HTML（9 组+3 类汇总+总览），含 K2/K3/偏离度面板 | `graphs/` |
+| 汇总/差异 | 3 类 ×（summary+diff），输入 sha256 留痕 | `reports/summary|diff_{K}.json` |
+| 解释/报告 | 9 份 `backend=rule`、`faithful=True`；9 份 8 章报告 | `reports/llm_explanation_*`、`rca_report_*` |
+| 测试 | 118 passed | `pytest tests/ -q` |
+
+**根因 Top-1（本次同源结果）**：LOCA low/mid/high = QMGB / WECS / HUP；SGATR = PSGA / PSGA / RM2；FLB = WCHG / PSGB / WHPI。
+**未通过/遗留**（均已在上文登记）：V23-ALGO-001（clip=5 后 cond 仍 1e1–1e11）、V23-DESIGN-011（偏离度饱和）、V23-DATA-004（基线段含注入前）、V23-DESIGN-012（K3 覆盖低）、V23-DESIGN-013（K2 关系稀疏）、V23-DESIGN-009（本体命中率口径）、V23-DESIGN-005/008（RM2 边与 σ_floor 归并）、V23-DATA-003（LOCAC 仅 6 个严重度点）。
 
 

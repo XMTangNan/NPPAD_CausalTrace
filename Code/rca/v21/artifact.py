@@ -74,7 +74,7 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.png", "*.html", "*.md"),
+def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.png", "*.html", "*.md", "*.txt"),
                    skip: Iterable[str] = ("manifest.json",)) -> Path:
     """扫描 rca_v23 全量产物，写 manifest.json（path/size/sha256/run_id）。"""
     skip = set(skip)

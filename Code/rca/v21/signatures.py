@@ -140,11 +140,15 @@ def bootstrap_lingam_template(blocks: List[np.ndarray], variables: List[str],
                               n_bootstrap: int = LINGAM_N_BOOTSTRAP,
                               seed: int = GLOBAL_SEED,
                               use_ontology: bool = True,
-                              extra_meta: Optional[Dict] = None) -> Dict:
+                              extra_meta: Optional[Dict] = None,
+                              accident_type: Optional[str] = None,
+                              group: Optional[str] = None) -> Dict:
     """对一个 (k,g) 模板跑轨迹级 Bootstrap LiNGAM（每次本体约束后独立求逆）。
 
     extra_meta：只追加元信息（run_id/baseline_coverage/gating 等），
     不参与任何算法口径（bootstrap 单位、稳定边阈值、求逆方式均不变）。
+    accident_type/group（或 extra_meta 中的同名键）：给出时额外挂载
+    `auxiliary`（K2 三态 + K3 覆盖 + 偏离度），既有键语义不变。
     """
     from lingam import DirectLiNGAM
     rng = np.random.default_rng(seed)
@@ -195,6 +199,19 @@ def bootstrap_lingam_template(blocks: List[np.ndarray], variables: List[str],
     }
     if extra_meta:
         out.update(extra_meta)
+    # 辅助证据（K2/K3/偏离度）：事故类型取自本体（build_ontology 已写入），组取分组键。
+    # 只追加 auxiliary 键，既有键语义/返回契约不变；失败时记录 available=False，不臆造数字。
+    acc = accident_type or (extra_meta or {}).get("accident_type") \
+        or (ontology or {}).get("accident_type")
+    grp = group or (extra_meta or {}).get("group_pattern")
+    if acc and grp:
+        try:
+            out["auxiliary"] = build_auxiliary_evidence(acc, grp, variables,
+                                                        out["stable_edges"])
+        except Exception as exc:  # noqa: BLE001 — 辅助层失败不得影响主排序产物
+            logger.warning(f"[auxiliary] {acc}/{grp} 辅助证据计算失败: {exc}")
+            out["auxiliary"] = {"sequence": AUXILIARY_SEQUENCE, "available": False,
+                                "reason": f"auxiliary 计算失败: {exc}"}
     return out
 
 
@@ -240,6 +257,74 @@ def fit_single_template(blocks: List[np.ndarray], variables: List[str],
     }
     if extra_meta:
         out.update(extra_meta)
+    return out
+
+
+# ==================== 辅助证据挂载（K2 / K3 / 偏离度；不改 LiNGAM 口径）====================
+AUXILIARY_SEQUENCE = "auxiliary_only_not_used_in_ranking"
+AUXILIARY_NOTE = ("满足约束≠方向证明、违反≠链错；基础排序仅用 T=(I−B)⁻¹ 总效应，"
+                  "K2/K3/偏离度为辅助证据，不改变排名（方案 §5.3/§5.10）")
+
+
+def build_auxiliary_evidence(accident_type: str, group: str, variables: Sequence[str],
+                             stable_edges: Sequence[Dict],
+                             representative_severity: Optional[int] = None) -> Dict:
+    """组装签名 auxiliary：K2 残差三态 + K3 模板覆盖 + 偏离度摘要。
+
+    每组用组内最大 severity 轨迹的主窗切片计算 K2/偏离度；K3 用本模板稳定边比对
+    expected_chain。全部为辅助证据，不参与 T=(I−B)⁻¹ 排序。
+    """
+    from rca.v21 import physics_constraints as PC
+    from rca.v21 import deviation as DEV
+    from rca.v21 import external_knowledge as EK
+
+    sev = (int(representative_severity) if representative_severity is not None
+           else PC.representative_severity(accident_type, group))
+    window = list(PC.main_window(accident_type))
+    raw = PC.evaluate_all_relations(accident_type, severity=sev, window=window)
+    rels = []
+    for r in raw["relations"]:
+        item = {"relation_id": r["relation_id"], "relation_name": r["relation_name"],
+                "status": r["status"], "reason": r["reason"]}
+        if "correlation" in r:
+            item["correlation"] = r["correlation"]
+        rels.append(item)
+    k2 = {
+        "representative_severity": sev,
+        "window": window,
+        "n_points": raw["n_points"],
+        "n_relations_applicable": raw["n_relations_applicable"],
+        "n_violation": raw["n_violation"],
+        "n_not_violated": raw["n_not_violated"],
+        "n_undecidable": raw["n_undecidable"],
+        "undecidable_ratio": raw["undecidable_ratio"],
+        "relations": rels,
+        "note": raw["note"],
+    }
+
+    k3 = EK.match_fault_template(accident_type, list(stable_edges), list(variables))
+
+    tolerance = DEV.load_tolerance(accident_type)
+    dev = DEV.deviation_for_group(accident_type, group, tolerance, severity=sev)
+    # 统一字段名：图/报告/解释三处都读 representative_severity，避免多口径
+    dev.setdefault("representative_severity", dev.get("severity"))
+
+    return {
+        "sequence": AUXILIARY_SEQUENCE,
+        "k2": k2,
+        "k3": k3,
+        "deviation": dev,
+        "note": AUXILIARY_NOTE,
+    }
+
+
+def build_signature_payload(signature: Dict, accident_type: str, group: str,
+                            representative_severity: Optional[int] = None) -> Dict:
+    """给签名 payload 追加 auxiliary（返回新 dict，不改传入对象/不改既有键语义）。"""
+    out = dict(signature)
+    out["auxiliary"] = build_auxiliary_evidence(
+        accident_type, group, out.get("variables", []), out.get("stable_edges", []),
+        representative_severity=representative_severity)
     return out
 
 

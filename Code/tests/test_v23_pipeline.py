@@ -82,10 +82,15 @@ def test_single_engine_fields_and_same_run_id(tmp_path, monkeypatch):
     assert cov["n_trajectories"] == len(cov["detail"]) >= 1
     assert all(r["n_points"] <= cov["expected_points"] for r in cov["detail"])
 
-    # 缺数据类不生成占位签名/榜单
+    # 缺数据/未选类：注册表全量如实登记，但绝不生成占位签名/榜单
     skipped = _read(subs["tracing"], "skipped_classes.json")
-    codes = {e["code"] for e in skipped["entries"]}
-    assert "LOCAC" not in codes
+    codes = {e["code"]: e for e in skipped["entries"]}
+    assert skipped["n_missing"] == 8
+    assert "LOCAC" in codes and codes["LOCAC"]["status"] == "partial"
+    assert codes["SLBIC"]["status"] == "data_missing"
+    assert all("未选择" in codes[c]["reason"] for c in ("LOCAC", "SLBIC"))
+    import glob
+    assert not glob.glob(str(subs["signatures"] / "signature_LOCAC_*.json"))
 
 
 def test_graphs_summary_and_run_id_gate(tmp_path, monkeypatch):

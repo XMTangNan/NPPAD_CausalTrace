@@ -16,13 +16,16 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Dict, List, Optional, Sequence
+import urllib.request
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence
 
 from config import (
     LLM_API_KEY_ENV, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT,
     LLM_TEMPERATURE,
 )
 from core.utils import logger
+from rca.v21 import artifact
 from rca.v21.chains import ROOT_CAUSE_NAME, render_chain_text, _entity, _vname
 
 # 数值校验浮点容差
@@ -305,27 +308,662 @@ def _degrade(rec: Dict, reason: str) -> Dict:
     }
 
 
+# ==================================================================
+# V2.3 D6：两级后端解释生成器（rule 离线默认 / llm 可选）+ 忠实性校验
+# ------------------------------------------------------------------
+# 铁律（方案 v2.3 §6.1 D6）：
+#   1. 只读 output/rca_v23 下的 tracing/root_candidates_*、signatures/、
+#      reports/summary|diff|deviation_*，不重算因果、不读旧 rca_v21/v22 产物；
+#   2. rule 后端纯离线、确定性，输出的每个数字与变量名都必须能在 payload 找到；
+#   3. llm 后端只在 CAUSALTRACE_LLM_BASE_URL 与 CAUSALTRACE_LLM_API_KEY 同时存在时启用，
+#      任何失败都降级为 rule 并写 degraded_reason，绝不静默成功；
+#   4. llm 输出不忠实 → backend 仍记 "llm"、faithful=False，并把 unsupported 列表落盘。
+# ==================================================================
+V23_LLM_BASE_URL_ENV = "CAUSALTRACE_LLM_BASE_URL"
+V23_LLM_API_KEY_ENV = "CAUSALTRACE_LLM_API_KEY"
+V23_LLM_MODEL_ENV = "CAUSALTRACE_LLM_MODEL"
+V23_LLM_MODEL_DEFAULT = "deepseek-chat"
+V23_LLM_TIMEOUT_S = 30          # 标准库 urllib，硬超时 30s（测试可 monkeypatch）
+FAITHFUL_DECIMALS = 2           # 数值对拍容差：保留 2 位小数后相等
+K2_SIGNATURE_KEYS = ("physics", "physics_constraint", "physics_constraints",
+                     "k2", "physics_residual")
+K2_ARTIFACT_NAMES = ("physics_constraint_{k}_{g}", "k2_{k}_{g}",
+                     "physics_residuals_{k}_{g}")
+REVERSE_EDGE_NOTE = "反向边=稳定边方向与故障模板 expected_chain 相反"
+
+# 数字：带可选负号；前面不能紧邻字母/数字/下划线/小数点，
+# 避免把 RM1（1）、v23c（23）、R1_inventory_leak（1）里的数字当成数值
+_NUM_V23_RE = re.compile(r"(?<![A-Za-z0-9_.])(-?\d+(?:\.\d+)?)(%?)")
+# 任务规定形态：[A-Z][A-Z0-9_]{1,}
+_UPPER_VAR_RE = re.compile(r"[A-Z][A-Z0-9_]{1,}")
+# 允许引用但不属于物理变量的领域术语（K2/K3 是方案节号；JSON 是格式名）
+_V23_ALLOWED_TERMS = ["K2", "K3", "JSON"]
+
+V23_SYSTEM_PROMPT = (
+    "你是核电事故根因分析专家。你将收到一份 JSON 证据（CausalTrace v2.3 单引擎 LiNGAM "
+    "稳定边 + 溯源 Top-5 + 跨组汇总/差异 + K2/K3/偏离度）。严格规则：\n"
+    "1. 只允许引用输入 JSON 中出现的数字与变量名，禁止编造任何变量、边、数值或机制；\n"
+    "2. 百分比请保留 JSON 数值换算后的两位小数，禁止改写或补齐精度；\n"
+    "3. 单引擎稳定边不等于多引擎共识，必须标注 n_consensus=null；\n"
+    "4. 结论表述为“模型稳定识别出的有向关系”，不得写成“已证实因果”；\n"
+    "5. 章节固定：结论与 Top 根因 / 证据链 / 跨组一致性 / 物理一致性 K2 / "
+    "故障模板 K3 / 偏离度提示 / 局限；\n"
+    "6. 使用中文，禁止输出 JSON 之外的新数字。"
+)
+
+
+# ==================== 忠实性校验 ====================
+def _walk_numbers(node: Any, out: set) -> None:
+    """递归收集 payload 中可被引用的数值（含字符串里的数字与 <1 比值的百分数）。"""
+    if isinstance(node, bool) or node is None:
+        return
+    if isinstance(node, (int, float)):
+        v = float(node)
+        out.add(round(v, FAITHFUL_DECIMALS))
+        if 0.0 < abs(v) <= 1.0:                      # 比例类允许按百分比引用
+            out.add(round(v * 100.0, FAITHFUL_DECIMALS))
+        return
+    if isinstance(node, str):
+        for m in _NUM_V23_RE.finditer(node):
+            v = float(m.group(1))
+            out.add(round(v, FAITHFUL_DECIMALS))
+            if 0.0 < abs(v) <= 1.0:
+                out.add(round(v * 100.0, FAITHFUL_DECIMALS))
+        return
+    if isinstance(node, dict):
+        for k, v in node.items():
+            _walk_numbers(k, out)
+            _walk_numbers(v, out)
+        return
+    if isinstance(node, (list, tuple, set)):
+        for v in node:
+            _walk_numbers(v, out)
+
+
+def _walk_variables(node: Any, out: set) -> None:
+    """递归收集 payload 中出现的变量名/UPPER 词（含字符串内嵌的变量。"""
+    if isinstance(node, str):
+        out.update(_UPPER_VAR_RE.findall(node))
+        return
+    if isinstance(node, dict):
+        for k, v in node.items():
+            _walk_variables(k, out)
+            _walk_variables(v, out)
+        return
+    if isinstance(node, (list, tuple, set)):
+        for v in node:
+            _walk_variables(v, out)
+
+
+def payload_number_set(payload: Dict) -> set:
+    s: set = set()
+    _walk_numbers(payload, s)
+    return s
+
+
+def payload_variable_set(payload: Dict) -> set:
+    vs: set = set(payload.get("variables") or [])
+    vs.update(payload.get("allowed_terms") or [])
+    for c in payload.get("root_candidates") or []:
+        if isinstance(c, dict) and c.get("variable"):
+            vs.add(c["variable"])
+    _walk_variables(payload, vs)
+    return vs
+
+
+def verify_faithfulness(text: str, payload: Dict) -> Dict:
+    """校验解释文本：数字必须能在 payload 找到，UPPER 变量名必须在 payload 词表内。
+
+    返回 {n_numbers, n_numbers_unsupported, unsupported, n_vars, n_vars_unknown,
+          unknown, faithful}；数值容差为保留 2 位小数后相等。
+    """
+    nums = payload_number_set(payload)
+    vars_ok = payload_variable_set(payload)
+
+    unsupported: List[str] = []
+    n_numbers = 0
+    for m in _NUM_V23_RE.finditer(text):
+        n_numbers += 1
+        raw = m.group(1)
+        try:
+            val = float(raw)
+        except ValueError:
+            continue
+        if round(val, FAITHFUL_DECIMALS) not in nums:
+            unsupported.append(raw)
+
+    unknown: List[str] = []
+    n_vars = 0
+    for m in _UPPER_VAR_RE.finditer(text):
+        n_vars += 1
+        tok = m.group(0)
+        if tok not in vars_ok:
+            unknown.append(tok)
+
+    return {
+        "n_numbers": n_numbers,
+        "n_numbers_unsupported": len(unsupported),
+        "unsupported": unsupported,
+        "n_vars": n_vars,
+        "n_vars_unknown": len(unknown),
+        "unknown": unknown,
+        "faithful": not unsupported and not unknown,
+    }
+
+
+# ==================== 只读输入（不重算因果） ====================
+def _read_optional(sub: str, name: str):
+    """读 output/rca_v23/<sub>/<name>.json；不存在返回 (None, None)。"""
+    path = Path(artifact.V23_SUBDIRS[sub]) / f"{name}.json"
+    if not path.exists():
+        return None, None
+    with open(path, encoding="utf-8") as f:
+        return json.load(f), path
+
+
+def _rel_path(sub: str, name: str) -> str:
+    return f"{sub}/{name}.json"
+
+
+def _num_or_none(x) -> Optional[float]:
+    return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else None
+
+
+def _fmt_edge(e) -> str:
+    """K3 边条目转文本：{"template","stable"} / {"template","reason"} / 字符串。"""
+    if isinstance(e, dict):
+        tpl = e.get("template") or e.get("from")
+        stable = e.get("stable") or e.get("to")
+        if e.get("reason"):
+            return f"{tpl}({e['reason']})"
+        return f"模板{tpl} 反向为稳定边{stable}" if stable else str(tpl)
+    return str(e)
+
+
+def _normalize_k2(doc: Dict, source: str) -> Dict:
+    rels = doc.get("relations") or []
+    n_viol = doc.get("n_violation")
+    n_not = doc.get("n_not_violated")
+    n_und = doc.get("n_undecidable")
+    if n_viol is None:
+        n_viol = sum(1 for r in rels if r.get("status") == "violation")
+    if n_not is None:
+        n_not = sum(1 for r in rels if r.get("status") == "not_violated")
+    if n_und is None:
+        n_und = sum(1 for r in rels if r.get("status") == "undecidable")
+    n_rel = doc.get("n_relations_applicable", len(rels))
+    ratio = doc.get("undecidable_ratio")
+    if ratio is None:
+        ratio = round(float(n_und) / max(int(n_rel), 1), 4)
+    return {
+        "available": True,
+        "source": source,
+        "n_relations": int(n_rel),
+        "n_violation": int(n_viol),
+        "n_not_violated": int(n_not),
+        "n_undecidable": int(n_und),
+        "undecidable_ratio": ratio,
+        "relations": [{"relation_id": r.get("relation_id"),
+                       "status": r.get("status")} for r in rels],
+        "note": doc.get("note", "满足约束≠方向证明、违反≠链错"),
+    }
+
+
+def _load_k2(k: str, g: str, sig: Dict) -> Dict:
+    """K2 三态：优先签名内挂载，其次 tracing/reports 下的独立产物；缺失如实标记。"""
+    for key in K2_SIGNATURE_KEYS:
+        doc = sig.get(key)
+        if isinstance(doc, dict) and ("relations" in doc or "n_violation" in doc):
+            return _normalize_k2(doc, f"signatures/signature_{k}_{g}.json#{key}")
+    for sub in ("tracing", "reports"):
+        for tpl in K2_ARTIFACT_NAMES:
+            doc, _ = _read_optional(sub, tpl.format(k=k, g=g))
+            if doc is not None:
+                return _normalize_k2(doc, _rel_path(sub, tpl.format(k=k, g=g)))
+    return {"available": False,
+            "reason": "physics_constraints 尚未接入签名，output/rca_v23 下无 K2 三态产物"}
+
+
+def _load_k3(k: str, sig: Dict) -> Dict:
+    """K3 故障模板：只走唯一实现 `external_knowledge.match_fault_template`。
+
+    优先读签名里挂载的 `auxiliary.k3`；否则用签名的 stable_edges 现算。
+    禁止在本模块另写一套覆盖率口径（历史上曾按“变量是否入模”统计，与边覆盖
+    口径不一致，导致同一模板出现两个覆盖率）。
+    """
+    aux = (sig.get("auxiliary") or {}).get("k3")
+    if isinstance(aux, dict) and aux.get("available", True) and "n_matched" in aux:
+        doc = dict(aux)
+        src = f"signatures/signature_{k}_auxiliary.k3"
+    else:
+        from rca.v21.external_knowledge import match_fault_template
+        try:
+            doc = match_fault_template(k, sig.get("stable_edges") or [],
+                                       sig.get("variables") or [])
+        except Exception as exc:
+            return {"available": False,
+                    "reason": f"K3 模板匹配失败：{type(exc).__name__}: {exc}"}
+        src = "external_knowledge.match_fault_template"
+    if not doc.get("available"):
+        return {"available": False,
+                "reason": doc.get("reason", "K3 模板不可用")}
+    chain = list(doc.get("expected_chain") or [])
+    return {
+        "available": True,
+        "source": src,
+        "verification": doc.get("verification"),
+        "n_expected_vars": len(chain),
+        "n_chain_edges": doc.get("n_chain_edges", max(len(chain) - 1, 0)),
+        "n_matched": doc.get("n_matched", 0),
+        "coverage": doc.get("coverage", 0.0),
+        "n_reverse_edges": doc.get("n_reversed", 0),
+        "reverse_edges": doc.get("reversed_edges") or [],
+        "missing_edges": doc.get("missing_edges") or [],
+    }
+
+
+def _load_deviation(k: str, g: str) -> Dict:
+    """偏离度 4 级计数；未产出写原因（不生成空表）。"""
+    doc, _path = _read_optional("reports", f"deviation_{k}_{g}")
+    if doc is not None:
+        return {"available": True, "source": _rel_path("reports", f"deviation_{k}_{g}"),
+                "n_variables": doc.get("n_variables"),
+                "level_counts": doc.get("level_counts"),
+                "note": doc.get("note", "偏离度 ≠ 根因")}
+    rep_dir = Path(artifact.V23_SUBDIRS["reports"])
+    cands = sorted(rep_dir.glob(f"deviation_{k}_*.json"))
+    if cands:
+        try:
+            with open(cands[0], encoding="utf-8") as f:
+                doc = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            doc = None
+        if doc is not None:
+            return {"available": True,
+                    "source": f"reports/{cands[0].name}",
+                    "n_variables": doc.get("n_variables"),
+                    "level_counts": doc.get("level_counts"),
+                    "note": "同类其它严重度代表点产物，非本组专用；偏离度 ≠ 根因"}
+    return {"available": False,
+            "reason": f"reports/ 下无 deviation_{k}_{g}.json（偏离度未接入 v2.3 产物）"}
+
+
+# ==================== payload 构建（唯一证据入口） ====================
+def build_payload(k: str, g: str, run_id: Optional[str] = None) -> Dict:
+    """组装 D6/D7 共用证据 payload；只读 v2.3 产物，不重算因果。"""
+    rc, rc_path = _read_optional("tracing", f"root_candidates_{k}_{g}")
+    if rc is None:
+        raise FileNotFoundError(
+            f"缺 tracing/root_candidates_{k}_{g}.json（先跑 run_v23_end2end）")
+    sig, sig_path = _read_optional("signatures", f"signature_{k}_{g}")
+    if sig is None:
+        raise FileNotFoundError(
+            f"缺 signatures/signature_{k}_{g}.json（先跑 run_v23_end2end）")
+    summary, sum_path = _read_optional("reports", f"summary_{k}")
+    diff, diff_path = _read_optional("reports", f"diff_{k}")
+
+    owners = [rc.get("run_id"), sig.get("run_id"),
+              (summary or {}).get("run_id"), (diff or {}).get("run_id")]
+    if run_id is None:
+        run_id = rc.get("run_id")
+    bad = [r for r in owners if r is not None and r != run_id]
+    if bad:
+        raise ValueError(f"拒绝混源：{k}_{g} 的输入 run_id={bad} != {run_id}")
+
+    gating = rc.get("gating") or {}
+    n_stable = rc.get("n_stable_edges")
+    n_clipped = rc.get("n_clipped_edges")
+    if n_clipped is None:
+        n_clipped = len(rc.get("clipped_edges") or [])
+
+    cL = sig.get("cL") or {}
+    roots: List[Dict] = []
+    for c in (rc.get("root_candidates") or [])[:5]:
+        var = c.get("variable")
+        aux = cL.get(var) or {}
+        roots.append({
+            "rank": c.get("rank"),
+            "variable": var,
+            "subsystem": (c.get("entity") or {}).get("subsystem"),
+            "role": c.get("role"),
+            "total_effect": c.get("total_effect"),
+            "in_degree": c.get("in_degree"),
+            "out_degree": c.get("out_degree"),
+            "reach_size": c.get("reach_size"),
+            "weighted_reach": c.get("weighted_reach"),
+            "auxiliary_cL": aux.get("cL"),
+            "auxiliary_piL": aux.get("piL"),
+        })
+
+    cross = {"available": summary is not None}
+    if summary is not None:
+        cg = summary.get("cross_group") or {}
+        cross.update({
+            "top1_by_group": cg.get("top1_by_group"),
+            "top1_stable": cg.get("top1_stable"),
+            "mean_pairwise_overlap": cg.get("mean_pairwise_overlap"),
+            "n_vars_in_all_groups": cg.get("n_vars_in_all_groups"),
+            "pairwise": [{"pair": p.get("pair"), "overlap": p.get("overlap"),
+                          "jaccard": p.get("jaccard")}
+                         for p in (cg.get("pairwise") or [])],
+            "edge_counts": summary.get("edge_counts"),
+            "n_bootstrap": summary.get("n_bootstrap"),
+        })
+    else:
+        cross["reason"] = f"跨组汇总未产出（reports/summary_{k}.json 不存在）"
+
+    cross_diff = {"available": diff is not None}
+    if diff is not None:
+        cross_diff.update({
+            "n_top1_switches": len(diff.get("top1_switches") or []),
+            "n_mechanism_switches": len(diff.get("mechanism_switches") or []),
+            "n_edge_count_diffs": len(diff.get("edge_count_diffs") or []),
+            "transitions": [{"from_group": t.get("from_group"),
+                             "to_group": t.get("to_group"),
+                             "top5_jaccard": t.get("top5_jaccard"),
+                             "top1": t.get("top1"),
+                             "n_stable_edges": t.get("n_stable_edges")}
+                            for t in (diff.get("transitions") or [])],
+        })
+    else:
+        cross_diff["reason"] = f"跨组差异未产出（reports/diff_{k}.json 不存在）"
+
+    k2 = _load_k2(k, g, sig)
+    k3 = _load_k3(k, sig)
+    deviation = _load_deviation(k, g)
+
+    baseline = rc.get("baseline_coverage_summary") or {}
+    limitations: List[str] = []
+    if not rc.get("consensus_available"):
+        limitations.append(
+            f"单引擎口径：{n_stable} 条稳定边来自 LiNGAM 单引擎，"
+            f"n_consensus=null，稳定边不等于多引擎共识")
+    if int(n_clipped or 0) > 0:
+        limitations.append(
+            f"B 截断：{n_clipped} 条边在 |B|>{_num_or_none(rc.get('b_clip'))} 处被截断，"
+            f"相关量级解释需对照 clip 敏感性")
+    if int(baseline.get("n_truncated") or 0) > 0:
+        limitations.append(
+            f"恢复段不完整：{baseline.get('n_truncated')} 条训练轨迹 t_last 早于基线窗口末端")
+    if summary is not None and not (summary.get("cross_group") or {}).get("top1_stable"):
+        limitations.append("跨组不稳定：三组 Top-1 不一致，单组结论不能外推为类级结论")
+    if not k2["available"]:
+        limitations.append("物理一致性未被检验：K2 残差三态未产出")
+    if k3["available"] and k3["coverage"] < 1.0:
+        limitations.append(
+            f"故障模板覆盖不全：expected_chain {k3['n_chain_edges']} 条边中仅 "
+            f"{k3['n_matched']} 条命中")
+    if not deviation["available"]:
+        limitations.append("偏离度未产出：无法给出 4 级偏离提示")
+
+    inputs = []
+    for sub, path in (("tracing", rc_path), ("signatures", sig_path),
+                      ("reports", sum_path), ("reports", diff_path)):
+        if path is not None:
+            inputs.append({"path": _rel_path(sub, path.stem),
+                           "sha256": artifact.sha256_file(path)})
+
+    payload = {
+        "schema": "causaltrtrace/v2.3/llm-payload",
+        "run_id": run_id,
+        "accident_type": k,
+        "group": g,
+        "template": f"{k}_{g}",
+        "marker": (rc.get("template") or {}).get("marker"),
+        "engine": rc.get("engine"),
+        "n_bootstrap": rc.get("n_bootstrap"),
+        "n_variables": rc.get("n_nodes"),
+        "n_available_vars": gating.get("n_available_vars"),
+        "gate_ratio": gating.get("gate_ratio"),
+        "n_stable_edges": n_stable,
+        "n_clipped_edges": n_clipped,
+        "b_clip": rc.get("b_clip"),
+        "cond_IminusB": rc.get("cond_IminusB"),
+        "cond_IminusB_after_clip": rc.get("cond_IminusB_after_clip"),
+        "consensus_available": bool(rc.get("consensus_available")),
+        "n_consensus": rc.get("n_consensus"),
+        "baseline_coverage": baseline,
+        "top_k": min(3, len(roots)),
+        "root_candidates": roots,
+        "variables": list(sig.get("variables") or []),
+        "auxiliary": {
+            "frontier_reach": len((sig.get("frontier") or {}).get("reach") or []),
+            "cL": {r["variable"]: {"cL": r["auxiliary_cL"], "piL": r["auxiliary_piL"]}
+                   for r in roots},
+            "flags": sig.get("flags"),
+        },
+        "cross_group": cross,
+        "cross_group_diff": cross_diff,
+        "k2": k2,
+        "k3": k3,
+        "deviation": deviation,
+        "limitations": limitations,
+        "allowed_terms": list(_V23_ALLOWED_TERMS),
+        "inputs": inputs,
+    }
+    return payload
+
+
+# ==================== rule 后端（离线，默认） ====================
+def _f(x, digits: int = FAITHFUL_DECIMALS, suffix: str = "") -> str:
+    v = _num_or_none(x)
+    return "未产出" if v is None else f"{v:.{digits}f}{suffix}"
+
+
+def _pct(x) -> str:
+    v = _num_or_none(x)
+    return "未产出" if v is None else f"{v * 100:.{FAITHFUL_DECIMALS}f}%"
+
+
+def render_rule_explanation(payload: Dict) -> str:
+    """基于 payload 数值的结构化中文解释（确定性、可核查、零外部依赖）。"""
+    k, g = payload["accident_type"], payload["group"]
+    roots = payload["root_candidates"]
+    L: List[str] = []
+    L.append(f"【{k} / {g} 组 · 根因解释（离线规则后端）】")
+    L.append("")
+
+    # ---- 结论 ----
+    L.append("一、结论：Top 根因与总效应")
+    L.append(f"  本组入模变量 {payload['n_variables']} 个，稳定边 {payload['n_stable_edges']} 条，"
+             f"bootstrap {payload['n_bootstrap']} 次（{payload['engine']} 单引擎）。")
+    if roots:
+        L.append(f"  按总因果效应排序的 Top-{payload['top_k']} 根因：")
+        for c in roots[:payload["top_k"]]:
+            L.append(
+                f"    第{c['rank']}名 {c['variable']}（{c['subsystem']}，总效应 "
+                f"{_f(c['total_effect'])}，入度 {c['in_degree']}，出度 {c['out_degree']}，"
+                f"可达 {c['reach_size']}）")
+        top1 = roots[0]
+        L.append(f"  结论：模型稳定识别出的主导上游为 {top1['variable']}，"
+                 f"其总效应 {_f(top1['total_effect'])} 高于第 "
+                 f"{roots[payload['top_k'] - 1]['rank']} 名。")
+    else:
+        L.append("  未产出（本组无根因候选）。")
+    L.append("")
+
+    # ---- 证据链 ----
+    L.append("二、证据链")
+    L.append(f"  门控比例 {_pct(payload['gate_ratio'])}（本体 {payload['n_available_vars']} 个变量中"
+             f"入模 {payload['n_variables']} 个）。")
+    L.append(f"  B 截断阈值 |B|>{_f(payload['b_clip'])}，被截断边 {payload['n_clipped_edges']} 条；"
+             f"截断前 cond(I−B)={_f(payload['cond_IminusB'])}，"
+             f"截断后 {_f(payload['cond_IminusB_after_clip'])}。")
+    if roots:
+        L.append("  marker 直接效应（签名 cL，π 同号率 piL）：")
+        for c in roots[:payload["top_k"]]:
+            L.append(f"    {c['variable']}: cL={_f(c['auxiliary_cL'])}，"
+                     f"piL={_f(c['auxiliary_piL'])}")
+    L.append("  口径提醒：稳定边为单引擎 bootstrap 频次筛出，非多引擎共识证据。")
+    L.append("")
+
+    # ---- 跨组一致性 ----
+    L.append("三、跨组一致性")
+    cross = payload["cross_group"]
+    if cross.get("available"):
+        t1 = cross.get("top1_by_group") or {}
+        L.append("  三组 Top-1：" + "，".join(f"{gname}={t1.get(gname)}" for gname in t1) + "。")
+        L.append(f"  Top-1 是否跨组稳定：{'是' if cross.get('top1_stable') else '否'}；"
+                 f"三组共同入榜变量 {cross.get('n_vars_in_all_groups')} 个；"
+                 f"相邻组平均 Top-5 重叠 {_f(cross.get('mean_pairwise_overlap'))}。")
+        for p in cross.get("pairwise") or []:
+            pair = p.get("pair") or ["", ""]
+            L.append(f"  组对 {pair[0]}→{pair[1]}：重叠 {p.get('overlap')} 个，"
+                     f"Jaccard {_f(p.get('jaccard'))}。")
+        d = payload["cross_group_diff"]
+        if d.get("available"):
+            L.append(f"  差异报告：Top-1 切换 {d['n_top1_switches']} 次，"
+                     f"机理切换点 {d['n_mechanism_switches']} 个，"
+                     f"边数差异超阈值组对 {d['n_edge_count_diffs']} 个。")
+        else:
+            L.append(f"  差异报告未产出（原因：{d.get('reason')}）。")
+    else:
+        L.append(f"  未产出（原因：{cross.get('reason')}）。")
+    L.append("")
+
+    # ---- K2 ----
+    L.append("四、物理一致性（K2 三态）")
+    k2 = payload["k2"]
+    if k2.get("available"):
+        L.append(f"  适用关系 {k2['n_relations']} 条：违反 {k2['n_violation']}、"
+                 f"未违反 {k2['n_not_violated']}、不可判定 {k2['n_undecidable']}"
+                 f"（不可判定比例 {_pct(k2['undecidable_ratio'])}）。")
+        for r in k2.get("relations") or []:
+            L.append(f"    {r['relation_id']}: {r['status']}")
+        L.append(f"  来源 {k2['source']}；{k2.get('note')}")
+    else:
+        L.append(f"  未产出（原因：{k2.get('reason')}）。")
+    L.append("")
+
+    # ---- K3 ----
+    L.append("五、故障模板覆盖（K3）")
+    k3 = payload["k3"]
+    if k3.get("available"):
+        L.append(f"  模板 {k}（verification={k3.get('verification')}）："
+                 f"expected_chain {k3['n_chain_edges']} 条相邻边中命中 {k3['n_matched']} 条，"
+                 f"覆盖率 {_pct(k3['coverage'])}。")
+        L.append(f"  稳定边中与模板方向相反 {k3['n_reverse_edges']} 条。")
+        if k3.get("reverse_edges"):
+            L.append("  反向边清单：" + "、".join(_fmt_edge(e) for e in k3["reverse_edges"]))
+        if k3.get("missing_edges"):
+            L.append("  模板链缺失：" + "、".join(_fmt_edge(e) for e in k3["missing_edges"]))
+    else:
+        L.append(f"  未产出（原因：{k3.get('reason')}）。")
+    L.append("")
+
+    # ---- 偏离度 ----
+    L.append("六、偏离度提示")
+    dev = payload["deviation"]
+    if dev.get("available"):
+        lc = dev.get("level_counts") or {}
+        L.append(f"  变量 {dev.get('n_variables')} 个的 4 级偏离计数："
+                 f"正常 {lc.get('normal')}、中等 {lc.get('moderate')}、"
+                 f"较大 {lc.get('large')}、严重 {lc.get('severe')}。")
+        L.append(f"  来源 {dev.get('source')}；{dev.get('note')}（偏离度只作辅助层，不改排序）。")
+    else:
+        L.append(f"  未产出（原因：{dev.get('reason')}）。")
+    L.append("")
+
+    # ---- 局限 ----
+    L.append("七、局限")
+    for item in payload.get("limitations") or []:
+        L.append(f"  - {item}")
+    L.append("")
+    L.append("（本解释由离线规则后端依据 v2.3 产物生成，未调用任何大模型；"
+             "所有数字与变量名均来自同 run_id 的 JSON 证据。）")
+    return "\n".join(L)
+
+
+# ==================== llm 后端（可选，OpenAI 兼容） ====================
+def llm_unavailable_reason() -> Optional[str]:
+    """llm 后端启用条件：BASE_URL 与 API_KEY 同时存在；否则返回原因文本。"""
+    missing = [n for n in (V23_LLM_BASE_URL_ENV, V23_LLM_API_KEY_ENV)
+               if not os.environ.get(n, "").strip()]
+    if missing:
+        return f"未设置环境变量 {'/'.join(missing)}，llm 后端不可用"
+    return None
+
+
+def _build_v23_prompt(payload: Dict) -> str:
+    return (
+        "以下为 CausalTrace v2.3 的单模板证据 JSON（只读产物，未重算因果）。"
+        "请生成中文结构化根因解释，章节：结论与 Top 根因 / 证据链 / 跨组一致性 / "
+        "物理一致性 K2 / 故障模板 K3 / 偏离度提示 / 局限。\n"
+        "只允许引用下面 JSON 中出现的数字与变量名。\n\n"
+        + json.dumps(payload, ensure_ascii=False, indent=2)
+    )
+
+
+def _call_chat_completions(prompt: str, timeout: Optional[float] = None) -> str:
+    """OpenAI 兼容 chat/completions（标准库 urllib，超时默认 30s，失败抛异常）。"""
+    base = os.environ.get(V23_LLM_BASE_URL_ENV, "").strip().rstrip("/")
+    key = os.environ.get(V23_LLM_API_KEY_ENV, "").strip()
+    if not base or not key:
+        raise RuntimeError("llm 后端环境变量缺失")
+    url = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
+    body = json.dumps({
+        "model": os.environ.get(V23_LLM_MODEL_ENV, V23_LLM_MODEL_DEFAULT),
+        "messages": [
+            {"role": "system", "content": V23_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.0,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {key}"})
+    t = V23_LLM_TIMEOUT_S if timeout is None else timeout
+    with urllib.request.urlopen(req, timeout=t) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    return data["choices"][0]["message"]["content"].strip()
+
+
+def generate_explanation(payload: Dict, backend: str = "rule",
+                         timeout: Optional[float] = None) -> Dict:
+    """生成解释：rule（默认离线）/ llm（可选，失败自动降级并写 degraded_reason）。"""
+    requested = backend
+    if backend == "llm":
+        why = llm_unavailable_reason()
+        if why:
+            text = render_rule_explanation(payload)
+            faith = verify_faithfulness(text, payload)
+            logger.warning(f"[D6] llm 后端不可用（{why}），降级 rule")
+            return {"backend": "rule", "requested_backend": requested,
+                    "degraded": True, "degraded_reason": why,
+                    "text": text, "faithfulness": faith}
+        try:
+            text = _call_chat_completions(_build_v23_prompt(payload), timeout=timeout)
+        except Exception as exc:  # noqa: BLE001 - 任何失败都必须显式降级
+            text = render_rule_explanation(payload)
+            faith = verify_faithfulness(text, payload)
+            reason = f"llm 调用失败并降级 rule：{type(exc).__name__}: {exc}"
+            logger.warning(f"[D6] {reason}")
+            return {"backend": "rule", "requested_backend": requested,
+                    "degraded": True, "degraded_reason": reason,
+                    "text": text, "faithfulness": faith}
+        faith = verify_faithfulness(text, payload)
+        if not faith["faithful"]:
+            logger.warning(f"[D6] llm 输出不忠实：{faith['n_numbers_unsupported']} 个未支撑数字，"
+                           f"{faith['n_vars_unknown']} 个未知变量名（原样保留并标记）")
+        return {"backend": "llm", "requested_backend": requested,
+                "degraded": False, "degraded_reason": None,
+                "text": text, "faithfulness": faith}
+
+    text = render_rule_explanation(payload)
+    faith = verify_faithfulness(text, payload)
+    if not faith["faithful"]:
+        raise RuntimeError(f"rule 后端解释未通过忠实性校验（实现缺陷）：{faith}")
+    return {"backend": "rule", "requested_backend": requested,
+            "degraded": False, "degraded_reason": None,
+            "text": text, "faithfulness": faith}
+
+
 # ==================== 自检（不真实调 LLM） ====================
 if __name__ == "__main__":
-    import json as _json
-    from pathlib import Path
-    V21 = Path(__file__).resolve().parents[2] / "output" / "rca_v21"
-    chain_dir = V21 / "chains"
-    sample = None
-    for p in sorted(chain_dir.glob("root_cause_chain_FULL_*.json")):
-        sample = p
-        break
-    if sample is None:
-        logger.info("无 chain 产物，无法自检")
-        raise SystemExit(0)
-    rec = _json.load(open(sample, encoding="utf-8"))
-    ctx = _build_prompt_context(rec)
+    payload = build_payload("LOCA", "mid")
+    res = generate_explanation(payload, backend="rule")
+    print(res["text"])
     print("=" * 70)
-    print("prompt 上下文（前 2000 字）：")
-    print(ctx[:2000])
-    print("=" * 70)
-    # 模拟一段含幻觉的 LLM 输出，验证 check_faithfulness
-    fake = "传播链 WLR→VOL→LVPZ RRF=0.7764，另外 XXYZ 变量也异常。"
-    print("check_faithfulness（含幻觉 XXYZ）：",
-          check_faithfulness(fake, rec))
-    print("API key 存在：", bool(_get_api_key()))
+    print("backend=", res["backend"], "faithful=", res["faithfulness"]["faithful"])
+    print("llm 可用性：", llm_unavailable_reason() or "环境变量齐全")

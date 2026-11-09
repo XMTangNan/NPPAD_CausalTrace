@@ -191,6 +191,77 @@ def sigma_floor_for(variable: str, mu: float, unit: Optional[str] = None) -> Tup
     return abs(float(mu)) * ratio, "fallback"
 
 
+BACKWARD_DIRECTIONS = ("backward", "reverse", "reversed", -1, "-1", "back")
+
+
+def _normalize_edge(edge: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+    """稳定边 -> (src, dst)；direction 为 backward/-1 时按反向解读端点。"""
+    src, dst = edge.get("from"), edge.get("to")
+    if not src or not dst:
+        return None, None
+    direction = edge.get("direction", "forward")
+    if direction in BACKWARD_DIRECTIONS:
+        return dst, src
+    return src, dst
+
+
+def match_fault_template(code: str, stable_edges: List[Dict[str, Any]],
+                         variables: List[str]) -> Dict[str, Any]:
+    """K3：用 L3 故障模板的 expected_chain 校验稳定边覆盖（辅助证据，不改排名）。
+
+    expected_chain 相邻两两成边；与 stable_edges（from/to/direction）逐条比对：
+      - 命中（matched）：稳定边方向与模板链同向；
+      - 反向（reversed）：稳定边方向与模板链相反；
+      - 缺失（missing）：模板链上无对应稳定边（区分“变量未入模”与“仅有向边缺失”）。
+    coverage = n_matched / n_chain_edges。模板不存在时返回 available=False，不臆造。
+    """
+    try:
+        tpl = load_fault_templates(code)
+    except (KeyError, FileNotFoundError) as exc:
+        return {"available": False, "template_code": code,
+                "reason": f"fault_templates 无 {code} 模板: {exc}"}
+
+    chain = [str(v) for v in (tpl.get("expected_chain") or [])]
+    chain_edges = list(zip(chain, chain[1:]))
+    vset = set(variables or [])
+    directed = set()
+    for e in stable_edges or []:
+        src, dst = _normalize_edge(e)
+        if src and dst:
+            directed.add((src, dst))
+
+    n_matched, n_reversed = 0, 0
+    reversed_edges: List[Dict[str, str]] = []
+    missing_edges: List[Dict[str, str]] = []
+    for u, v in chain_edges:
+        if (u, v) in directed:
+            n_matched += 1
+        elif (v, u) in directed:
+            n_reversed += 1
+            reversed_edges.append({"template": f"{u}->{v}", "stable": f"{v}->{u}"})
+        else:
+            reason = ("variable_not_in_model" if (u not in vset or v not in vset)
+                      else "no_stable_edge")
+            missing_edges.append({"template": f"{u}->{v}", "reason": reason})
+
+    n_chain = len(chain_edges)
+    return {
+        "available": True,
+        "template_code": code,
+        "expected_chain": chain,
+        "n_chain_edges": n_chain,
+        "n_matched": n_matched,
+        "n_reversed": n_reversed,
+        "coverage": round(n_matched / n_chain, 4) if n_chain else 0.0,
+        "reversed_edges": reversed_edges,
+        "missing_edges": missing_edges,
+        "verification": tpl.get("verification"),
+        "source": tpl.get("source"),
+        "note": "K3 覆盖率为辅助证据，不参与 T=(I−B)⁻¹ 排序；"
+                "模板来自方案 §4.3/README，非训练数据反推",
+    }
+
+
 def merge_into_ontology(ontology: Dict[str, Any],
                         ext_relations: List[Dict[str, Any]]
                         ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
