@@ -1,0 +1,12 @@
+[project]
+name = "causaltrace"
+version = "2.3.0"
+description = "NPPAD 12 类事故因果溯源（v2.3 方案实现）"
+requires-python = ">=3.10"
+
+# 仅测试配置：不引入构建后端，不改变现有 `PYTHONPATH=. python -m ...` 运行方式。
+# 加了 pythonpath 之后 `cd Code && pytest tests -q` 也能直接跑。
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["ignore::RuntimeWarning"]
