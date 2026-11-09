@@ -1,0 +1,23 @@
+source: "knowledge._forbidden_rules + 方案 §5.3"
+note: >-
+  K1 禁止边规则（marker 外生性）。与 rca/v21/knowledge.py 的 _forbidden_rules 严格对应：
+  R1 marker→marker（互斥外生始发事件）、R2 安全注入→marker、R3 其它任何变量→marker。
+  例外：P→WLR（破口流量受压差驱动，已列入 competitive 双向保留），不得生成禁止边。
+markers: [WLR, WTRA, WFLB]
+non_pilot_markers: [WTRB]
+safety_step_vars: [WHPI, WECS]
+rules:
+  - id: R1
+    name: marker 互斥
+    pattern: marker_to_marker
+    basis: "R1 marker为互斥外生始发事件，互不因果"
+  - id: R2
+    name: 安全注入→marker
+    pattern: safety_to_marker
+    basis: "R2 安全注入动作不引起始发破口"
+  - id: R3
+    name: 其它变量→marker
+    pattern: any_to_marker
+    basis: "R3 下游症状/动作不外生产生破口指示器 {marker}（外生故障过程）"
+exceptions:
+  - [P, WLR]

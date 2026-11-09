@@ -365,13 +365,13 @@
 - **类别**：CODE（C2）
 - **证据**：`run_v23_end2end.py:72-92` 的 `graph_summary` 只写 `n_nodes/n_stable_edges/n_bootstrap`；`run_source_tracing.py:81-98`（v2.2）才写 `n_consensus`。二者 schema 不同。
 - **解决**：在 v2.3 溯源执行器统一写 `n_consensus/n_conflict/n_bootstrap`，并由 `manifest.json` 的 `run_id` 保证与签名同批。
-- **状态**：open
+- **状态**：closed（2026-11-10；`root_candidates_*` 已含 n_consensus/n_conflict/engine/consensus_available/n_clipped_edges/cond_IminusB）
 
 ### V23-CODE-005：v2.3 分组 HTML 无生成脚本，现存图不可复现
 - **类别**：CODE（C3）
 - **证据**：全仓 `v23_graphs` 仅被 `severity_aggregation.py:265` 写入汇总图；`output/rca_v21/v23_graphs/graph_{K}_{g}.html`（11-10 00:01）无对应 `run_*.py`。
 - **解决**：新建 `run_v23_graphs.py`，只读 `output/rca_v23/signatures` + `tracing` 生成 `graphs/graph_{K}_{g}.html` 与汇总图，含 C3a 信息门控水印。
-- **状态**：open
+- **状态**：closed（2026-11-10；13 份 HTML＋meta，首屏含 run_id/生成时间，数据内嵌）
 
 ### V23-DESIGN-002：v2.3 产物多根多源，同一结果存在多份来源
 - **类别**：DESIGN（产物结构）
@@ -383,14 +383,14 @@
 - **类别**：CODE（C3b/C3c）
 - **证据**：`v23_tracing/diff_report_*.json` 与 `v23_graphs/graph_{K}_summary.html` 时间戳 11-04 23:09，而 `root_candidates_*.json` 为 11-10 00:01。
 - **解决**：`run_v23_all.py` 强制顺序：签名→溯源→分组图→汇总/差异→报告，全部写同一 `run_id`；禁止单独重跑下游。
-- **状态**：open
+- **状态**：closed（2026-11-10；图/汇总/差异均带 run_id 门控，run_id 不一致直接 ValueError；统一编排脚本见 D 阶段）
 
 ### V23-STAT-001：所有分组 `n_consensus == n_stable_edges`，共识边退化
 - **类别**：STAT / CODE（C2）
 - **证据**：v2.3 主流程未加载 GAM 共识分类（`consensus_*.json` 未参与），部分图把全部稳定边默认标 `consensus`，导致 top-k 共识率恒为 1。
 - **根因**：v2.3 只用 LiNGAM 单引擎签名，却沿用双引擎"共识边"字段语义。
 - **解决**：明确 v2.3 单引擎口径：`n_consensus` 仅在存在 GAM 共识文件时统计，否则写 `null` 并在报告中标注"单引擎稳定边"；禁止把稳定边等同共识边。
-- **状态**：open
+- **状态**：closed（2026-11-10；9 份 root_candidates 全部 `n_consensus=null`、`consensus_available=false`、图例改“稳定边”；`--with-gam-consensus` 才接入，混源拒绝）
 
 ### V23-DESIGN-003：K2 残差三态与偏离度是孤立脚本，未进 signature 与图
 - **类别**：DESIGN（D4/D9）
@@ -427,7 +427,7 @@
 - **证据**：`source_tracing.py:24,171` 新增 `B_CLIP=5.0` 与 `np.clip`；提交 53cf0a5。
 - **根因**：LiNGAM 在 PSGA/PSGB→WSTB 等共线对上给出 |weight|~1e5，`(I-B)^-1` 条件数 ~1e11。
 - **解决**：保留截断，但在 `data_audit`/manifest 中记录截断前后条件数、被截断边清单，并做 3/5/10 阈值敏感性，结果写报告。
-- **状态**：⚠️ 补丁已提交，敏感性待补
+- **状态**：⚠️ 敏感性已产出（`clip_sensitivity_{K}_{g}.json`）：clip=5 后 cond 仍 1e1–1e3（SGATR_high 2038），并非旧注的“→3–4”；clip=3 时 FLB_mid Top-1 由 PSGB 变 WCHG（Top-5 集合不变）。默认 B_CLIP=5.0 未改，论文需引用该敏感性表
 
 ---
 
@@ -468,7 +468,7 @@
 - **类别**：DATA（B4）
 - **证据**：`data_audit_FLB.json`：sev98–100 轨迹仅到 1600；主窗 [300,1500] 全覆盖，但基线段 [520,2030] 对 42 条截断。
 - **解决**：B4 逐轨迹记录 `t_last` 与窗口覆盖布尔；下游按类截断（不改变全局 SEVERITY_BANDS）；报告注明“恢复段末端缺失”。
-- **状态**：⚠️ 已登记，下游截断待 C 阶段落实
+- **状态**：closed（2026-11-10；签名 meta 写 `baseline_coverage`，FLB_high 24/32 轨迹截断、平均覆盖 131.25/152）
 
 ### V23-DATA-003：LOCAC 仅 6 个严重度点（1/25/50/75/100）
 - **类别**：DATA（B1/B6）
@@ -507,5 +507,17 @@
 - **证据**：`tests/test_v23_pipeline.py::test_two_runs_are_reproducible` 在 10 次全量运行中偶发 1 次失败；`round(total_effect, 8)` 精确相等断言受 BLAS 多线程累加顺序影响。
 - **解决**：排名与稳定边数保持逐项严格相等（真正口径），数值改用 `pytest.approx(rel=1e-9)`；CLI 侧 `REPRO_TWO_RUNS_IDENTICAL` 仍按日志指纹比对。
 - **状态**：closed（2026-11-10，收敛后连续 6 次全量 101 passed）
+
+### V23-CODE-015：`graph_visualization.render_graph_html` 未导入 logger，且只渲染 consensus 边
+- **类别**：CODE（C3）
+- **证据**：`rca/v21/graph_visualization.py` 的渲染函数引用 `logger` 但模块未导入（调用即 NameError）；过滤条件只保留 `consensus=True` 的边，单引擎 v2.3 下会得到空图。
+- **解决**：v2.3 不复用该渲染函数，仅复用其布局/配色常量，在 `run_v23_graphs.py` 内重写渲染（数据全部来自 `signatures/`+`tracing/` 的同一 run_id）。原文件未改，避免影响 v2.2 产物。
+- **状态**：open（遗留缺陷；若 v2.2 仍要出图需单独修）
+
+### V23-DESIGN-010：v2.3 汇总/差异产物统一落 `reports/`，与旧 `v23_tracing/diff_report_*` 命名不同
+- **类别**：DESIGN（产物结构）
+- **证据**：`severity_aggregation.py` 现输出 `reports/summary_{K}.json`、`reports/diff_{K}.json`；旧产物为 `output/rca_v21/v23_tracing/diff_report_{K}_{g}.json`。
+- **解决**：以 `Code/STRUCTURE.md` 为准，旧目录冻结只读；对外引用统一用 `reports/` 新路径。
+- **状态**：closed（2026-11-10；旧路径不再写入，STRUCTURE 已同步）
 
 

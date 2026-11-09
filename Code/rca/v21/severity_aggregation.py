@@ -1,271 +1,253 @@
-"""V2.3 §4.6 Step3-4: 跨严重度汇总视图 + 差异分析报告。
+"""v2.3 C3b/C3c：跨严重度汇总与差异报告（只读 tracing/root_candidates_*）。
 
-C3b: 合并 low/mid/high 三组稳定边（并集），边上标注出现组，
-     根因排名取三组 Top5 频率投票 → graph_{k}_summary.html
-C3c: Top1 切换 / 边数差异>50% / 机理切换点 → diff_report_{k}.json
+铁律（Code/STRUCTURE.md §1 单一来源、方案 v2.3 C4）：
+- 只读同一 run 的 `output/rca_v23/tracing/root_candidates_{K}_{g}.json`，
+  禁止重算因果、禁止读取旧 `v22/v21` 产物补数据；
+- 命令行必须显式给 `--run-id`，并与本批签名/溯源里的 run_id 逐一核对，
+  不一致立即报错退出（禁止混源）；
+- 产物落 `output/rca_v23/reports/summary_{K}.json` 与 `diff_{K}.json`，
+  记录输入文件 sha256 清单。
+
+用法（cd Code）：
+  PYTHONPATH=. ../.venv/bin/python -m rca.v21.severity_aggregation --run-id v23c-...
 """
 from __future__ import annotations
 
+import argparse
 import json
-from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
-from rca.v21 import data as D
-from core.utils import logger, save_json
+from rca.rca_config_v21 import GROUP_ORDER, MARKERS, READY_CODES
+from rca.v21 import artifact
+from core.utils import logger
 
-GROUP_ORDER = ["low", "mid", "high"]
-GROUP_COLORS = {"low": "#3498db", "mid": "#f39c12", "high": "#e74c3c"}
-EDGE_DIFF_THRESHOLD = 0.5  # 边数差异 > 50% 触发差异标注
-
-
-def _load_signature(k: str, g: str) -> Dict:
-    return D.load_json(f"v23_signatures/signature_{k}_{g}.json")
+EDGE_DIFF_THRESHOLD = 0.5   # 边数差异 > 50% 触发差异标注
+MECH_JACCARD_THRESHOLD = 0.5
+CONSENSUS_NOTE = "单引擎稳定边，不等同共识边"
 
 
-def _load_root_candidates(k: str, g: str) -> Dict:
-    return D.load_json(f"v23_tracing/root_candidates_{k}_{g}.json")
+# ==================== 读取与 run_id 门控 ====================
+def _load(sub: str, name: str) -> Dict:
+    path = Path(artifact.V23_SUBDIRS[sub]) / f"{name}.json"
+    if not path.exists():
+        raise FileNotFoundError(f"缺产物 {path}（先跑 run_v23_end2end）")
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
 
-def build_union_edges(k: str) -> List[Dict]:
-    """合并三组稳定边为并集，每条边标注出现组 + 各组 dir_e/f_e。"""
-    union: Dict[tuple, Dict] = {}
-    for g in GROUP_ORDER:
-        sig = _load_signature(k, g)
-        for e in sig["stable_edges"]:
-            key = (e["from"], e["to"])
-            if key not in union:
-                union[key] = {"from": e["from"], "to": e["to"], "groups": [], "dir_e": {}}
-            union[key]["groups"].append(g)
-            union[key]["dir_e"][g] = e["dir_e"]
-    return list(union.values())
+def load_root_candidates(k: str, g: str) -> Dict:
+    return _load("tracing", f"root_candidates_{k}_{g}")
 
 
-def frequency_vote_roots(k: str) -> List[Dict]:
-    """根因频率投票：某变量在多少组中进入 Top5，按出现组数+均分排名排序。"""
-    vote: Dict[str, Dict] = defaultdict(lambda: {"groups": [], "ranks": [], "subsystem": ""})
-    for g in GROUP_ORDER:
-        rc = _load_root_candidates(k, g)
-        for c in rc["root_candidates"][:5]:
-            v = c["variable"]
-            vote[v]["groups"].append(g)
-            vote[v]["ranks"].append(c.get("rank", 99))
-            vote[v]["subsystem"] = c.get("entity", {}).get("subsystem", "")
-    result = []
-    for v, info in vote.items():
-        result.append({
-            "variable": v,
-            "n_groups": len(info["groups"]),
-            "groups": info["groups"],
-            "avg_rank": round(sum(info["ranks"]) / len(info["ranks"]), 2),
-            "subsystem": info["subsystem"],
+def load_signature(k: str, g: str) -> Dict:
+    return _load("signatures", f"signature_{k}_{g}")
+
+
+def check_run_id(k: str, g: str, run_id: str) -> None:
+    """签名与溯源必须同为本次 run_id，否则拒绝混用。"""
+    for sub, name in (("signatures", f"signature_{k}_{g}"),
+                      ("tracing", f"root_candidates_{k}_{g}")):
+        doc = _load(sub, name)
+        got = doc.get("run_id")
+        if got != run_id:
+            raise ValueError(
+                f"{sub}/{name}.json 的 run_id={got} 与 --run-id={run_id} 不一致，"
+                f"拒绝生成汇总（禁止混源）")
+
+
+def _sha_inputs(k: str, groups: Sequence[str]) -> List[Dict]:
+    out = []
+    for g in groups:
+        for sub, name in (("signatures", f"signature_{k}_{g}"),
+                          ("tracing", f"root_candidates_{k}_{g}")):
+            p = Path(artifact.V23_SUBDIRS[sub]) / f"{name}.json"
+            out.append({"path": f"{sub}/{name}.json",
+                        "sha256": artifact.sha256_file(p)})
+    return out
+
+
+# ==================== 汇总 ====================
+def _top5(doc: Dict) -> List[str]:
+    return [c["variable"] for c in doc["root_candidates"][:5]]
+
+
+def _ranks(doc: Dict) -> Dict[str, int]:
+    return {c["variable"]: c["rank"] for c in doc["root_candidates"]}
+
+
+def build_summary(k: str, run_id: str,
+                  groups: Sequence[str] = tuple(GROUP_ORDER)) -> Dict:
+    """三组 Top-5 跨组一致性、名次变化、marker 排名（同一 run_id）。"""
+    docs = {}
+    for g in groups:
+        docs[g] = load_root_candidates(k, g)
+    top5 = {g: _top5(docs[g]) for g in groups}
+    ranks = {g: _ranks(docs[g]) for g in groups}
+
+    pairwise = []
+    for i in range(len(groups) - 1):
+        g1, g2 = groups[i], groups[i + 1]
+        s1, s2 = set(top5[g1]), set(top5[g2])
+        pairwise.append({
+            "pair": [g1, g2],
+            "overlap": len(s1 & s2),
+            "jaccard": round(len(s1 & s2) / max(len(s1 | s2), 1), 3),
+            "only_in_from": sorted(s1 - s2),
+            "only_in_to": sorted(s2 - s1),
+            "same_top1": bool(top5[g1] and top5[g2] and top5[g1][0] == top5[g2][0]),
         })
-    result.sort(key=lambda x: (-x["n_groups"], x["avg_rank"]))
-    return result
 
+    all_vars = sorted({v for g in groups for v in ranks[g]})
+    in_all = [v for v in all_vars if all(v in ranks[g] for g in groups)]
+    rank_changes = {}
+    for v in all_vars:
+        rs = {g: ranks[g].get(v) for g in groups}
+        present = [(g, r) for g, r in rs.items() if r is not None]
+        shift = None
+        if len(present) >= 2:
+            shift = max(r for _, r in present) - min(r for _, r in present)
+        rank_changes[v] = {"ranks": rs, "n_groups_in_top5": len(present),
+                           "max_shift": shift}
 
-def build_diff_report(k: str) -> Dict:
-    """C3c 差异分析报告。"""
-    edge_counts = {}
-    top1_by_group = {}
-    top5_by_group = {}
-    for g in GROUP_ORDER:
-        sig = _load_signature(k, g)
-        rc = _load_root_candidates(k, g)
-        edge_counts[g] = len(sig["stable_edges"])
-        top1_by_group[g] = rc["root_candidates"][0]["variable"] if rc["root_candidates"] else None
-        top5_by_group[g] = [c["variable"] for c in rc["root_candidates"][:5]]
-
-    # Top1 切换
-    top1_switches = []
-    for i in range(len(GROUP_ORDER) - 1):
-        g1, g2 = GROUP_ORDER[i], GROUP_ORDER[i + 1]
-        if top1_by_group[g1] != top1_by_group[g2]:
-            top1_switches.append({
-                "from_group": g1, "to_group": g2,
-                "from": top1_by_group[g1], "to": top1_by_group[g2],
-            })
-
-    # 边数差异 > 50%
-    edge_diffs = []
-    for i in range(len(GROUP_ORDER) - 1):
-        g1, g2 = GROUP_ORDER[i], GROUP_ORDER[i + 1]
-        c1, c2 = edge_counts[g1], edge_counts[g2]
-        base = max(c1, 1)
-        ratio = abs(c2 - c1) / base
-        if ratio > EDGE_DIFF_THRESHOLD:
-            edge_diffs.append({
-                "from_group": g1, "to_group": g2,
-                "count_from": c1, "count_to": c2, "diff_ratio": round(ratio, 3),
-            })
-
-    # 机理切换点：Top5 集合 Jaccard 最低的相邻组
-    mechanism_switches = []
-    for i in range(len(GROUP_ORDER) - 1):
-        g1, g2 = GROUP_ORDER[i], GROUP_ORDER[i + 1]
-        s1, s2 = set(top5_by_group[g1]), set(top5_by_group[g2])
-        jacc = len(s1 & s2) / max(len(s1 | s2), 1)
-        if jacc < 0.5:
-            mechanism_switches.append({
-                "from_group": g1, "to_group": g2,
-                "top5_jaccard": round(jacc, 3),
-                "only_in_from": list(s1 - s2), "only_in_to": list(s2 - s1),
-            })
-
-    return {
+    marker = docs[groups[0]]["template"]["marker"]
+    appears = any(marker in ranks[g] for g in groups)
+    summary = {
         "accident_type": k,
-        "edge_counts": edge_counts,
-        "top1_by_group": top1_by_group,
-        "top5_by_group": top5_by_group,
-        "top1_switches": top1_switches,
-        "edge_count_diffs": edge_diffs,
-        "mechanism_switches": mechanism_switches,
-        "summary": (
-            f"Top1 切换 {len(top1_switches)} 次; "
-            f"边数差异>50% 组对 {len(edge_diffs)} 个; "
-            f"机理切换点 {len(mechanism_switches)} 个"
-        ),
+        "marker": marker,
+        "groups": list(groups),
+        "top5_by_group": top5,
+        "rank_by_group": {g: ranks[g] for g in groups},
+        "cross_group": {
+            "pairwise": pairwise,
+            "vars_in_all_groups": in_all,
+            "n_vars_in_all_groups": len(in_all),
+            "mean_pairwise_overlap": round(
+                sum(p["overlap"] for p in pairwise) / max(len(pairwise), 1), 3),
+            "top1_by_group": {g: (top5[g][0] if top5[g] else None) for g in groups},
+            "top1_stable": len({t for t in (top5[g][0] if top5[g] else None
+                                            for g in groups)}) == 1,
+        },
+        "rank_changes": rank_changes,
+        "marker_rank": {
+            "variable": marker,
+            "ranks": {g: ranks[g].get(marker) for g in groups},
+            "appears_in_root_candidates": appears,
+            "note": "marker 为故障指示器，溯源流程中遮蔽，不参与根因排名",
+        },
+        "edge_counts": {g: docs[g]["n_stable_edges"] for g in groups},
+        "n_consensus": {g: docs[g].get("n_consensus") for g in groups},
+        "consensus_available": bool(docs[groups[0]].get("consensus_available")),
+        "consensus_note": (CONSENSUS_NOTE if not docs[groups[0]].get("consensus_available")
+                           else "已接入 GAM 共识分类"),
+        "n_bootstrap": docs[groups[0]].get("n_bootstrap"),
+        "engine": docs[groups[0]].get("engine"),
+        "inputs": _sha_inputs(k, groups),
     }
+    return summary
 
 
-def render_summary_html(k: str, union_edges: Sequence[Dict],
-                        roots: Sequence[Dict], marker: str) -> str:
-    """渲染跨严重度汇总图 HTML：边按出现组数着色，右侧频率投票榜。"""
-    # 节点集合
-    nodes = set()
-    for e in union_edges:
-        nodes.add(e["from"])
-        nodes.add(e["to"])
+# ==================== 差异 ====================
+def build_diff(k: str, run_id: str,
+               groups: Sequence[str] = tuple(GROUP_ORDER)) -> Dict:
+    """low→mid→high 的入榜/出榜/位移 + 边数与机理切换点（同一 run_id）。"""
+    docs = {g: load_root_candidates(k, g) for g in groups}
+    top5 = {g: _top5(docs[g]) for g in groups}
+    ranks = {g: _ranks(docs[g]) for g in groups}
+    edge_counts = {g: docs[g]["n_stable_edges"] for g in groups}
 
-    # 按出现组数给边着色：3组=红, 2组=橙, 1组=灰
-    def edge_color(groups):
-        n = len(groups)
-        if n == 3:
-            return GROUP_COLORS["high"]
-        if n == 2:
-            return GROUP_COLORS["mid"]
-        return "#95a5a6"
+    transitions = []
+    for i in range(len(groups) - 1):
+        g1, g2 = groups[i], groups[i + 1]
+        s1, s2 = set(top5[g1]), set(top5[g2])
+        shift = {}
+        for v in sorted(s1 | s2):
+            r1, r2 = ranks[g1].get(v), ranks[g2].get(v)
+            shift[v] = {"from": r1, "to": r2,
+                        "delta": (None if (r1 is None or r2 is None) else r2 - r1)}
+        transitions.append({
+            "from_group": g1, "to_group": g2,
+            "entered": sorted(s2 - s1),
+            "exited": sorted(s1 - s2),
+            "retained": sorted(s1 & s2),
+            "rank_shift": shift,
+            "top5_jaccard": round(len(s1 & s2) / max(len(s1 | s2), 1), 3),
+            "top1": [top5[g1][0] if top5[g1] else None,
+                     top5[g2][0] if top5[g2] else None],
+            "top1_switched": bool(top5[g1] and top5[g2] and top5[g1][0] != top5[g2][0]),
+            "n_stable_edges": [edge_counts[g1], edge_counts[g2]],
+            "edge_count_diff_ratio": round(
+                abs(edge_counts[g2] - edge_counts[g1]) / max(edge_counts[g1], 1), 3),
+        })
 
-    # 简易分层布局：按 BFS 深度
-    adj = defaultdict(list)
-    for e in union_edges:
-        adj[e["from"]].append(e["to"])
-    root_vars = [r["variable"] for r in roots]
-    depth = {v: -1 for v in nodes}
-    for r in root_vars:
-        if r in nodes:
-            depth[r] = 0
-    from collections import deque
-    q = deque([r for r in root_vars if r in nodes])
-    while q:
-        u = q.popleft()
-        for v in adj.get(u, []):
-            if depth.get(v, -1) < 0:
-                depth[v] = depth[u] + 1
-                q.append(v)
-    # 孤立节点放最后一层
-    max_d = max(depth.values()) if depth else 0
-    for v in nodes:
-        if depth.get(v, -1) < 0:
-            depth[v] = max_d + 1
+    edge_diffs = [{"from_group": t["from_group"], "to_group": t["to_group"],
+                   "count_from": t["n_stable_edges"][0],
+                   "count_to": t["n_stable_edges"][1],
+                   "diff_ratio": t["edge_count_diff_ratio"]}
+                  for t in transitions if t["edge_count_diff_ratio"] > EDGE_DIFF_THRESHOLD]
+    mech = [{"from_group": t["from_group"], "to_group": t["to_group"],
+             "top5_jaccard": t["top5_jaccard"],
+             "only_in_from": t["exited"], "only_in_to": t["entered"]}
+            for t in transitions if t["top5_jaccard"] < MECH_JACCARD_THRESHOLD]
+    top1_switches = [{"from_group": t["from_group"], "to_group": t["to_group"],
+                      "from": t["top1"][0], "to": t["top1"][1]}
+                     for t in transitions if t["top1_switched"]]
 
-    # 布局坐标
-    layers = defaultdict(list)
-    for v, d in depth.items():
-        layers[d].append(v)
-    col_w = 120
-    row_h = 50
-    pos = {}
-    for d, vs in layers.items():
-        for i, v in enumerate(vs):
-            pos[v] = (d * col_w + 60, (i + 0.5) * row_h)
-
-    width = (max(depth.values()) + 2) * col_w
-    height = max(len(v) for v in layers.values()) * row_h + 40
-
-    # 生成 SVG 边
-    edge_svg = []
-    for e in union_edges:
-        x1, y1 = pos[e["from"]]
-        x2, y2 = pos[e["to"]]
-        color = edge_color(e["groups"])
-        g_label = "/".join(e["groups"])
-        sw = 1 + len(e["groups"])
-        edge_svg.append(
-            f'<path d="M {x1} {y1} C {(x1+x2)/2} {y1}, {(x1+x2)/2} {y2}, {x2} {y2}" '
-            f'fill="none" stroke="{color}" stroke-width="{sw}" '
-            f'opacity="0.7"><title>{e["from"]}->{e["to"]} [{g_label}]</title></path>'
-        )
-
-    # 生成 SVG 节点
-    node_svg = []
-    for v in nodes:
-        x, y = pos[v]
-        is_root = v in set(root_vars)
-        is_top1 = is_root and root_vars and v == root_vars[0]
-        if is_top1:
-            fill, stroke, fw = "#e74c3c", "#c0392b", "bold"
-        elif is_root:
-            fill, stroke, fw = "#f39c12", "#e67e22", "normal"
-        else:
-            fill, stroke, fw = "#ecf0f1", "#bdc3c7", "normal"
-        node_svg.append(
-            f'<g class="node"><circle cx="{x}" cy="{y}" r="20" fill="{fill}" '
-            f'stroke="{stroke}" stroke-width="2"/>'
-            f'<text x="{x}" y="{y+4}" text-anchor="middle" font-size="10" '
-            f'font-weight="{fw}" fill="#2c3e50">{v}</text></g>'
-        )
-
-    # 频率投票榜
-    rank_rows = []
-    for i, r in enumerate(roots[:10]):
-        rank_rows.append(
-            f"<tr><td>{i+1}</td><td>{r['variable']}</td>"
-            f"<td>{r['subsystem']}</td><td>{r['n_groups']}/3</td>"
-            f"<td>{r['avg_rank']}</td></tr>"
-        )
-
-    # 图例
-    c_high = GROUP_COLORS["high"]
-    c_mid = GROUP_COLORS["mid"]
-    legend = (
-        f'<div style="font-size:11px;margin-top:8px">'
-        f'<span style="color:{c_high}">&#9679;</span> 3组共有 '
-        f'<span style="color:{c_mid}">&#9679;</span> 2组共有 '
-        f'<span style="color:#95a5a6">&#9679;</span> 1组独有 '
-        f'| marker={marker}'
-        f"</div>"
-    )
-
-    html = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>{k} 跨严重度汇总图</title></head>
-<body style="font-family:sans-serif;margin:16px">
-<h2>{k} 跨严重度因果汇总（low/mid/high 边并集 + 根因频率投票）</h2>
-<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">
-{''.join(edge_svg)}
-{''.join(node_svg)}
-</svg>
-{legend}
-<h3>根因频率投票榜（出现组数 / 平均排名）</h3>
-<table border="1" cellspacing="0" cellpadding="4" style="font-size:12px;border-collapse:collapse">
-<tr><th>Rank</th><th>变量</th><th>子系统</th><th>出现组数</th><th>平均排名</th></tr>
-{''.join(rank_rows)}
-</table>
-</body></html>"""
-    return html
-
-
-def run_severity_aggregation(k: str, marker: str) -> Dict:
-    """执行 C3b + C3c：生成汇总图与差异报告。"""
-    union_edges = build_union_edges(k)
-    roots = frequency_vote_roots(k)
-    diff = build_diff_report(k)
-
-    html = render_summary_html(k, union_edges, roots, marker)
-    out_html = Path(D.V21_OUTPUT) / "v23_graphs" / f"graph_{k}_summary.html"
-    out_html.write_text(html, encoding="utf-8")
-    logger.info(f"[C3b] {k} 汇总图 -> {out_html.name} ({len(union_edges)} 条并集边)")
-
-    save_json(diff, f"diff_report_{k}", result_dir=Path(D.V21_OUTPUT) / "v23_tracing")
-    logger.info(f"[C3c] {k} 差异报告: {diff['summary']}")
+    diff = {
+        "accident_type": k,
+        "marker": docs[groups[0]]["template"]["marker"],
+        "groups": list(groups),
+        "transitions": transitions,
+        "edge_counts": edge_counts,
+        "edge_count_diffs": edge_diffs,
+        "top1_switches": top1_switches,
+        "mechanism_switches": mech,
+        "n_clipped_edges": {g: docs[g].get("n_clipped_edges") for g in groups},
+        "cond_IminusB": {g: docs[g].get("cond_IminusB") for g in groups},
+        "consensus_available": bool(docs[groups[0]].get("consensus_available")),
+        "consensus_note": CONSENSUS_NOTE,
+        "n_bootstrap": docs[groups[0]].get("n_bootstrap"),
+        "inputs": _sha_inputs(k, groups),
+        "summary": (f"Top1 切换 {len(top1_switches)} 次; 边数差异>50% 组对 "
+                    f"{len(edge_diffs)} 个; 机理切换点 {len(mech)} 个"),
+    }
     return diff
+
+
+# ==================== 落盘 ====================
+def run_class(k: str, run_id: str,
+              groups: Sequence[str] = tuple(GROUP_ORDER)) -> Dict:
+    for g in groups:
+        check_run_id(k, g, run_id)
+    summary = build_summary(k, run_id, groups)
+    diff = build_diff(k, run_id, groups)
+    src = f"tracing/root_candidates_{k}_*/signature_{k}_*"
+    artifact.write_artifact(f"summary_{k}", summary, "reports", run_id=run_id,
+                            accident_type=k, group=None, source=src)
+    artifact.write_artifact(f"diff_{k}", diff, "reports", run_id=run_id,
+                            accident_type=k, group=None, source=src)
+    logger.info(f"[C3b] summary_{k}: {diff['summary']}")
+    return diff
+
+
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    ap = argparse.ArgumentParser(description="v2.3 C4：汇总 + 差异（只读 tracing）")
+    ap.add_argument("--run-id", required=True,
+                    help="必须与本批签名/溯源的 run_id 一致，否则拒绝执行")
+    ap.add_argument("--classes", default=",".join(READY_CODES))
+    ap.add_argument("--groups", default=",".join(GROUP_ORDER))
+    ap.add_argument("--no-manifest", action="store_true")
+    args = ap.parse_args(argv)
+    classes = [c.strip().upper() for c in args.classes.split(",") if c.strip()]
+    groups = [g.strip() for g in args.groups.split(",") if g.strip()]
+    for k in classes:
+        if k not in MARKERS:
+            raise ValueError(f"未登记的事故类别: {k}")
+        run_class(k, args.run_id, groups)
+    logger.info(f"[v23c] summary/diff 完成 run_id={args.run_id} classes={classes}")
+    if not args.no_manifest:
+        artifact.build_manifest(args.run_id)
+
+
+if __name__ == "__main__":
+    main()

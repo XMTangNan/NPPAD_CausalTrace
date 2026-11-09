@@ -167,13 +167,195 @@ ALLOWED_RELATIONS: Dict[str, List[Dict]] = {
         {"from": "WHPI", "to": "WECS", "direction": "forward", "level": "L1", "basis": "高压安注汇入安全注入总流量"},
         {"from": "RH",   "to": "PWNT", "direction": "forward", "level": "L1", "basis": "反应性驱动核功率"},
     ],
+    # ==================== v2.3 增量：其余 9 类（方案 §4.3 组2~组6）====================
+    # evidence 口径：LOCA/SGATR/FLB 为 pilot 冻结（frozen，源头条目未改）；
+    # 其余 9 类仅有设计方案、数据未到位（design_pending_data）。
+    "LOCAC": [
+        {"from": "WLR",  "to": "VOL",  "direction": "forward",       "level": "L1", "evidence": "design_pending_data",
+         "basis": "冷段破口与热段同属一回路失水，机理同组1（方案 §4.3 组1）：破口泄漏减少一回路装量"},
+        {"from": "VOL",  "to": "LVPZ", "direction": "forward",       "level": "L1", "evidence": "design_pending_data",
+         "basis": "冷段破口与热段同属一回路失水，机理同组1（方案 §4.3 组1）：装量下降反映为稳压器水位下降"},
+        {"from": "P",    "to": "TAVG", "direction": "forward",       "level": "L2", "evidence": "design_pending_data",
+         "basis": "冷段破口与热段同属一回路失水，机理同组1（方案 §4.3 组1）：失压导致饱和温度下降"},
+        {"from": "P",    "to": "WHPI", "direction": "forward",       "level": "L1", "evidence": "design_pending_data",
+         "basis": "冷段破口与热段同属一回路失水，机理同组1（方案 §4.3 组1）：低压力触发高压安注（控制逻辑）"},
+        {"from": "WHPI", "to": "WECS", "direction": "forward",       "level": "L1", "evidence": "design_pending_data",
+         "basis": "冷段破口与热段同属一回路失水，机理同组1（方案 §4.3 组1）：高压安注汇入安全注入总流量"},
+        {"from": "THA",  "to": "PSGA", "direction": "forward",       "level": "L2", "evidence": "design_pending_data",
+         "basis": "冷段破口与热段同属一回路失水，机理同组1（方案 §4.3 组1）：一回路热段温度经U型管传给二回路压力"},
+        {"from": "RH",   "to": "PWNT", "direction": "forward",       "level": "L1", "evidence": "design_pending_data",
+         "basis": "冷段破口与热段同属一回路失水，机理同组1（方案 §4.3 组1）：反应性驱动核功率"},
+        {"from": "RH",   "to": "QMWT", "direction": "forward",       "level": "L2", "evidence": "design_pending_data",
+         "basis": "冷段破口与热段同属一回路失水，机理同组1（方案 §4.3 组1）：反应性影响堆芯热功率"},
+        {"from": "VOL",  "to": "P",    "direction": "bidirectional", "level": "L2", "evidence": "design_pending_data",
+         "basis": "冷段破口与热段同属一回路失水，机理同组1（方案 §4.3 组1）：装量与压力的热力学耦合"},
+        {"from": "P",    "to": "WRCA", "direction": "forward",       "level": "L2", "evidence": "design_pending_data",
+         "basis": "冷段破口与热段同属一回路失水，机理同组1（方案 §4.3 组1）：压力影响一回路流量"},
+        {"from": "TAVG", "to": "DNBR", "direction": "forward",       "level": "L2", "evidence": "design_pending_data",
+         "basis": "冷段破口与热段同属一回路失水，机理同组1（方案 §4.3 组1）：温度升高降低DNBR"},
+    ],
+    # 组2：蒸汽管道破裂（方案 §4.3 组2）；SLBIC 壳内、SLBOC 壳外，仅 SLBIC 有安全壳压力响应
+    "SLBIC": [
+        {"from": "WSTA", "to": "PSGA", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "蒸汽管道破口造成蒸汽流失，SG-A压力下降（方案 §4.3 组2：蒸汽流失→SG压力下降）"},
+        {"from": "WSTB", "to": "PSGB", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "蒸汽管道破口造成蒸汽流失，SG-B压力下降（方案 §4.3 组2：蒸汽流失→SG压力下降）"},
+        {"from": "WSTA", "to": "WFWA", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "SG-A压力下降后给水流量变化（方案 §4.3 组2：SG压力下降→给水流量变化）"},
+        {"from": "WSTB", "to": "WFWB", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "SG-B压力下降后给水流量变化（方案 §4.3 组2：SG压力下降→给水流量变化）"},
+        {"from": "PSGA", "to": "TAVG", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "二回路SG压力变化经传热影响一回路平均温度（方案 §4.3 组2：一回路耦合 TAVG）"},
+        {"from": "PSGA", "to": "P",    "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "二回路失冷经传热扰动一回路压力（方案 §4.3 组2：一回路耦合 P）"},
+        {"from": "WSTA", "to": "PRB",  "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "basis": "壳内蒸汽释放导致安全壳压力上升（方案 §4.3 组2：SLBIC 有安全壳隔离响应）"},
+    ],
+    "SLBOC": [
+        {"from": "WSTA", "to": "PSGA", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "蒸汽管道破口造成蒸汽流失，SG-A压力下降（方案 §4.3 组2：蒸汽流失→SG压力下降）"},
+        {"from": "WSTB", "to": "PSGB", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "蒸汽管道破口造成蒸汽流失，SG-B压力下降（方案 §4.3 组2：蒸汽流失→SG压力下降）"},
+        {"from": "WSTA", "to": "WFWA", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "SG-A压力下降后给水流量变化（方案 §4.3 组2：SG压力下降→给水流量变化）"},
+        {"from": "WSTB", "to": "WFWB", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "SG-B压力下降后给水流量变化（方案 §4.3 组2：SG压力下降→给水流量变化）"},
+        {"from": "PSGA", "to": "TAVG", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "二回路SG压力变化经传热影响一回路平均温度（方案 §4.3 组2：一回路耦合 TAVG）"},
+        {"from": "PSGA", "to": "P",    "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "二回路失冷经传热扰动一回路压力（方案 §4.3 组2：一回路耦合 P）；壳外破口无安全壳隔离/压力响应该项"},
+    ],
+    # 组3：SG-B 传热管破裂，与 SGATR 严格 A/B 对称（方案 §4.3 组3）
+    "SGBTR": [
+        {"from": "WTRB", "to": "LSGB", "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "basis": "管侧流体漏入壳侧，SG-B水位上升（方案 §4.3 组3；与 SGATR 对称，A/B 互换）"},
+        {"from": "WTRB", "to": "PSGB", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "二次侧压力微升（方案 §4.3 组3；与 SGATR 对称，A/B 互换）"},
+        {"from": "WTRB", "to": "VOL",  "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "传热管破裂造成一回路缓失装量（方案 §4.3 组3）"},
+        {"from": "VOL",  "to": "P",    "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "装量损失导致压力下降（方案 §4.3 组3）"},
+        {"from": "P",    "to": "WHPI", "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "basis": "仅高严重度：低压力触发安注（方案 §4.3 组3）"},
+        {"from": "WHPI", "to": "WECS", "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "basis": "高压安注汇入安全注入总流量（方案 §4.3 组3）"},
+        {"from": "RH",   "to": "PWNT", "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "basis": "反应性驱动核功率（方案 §4.3 组3）"},
+        {"from": "THA",  "to": "PSGB", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "一回路热段温度传给SG-B压力（方案 §4.3 组3；与 SGATR 对称）"},
+        # 注：RM2（蒸汽管线辐射监测）在 §4.3 组3 列为关键响应，但 §4.2 未冻结
+        # WTR→RM2 的有向边；为保持 A/B 对称且不新增未冻结因果断言，SGATR/SGBTR
+        # 均不登记该边（已登记为 DESIGN 待确认项，见 error_tracking V23-DESIGN-005）。
+    ],
+    # 组4：反应性引入（方案 §4.3 组4）；RW/RI 方向相反，sign_by_class 记录始发扰动方向
+    # （+1 提棒增功率 / −1 插棒降功率），边耦合方向本身不随类别翻转。
+    "RW": [
+        {"from": "RHRD", "to": "RH",   "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "sign_by_class": {"RW": 1, "RI": -1},
+         "basis": "控制棒反应性计入总反应性（方案 §4.3 组4）；RW 提棒增功率、RI 插棒降功率，方向相反（§4.3 组4 特有规则）"},
+        {"from": "RH",   "to": "PWNT", "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "sign_by_class": {"RW": 1, "RI": -1},
+         "basis": "反应性变化引起功率变化（方案 §4.3 组4：反应性→功率）；RW/RI 响应符号相反（§4.3 组4 特有规则）"},
+        {"from": "RH",   "to": "QMWT", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "sign_by_class": {"RW": 1, "RI": -1},
+         "basis": "反应性变化经功率影响堆芯热功率（方案 §4.3 组4：关键响应 QMWT）；RW/RI 方向相反"},
+        {"from": "PWNT", "to": "TAVG", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "sign_by_class": {"RW": 1, "RI": -1},
+         "basis": "功率变化引起一回路温度响应（方案 §4.3 组4：功率变化→温度/压力响应）；RW/RI 方向相反"},
+        {"from": "TAVG", "to": "P",    "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "sign_by_class": {"RW": 1, "RI": -1},
+         "basis": "一回路温度变化引起压力响应（方案 §4.3 组4：温度/压力响应）；RW/RI 方向相反"},
+    ],
+    "RI": [
+        {"from": "RHRD", "to": "RH",   "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "sign_by_class": {"RW": 1, "RI": -1},
+         "basis": "控制棒反应性计入总反应性（方案 §4.3 组4）；RI 插棒降功率（§4.3 组4 特有规则）"},
+        {"from": "RH",   "to": "PWNT", "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "sign_by_class": {"RW": 1, "RI": -1},
+         "basis": "反应性变化引起功率变化（方案 §4.3 组4：反应性→功率）；RW/RI 响应符号相反（§4.3 组4 特有规则）"},
+        {"from": "RH",   "to": "QMWT", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "sign_by_class": {"RW": 1, "RI": -1},
+         "basis": "反应性变化经功率影响堆芯热功率（方案 §4.3 组4：关键响应 QMWT）；RW/RI 方向相反"},
+        {"from": "PWNT", "to": "TAVG", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "sign_by_class": {"RW": 1, "RI": -1},
+         "basis": "功率变化引起一回路温度响应（方案 §4.3 组4：功率变化→温度/压力响应）；RW/RI 方向相反"},
+        {"from": "TAVG", "to": "P",    "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "sign_by_class": {"RW": 1, "RI": -1},
+         "basis": "一回路温度变化引起压力响应（方案 §4.3 组4：温度/压力响应）；RW/RI 方向相反"},
+    ],
+    "MD": [
+        {"from": "PPM",  "to": "RH",   "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "basis": "硼浓度变化改变可溶性硼反应性（方案 §4.3 组4：MD 触发变量为 PPM 硼浓度）"},
+        {"from": "RH",   "to": "PWNT", "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "basis": "反应性变化引起功率变化（方案 §4.3 组4：反应性→功率）"},
+        {"from": "RH",   "to": "QMWT", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "反应性变化经功率影响堆芯热功率（方案 §4.3 组4：关键响应 QMWT）"},
+        {"from": "PWNT", "to": "TAVG", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "功率变化引起一回路温度响应（方案 §4.3 组4：功率变化→温度/压力响应）"},
+        {"from": "TAVG", "to": "P",    "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "一回路温度变化引起压力响应（方案 §4.3 组4：温度/压力响应）"},
+    ],
+    # 组5：负荷类（方案 §4.3 组5）；与 FLB 共享变量集模板，机理为热阱变化
+    "LR": [
+        {"from": "TBLD", "to": "WSTA", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "负荷骤降导致蒸汽流量变化（方案 §4.3 组5：负荷骤降→二回路热阱变化）"},
+        {"from": "TBLD", "to": "WSTB", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "负荷骤降导致蒸汽流量变化（方案 §4.3 组5：负荷骤降→二回路热阱变化）"},
+        {"from": "WSTA", "to": "PSGA", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "SG-A蒸汽流量变化引起SG-A压力响应（方案 §4.3 组5：关键响应 PSGA/PSGB）"},
+        {"from": "WSTB", "to": "PSGB", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "SG-B蒸汽流量变化引起SG-B压力响应（方案 §4.3 组5：关键响应 PSGA/PSGB）"},
+        {"from": "PSGA", "to": "TAVG", "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "二回路热阱变化经传热影响一回路温度（方案 §4.3 组5：一回路温度/压力响应）"},
+        {"from": "TAVG", "to": "P",    "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "二回路热阱变化经传热影响一回路温度，进而改变一回路压力（方案 §4.3 组5：一回路温度/压力响应）"},
+    ],
+    # 组6：下泄管线破裂（方案 §4.3 组6）；与 LOCA 同属失装量，路径为化容下泄
+    "LLB": [
+        {"from": "WLD",  "to": "VOL",  "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "basis": "下泄管线破裂→冷却剂丧失，与 LOCA 同属失装量但路径为化容下泄（方案 §4.3 组6）"},
+        {"from": "VOL",  "to": "LVPZ", "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "basis": "装量下降反映为稳压器水位下降（方案 §4.3 组6：关键响应 LVPZ）"},
+        {"from": "VOL",  "to": "P",    "direction": "forward", "level": "L2", "evidence": "design_pending_data",
+         "basis": "装量下降导致一回路压力下降（方案 §4.3 组6：关键响应 P）"},
+        {"from": "P",    "to": "WHPI", "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "basis": "低压力触发高压安注（方案 §4.3 组6：关键响应 WECS）"},
+        {"from": "WHPI", "to": "WECS", "direction": "forward", "level": "L1", "evidence": "design_pending_data",
+         "basis": "高压安注汇入安全注入总流量（方案 §4.3 组6：关键响应 WECS）"},
+    ],
 }
+
+# evidence 口径常量：pilot 三类关系已冻结（源头条目一字未改，读取时按类补齐 frozen）
+PILOT_ACCIDENT_TYPES: List[str] = ["LOCA", "SGATR", "FLB"]
+EVIDENCE_FROZEN = "frozen"
+EVIDENCE_PENDING = "design_pending_data"
 
 # 竞争边：物理反馈环或 L3 方向不预设，双向保留不删不偏向（13.4）
 COMPETITIVE_PAIRS: List[Tuple[str, str]] = [
     ("WLR", "P"),       # L1 环存在/L2 方向：P 驱动喷放，WLR 降低 P
     ("WFWA", "LSGA"),   # L3：给水-水位动力学复杂（实测 sev100 LSGA 反升），不预设方向
 ]
+
+# v2.3 按类竞争边（方案 §4.3 组规则）；缺类回退全局 COMPETITIVE_PAIRS。
+# 纪律：方案未冻结反馈环的类别留空 []，不臆造竞争边。
+COMPETITIVE_PAIRS_BY_CLASS: Dict[str, List[Tuple[str, str]]] = {
+    "LOCA":  [("WLR", "P")],        # 组1 特有规则明示 WLR↔P 双向反馈环
+    "LOCAC": [("WLR", "P")],        # 与 LOCA 同组1，沿用
+    "FLB":   [("WFWA", "LSGA")],    # 全局冻结 LV3 给水-水位不预设方向
+    "LR":    [("WFWA", "LSGA")],    # 组5 与 FLB 共享变量集模板，沿用
+    "SGATR": [("WTRA", "LSGA")],    # 组3 泄漏-水位反馈，方向不预设
+    "SGBTR": [("WTRB", "LSGB")],    # 组3 A/B 对称，沿用
+    # RW / RI / MD：方案 §4.3 组4 只给出「方向相反」与「温度/压力响应」，
+    # 未冻结温度反馈环，故留空——方案未冻结竞争边，不加入。
+    "RW": [],
+    "RI": [],
+    "MD": [],
+    # SLBIC / SLBOC：方案 §4.3 组2 未冻结反馈环，留空。
+    "SLBIC": [],
+    "SLBOC": [],
+    # LLB：方案 §4.3 组6 未冻结反馈环，留空。
+    "LLB": [],
+}
 
 
 def _forbidden_rules(variables: List[str]) -> List[Dict]:
@@ -230,8 +412,17 @@ def build_ontology(accident_type: str, variables: List[str]) -> Dict:
     allowed, competitive = [], []
     for rel in ALLOWED_RELATIONS[accident_type]:
         if rel["from"] in vset and rel["to"] in vset:
-            allowed.append(dict(rel))
-    for a, b in COMPETITIVE_PAIRS:
+            r = dict(rel)
+            # pilot 三类源头条目未写 evidence，读取时按类补齐（不修改冻结数据）
+            r.setdefault("evidence", EVIDENCE_FROZEN if accident_type in PILOT_ACCIDENT_TYPES
+                         else EVIDENCE_PENDING)
+            allowed.append(r)
+    # 竞争边优先用按类表（含显式留空 []），该类未登记时回退全局
+    if accident_type in COMPETITIVE_PAIRS_BY_CLASS:
+        pairs = COMPETITIVE_PAIRS_BY_CLASS[accident_type]
+    else:
+        pairs = COMPETITIVE_PAIRS
+    for a, b in pairs:
         if a in vset and b in vset:
             competitive.append({"pair": [a, b], "basis": "物理反馈环/L3方向不预设，双向保留"})
 

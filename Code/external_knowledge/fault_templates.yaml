@@ -1,0 +1,122 @@
+source: "方案 §4.3 组1-组6 + NPPAD README Table 1"
+note: >-
+  L3 故障模板（K3 机制模板，方案 §5.3.3）。全部内容只来自方案 §4.3 的机理描述与 NPPAD README Table 1，
+  严禁从训练数据+标签反推（否则标签泄漏）。expected_chain 中变量必须存在于 knowledge.ENTITY_TABLE。
+  verification：pilot 三类（LOCA/SGATR/FLB）为 frozen；其余 9 类数据未到位，为 design_pending_data。
+  expected_sign_direction 仅登记方案已明确的符号，方案未给出方向的变量不登记（留空不臆造）。
+n_templates: 12
+templates:
+  # ==================== 组1：一回路破口类 ====================
+  - code: LOCA
+    name_cn: 一回路热段失水事故
+    trigger: [WLR]
+    expected_chain: [WLR, VOL, P, TAVG, WHPI, WECS]
+    expected_sign_direction: {WLR: pos, VOL: neg, P: neg, TAVG: pos, WHPI: pos, WECS: pos}
+    key_symptoms: [P, TAVG, VOL, WECS, WHPI]
+    applicable_group: 1
+    source: "方案 §4.3 组1 + NPPAD README Table 1"
+    verification: frozen
+  - code: LOCAC
+    name_cn: 一回路冷段失水事故
+    trigger: [WLR]
+    expected_chain: [WLR, VOL, P, TAVG, WHPI, WECS]
+    expected_sign_direction: {WLR: pos, VOL: neg, P: neg, TAVG: pos, WHPI: pos, WECS: pos}
+    key_symptoms: [P, TAVG, VOL, WECS, WHPI]
+    applicable_group: 1
+    source: "方案 §4.3 组1（冷段破口与热段同属一回路失水）+ NPPAD README Table 1"
+    verification: design_pending_data
+  # ==================== 组2：蒸汽管道破裂类 ====================
+  - code: SLBIC
+    name_cn: 安全壳内蒸汽管道破裂
+    trigger: [WSTA, WSTB]
+    expected_chain: [WSTA, WSTB, PSGA, PSGB, WFWA, WFWB, TAVG, PRB]
+    expected_sign_direction: {PSGA: neg, PSGB: neg, PRB: pos}
+    key_symptoms: [PSGA, PSGB, WFWA, WFWB, TAVG, PRB]
+    applicable_group: 2
+    source: "方案 §4.3 组2 + NPPAD README Table 1"
+    verification: design_pending_data
+  - code: SLBOC
+    name_cn: 安全壳外蒸汽管道破裂
+    trigger: [WSTA, WSTB]
+    expected_chain: [WSTA, WSTB, PSGA, PSGB, WFWA, WFWB, TAVG]
+    expected_sign_direction: {PSGA: neg, PSGB: neg}
+    key_symptoms: [PSGA, PSGB, WFWA, WFWB, TAVG]
+    applicable_group: 2
+    source: "方案 §4.3 组2（壳外破口无安全壳隔离/压力响应）+ NPPAD README Table 1"
+    verification: design_pending_data
+  # ==================== 组3：SG传热管破裂类 ====================
+  - code: SGATR
+    name_cn: 蒸汽发生器A传热管破裂
+    trigger: [WTRA]
+    expected_chain: [WTRA, LSGA, PSGA, RM2, VOL, P, WHPI, WECS]
+    expected_sign_direction: {WTRA: pos, LSGA: pos, PSGA: pos, RM2: pos, VOL: neg, P: neg}
+    key_symptoms: [PSGA, LSGA, RM2]
+    applicable_group: 3
+    source: "方案 §4.3 组3 + NPPAD README Table 1"
+    verification: frozen
+  - code: SGBTR
+    name_cn: 蒸汽发生器B传热管破裂
+    trigger: [WTRB]
+    expected_chain: [WTRB, LSGB, PSGB, RM2, VOL, P, WHPI, WECS]
+    expected_sign_direction: {WTRB: pos, LSGB: pos, PSGB: pos, RM2: pos, VOL: neg, P: neg}
+    key_symptoms: [PSGB, LSGB, RM2]
+    applicable_group: 3
+    source: "方案 §4.3 组3（与 SGATR 严格 A/B 对称）+ NPPAD README Table 1"
+    verification: design_pending_data
+  # ==================== 组4：反应性引入类 ====================
+  - code: RW
+    name_cn: 提棒（控制棒抽出）
+    trigger: [RHRD]
+    expected_chain: [RHRD, RH, PWNT, QMWT, TAVG, P]
+    expected_sign_direction: {RH: pos, PWNT: pos, QMWT: pos}
+    key_symptoms: [PWNT, TAVG, P, QMWT]
+    applicable_group: 4
+    source: "方案 §4.3 组4（提棒增功率）+ NPPAD README Table 1"
+    verification: design_pending_data
+  - code: RI
+    name_cn: 插棒（控制棒插入）
+    trigger: [RHRD]
+    expected_chain: [RHRD, RH, PWNT, QMWT, TAVG, P]
+    expected_sign_direction: {RH: neg, PWNT: neg, QMWT: neg}
+    key_symptoms: [PWNT, TAVG, P, QMWT]
+    applicable_group: 4
+    source: "方案 §4.3 组4（插棒降功率，与 RW 方向相反）+ NPPAD README Table 1"
+    verification: design_pending_data
+  - code: MD
+    name_cn: 慢化剂稀释
+    trigger: [PPM]
+    expected_chain: [PPM, RH, PWNT, QMWT, TAVG, P]
+    expected_sign_direction: {PPM: neg}
+    key_symptoms: [PWNT, TAVG, P, QMWT]
+    applicable_group: 4
+    source: "方案 §4.3 组4（触发变量为硼浓度 PPM；下游功率/温度方向方案未明确，不登记）+ NPPAD README Table 1"
+    verification: design_pending_data
+  # ==================== 组5：给水/负荷类 ====================
+  - code: FLB
+    name_cn: 给水管道破裂
+    trigger: [WFLB]
+    expected_chain: [WFLB, WFWA, WSTA, WSTB, PSGA, TAVG, P, WHPI, WECS]
+    expected_sign_direction: {WFLB: pos, WFWA: neg, WSTA: neg, WSTB: neg}
+    key_symptoms: [WFWA, WFWB, TAVG, PWNT, PSGA, PSGB]
+    applicable_group: 5
+    source: "方案 §4.3 组5 + NPPAD README Table 1"
+    verification: frozen
+  - code: LR
+    name_cn: 甩负荷
+    trigger: [TBLD]
+    expected_chain: [TBLD, WSTA, WSTB, PSGA, PSGB, TAVG, P]
+    expected_sign_direction: {TBLD: neg}
+    key_symptoms: [WFWA, WFWB, TAVG, PWNT, PSGA, PSGB]
+    applicable_group: 5
+    source: "方案 §4.3 组5（负荷骤降）+ NPPAD README Table 1"
+    verification: design_pending_data
+  # ==================== 组6：下泄管线类 ====================
+  - code: LLB
+    name_cn: 下泄管线破裂
+    trigger: [WLD]
+    expected_chain: [WLD, VOL, LVPZ, P, WHPI, WECS]
+    expected_sign_direction: {WLD: pos, VOL: neg, LVPZ: neg, P: neg}
+    key_symptoms: [VOL, P, LVPZ, WECS]
+    applicable_group: 6
+    source: "方案 §4.3 组6（与 LOCA 同属失装量，路径不同）+ NPPAD README Table 1"
+    verification: design_pending_data

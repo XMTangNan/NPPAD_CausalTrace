@@ -1,0 +1,55 @@
+source: "方案 §4.4.1"
+note: >-
+  L4 σ_floor 逐变量物理下限（方案 §4.4.1「稳健 σ」措施：σ = max(1.4826·MAD, σ_floor(v))）。
+  方案原文量纲口径：压力 bar 级 0.5 bar、水位 % 0.5%、流量 t/hr 5 t/hr；无物理下限配置时回退 1%·|μ|。
+  此处按 unit 归并（% 量纲统一取 0.5 个百分点，未逐变量细化水位/百分比之别），并显式列出变量→下限表，
+  便于逐变量审计与后续细化；未列入 by_variable 的变量按其 unit 取 by_unit，仍无配置则回退 fallback。
+sigma_floor_rule: "sigma_floor(v) = max(1.4826*MAD, floor(v))；floor(v) 优先 by_variable，其次 by_unit，否则 fallback"
+fallback:
+  rule: "1% * |mu|"
+  ratio: 0.01
+by_unit:
+  bar: 0.5
+  "%": 0.5
+  t/h: 5.0
+by_variable:
+  # —— 压力（bar 级 0.5 bar）——
+  P: 0.5
+  PSGA: 0.5
+  PSGB: 0.5
+  PRB: 0.5
+  PRBA: 0.5
+  # —— 百分数（% 量纲 0.5 个百分点；方案原文为水位 %）——
+  LVPZ: 0.5
+  VOID: 0.5
+  PWNT: 0.5
+  PWR: 0.5
+  NSGA: 0.5
+  NSGB: 0.5
+  TBLD: 0.5
+  FRCL: 0.5
+  FRZR: 0.5
+  CNH2: 0.5
+  # —— 流量（t/hr 5 t/hr）——
+  WUP: 5.0
+  WSPY: 5.0
+  WLD: 5.0
+  WCHG: 5.0
+  WCFT: 5.0
+  WLPI: 5.0
+  WRCA: 5.0
+  WRCB: 5.0
+  WRLA: 5.0
+  WRLB: 5.0
+  WFWA: 5.0
+  WFWB: 5.0
+  WSTA: 5.0
+  WSTB: 5.0
+  WHPI: 5.0
+  WECS: 5.0
+  WCSP: 5.0
+  WBK: 5.0
+  WLR: 5.0
+  WTRA: 5.0
+  WTRB: 5.0
+  WFLB: 5.0

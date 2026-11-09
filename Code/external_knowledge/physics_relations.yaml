@@ -1,0 +1,59 @@
+source: "方案 §5.3.2"
+note: >-
+  L2 近似物理关系（K2 数值约束）。字段与 rca/v21/physics_constraints.py 的 PHYSICS_RELATIONS 一一对应
+  （id/name/lhs/rhs/rhs_operator/expected_sign/applicable_accidents/missing_terms/compose_lhs/compose_rhs，
+  R3 另含 threshold_key）；数值口径照抄代码，禁止在此改动。满足约束≠方向证明，违反≠链错（可能遗漏项导致）。
+n_relations: 5
+relations:
+  - id: R1_inventory_leak
+    name: 一回路装量-泄漏
+    lhs: WLR
+    rhs: VOL
+    rhs_operator: d_dt
+    expected_sign: neg
+    applicable_accidents: [LOCA, LOCAC, LLB]
+    missing_terms: 安注/补水、密度变化、未测小泄漏
+  - id: R2_sg_water_level
+    name: SG 水位动态
+    lhs: NET_FW
+    rhs: LSG_AVG
+    rhs_operator: d_dt
+    expected_sign: pos
+    applicable_accidents: [FLB, SGATR, SGBTR]
+    missing_terms: 压力/密度/相变、排污、未测流入
+    compose_lhs:
+      WFWA: 1
+      WFWB: 1
+      WSTA: -1
+      WSTB: -1
+    compose_rhs:
+      LSGA: 0.5
+      LSGB: 0.5
+  - id: R3_eci_trigger
+    name: 安注触发
+    lhs: P_LOW
+    rhs: ECI_FLOW
+    rhs_operator: level
+    expected_sign: trigger
+    applicable_accidents: [LOCA, SGATR, FLB]
+    missing_terms: 手动/自动逻辑、阈值回差
+    compose_rhs:
+      WHPI: 1
+      WECS: 1
+    threshold_key: P
+  - id: R4_tube_leak
+    name: 传热管泄漏
+    lhs: WTRA
+    rhs: PSGA
+    rhs_operator: level
+    expected_sign: neg
+    applicable_accidents: [SGATR, SGBTR]
+    missing_terms: 壳侧排放、控制动作、饱和
+  - id: R5_reactivity_power
+    name: 反应性-功率
+    lhs: RH
+    rhs: PWNT
+    rhs_operator: d_dt
+    expected_sign: pos
+    applicable_accidents: [RW, RI, MD]
+    missing_terms: 温度反馈、氙毒、控制棒动态

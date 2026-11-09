@@ -22,6 +22,7 @@ from rca.v21.knowledge import ENTITY_TABLE
 # ==================== 配置（方案 §1.3 决策） ====================
 TOP_K_ROOT = 5            # 根变量默认输出 Top 5
 B_CLIP = 5.0              # B 矩阵元素截断阈值：|B|>B_CLIP 视为共线性伪影
+CLIP_SENSITIVITY = (3.0, 5.0, 10.0)  # V23-ALGO-001 敏感性档位（不改默认值）
 MAX_PATH_LEN = 4          # 传导路径最大边数
 MAX_PATH_DEPTH = 5        # 传导路径最大节点数（= MAX_PATH_LEN + 1）
 MAX_PATHS_PER_ROOT = 20   # 每个根变量输出的路径数上限（防组合爆炸）
@@ -143,10 +144,33 @@ def compute_topology(
 
 
 # ==================== 总因果效应矩阵（论文 Algorithm 2）====================
+def _matrix_from_edges(stable_edges: Sequence[Dict],
+                       variables: Sequence[str]) -> Tuple[np.ndarray, Dict[str, int]]:
+    """稳定边 -> 直接效应矩阵 B（B[to, from] = from->to 的 weight_median）。"""
+    idx = {v: i for i, v in enumerate(variables)}
+    n = len(variables)
+    B = np.zeros((n, n), dtype=float)
+    for e in stable_edges:
+        i, j = idx[e["to"]], idx[e["from"]]
+        B[i, j] = e.get("weight_median", 0.0)
+    return B, idx
+
+
+def _safe_cond(mat: np.ndarray) -> Optional[float]:
+    """条件数（奇异/非有限返回 None，禁止编造数值）。"""
+    try:
+        c = float(np.linalg.cond(mat))
+    except np.linalg.LinAlgError:
+        return None
+    return c if np.isfinite(c) else None
+
+
 def build_total_effect_matrix(
     stable_edges: Sequence[Dict],
     variables: Sequence[str],
-) -> Tuple[np.ndarray, Dict[str, int]]:
+    clip: float = B_CLIP,
+    return_diag: bool = False,
+):
     """从稳定边重建直接效应矩阵 B，计算总因果效应 T = (I−B)⁻¹。
 
     T[i, j] = 变量 j 对变量 i 的总因果效应（直接 + 间接）。
@@ -158,23 +182,42 @@ def build_total_effect_matrix(
       修正：对 B 元素做硬截断 |B|≤B_CLIP(=5)。标准化数据下因果效应应在
       [-1,1] 量级，|B|>5 必为共线性伪影。截断保留 435/505 边不变，
       仅压制 70 个极值，(I-B) 条件数从 ~1e11 降至 ~3-4，总效应排序有意义。
+
+    return_diag=True 时额外返回截断证据（V23-ALGO-001）：
+      cond_IminusB（截断前条件数）、clipped_edges（from/to/raw_weight）、
+      n_clipped_edges、cond_IminusB_after_clip。
     """
-    idx = {v: i for i, v in enumerate(variables)}
+    B, idx = _matrix_from_edges(stable_edges, variables)
     n = len(variables)
-    B = np.zeros((n, n), dtype=float)
-    for e in stable_edges:
-        i, j = idx[e["to"]], idx[e["from"]]   # B[to, from] = from -> to 的直接效应
-        B[i, j] = e.get("weight_median", 0.0)
+    cond_before = _safe_cond(np.eye(n) - B)
+
     # 数值稳定：截断共线性伪影。标准化数据下因果效应应在 [-1,1] 量级，
-    # |B|>5 必为多重共线导致的回归爆炸（如 PSGA/PSGB→WSTB = ±2.7e5）。
-    # 硬截断保留绝大多数合理边不变，仅压制极值，保证 (I-B) 良态。
-    B = np.clip(B, -B_CLIP, B_CLIP)
+    # |B|>B_CLIP 必为多重共线导致的回归爆炸（如 PSGA/PSGB→WSTB = ±2.7e5）。
+    clipped: List[Dict] = []
+    for e in stable_edges:
+        w = float(e.get("weight_median", 0.0))
+        if abs(w) > clip:
+            clipped.append({"from": e["from"], "to": e["to"],
+                            "raw_weight": round(w, 6)})
+    B = np.clip(B, -clip, clip)
+    M = np.eye(n) - B
     # DAG 保证 (I-B) 可逆
     try:
-        T = np.linalg.inv(np.eye(n) - B)
+        T = np.linalg.inv(M)
     except np.linalg.LinAlgError:
         T = np.eye(n)  # 兜底：奇异时退化为单位阵（无间接效应）
-    return T, idx
+
+    if not return_diag:
+        return T, idx
+    diag = {
+        "b_clip": float(clip),
+        "cond_IminusB": cond_before,
+        "cond_IminusB_after_clip": _safe_cond(M),
+        "n_edges": len(stable_edges),
+        "n_clipped_edges": len(clipped),
+        "clipped_edges": clipped,
+    }
+    return T, idx, diag
 
 
 # ==================== 根变量筛选 ====================
@@ -205,8 +248,25 @@ def select_root_candidates(
     次级排序键：in_degree ASC, weighted_reach DESC, reach_size DESC, consensus_rate DESC
     marker 遮蔽：不参与根变量排名。
     """
-    # 1. 计算总因果效应矩阵 T
-    T, idx = build_total_effect_matrix(stable_edges, variables)
+    return trace_roots(topology, marker, stable_edges, variables,
+                       top_k=top_k)["root_candidates"]
+
+
+def trace_roots(
+    topology: Dict[str, Dict],
+    marker: str,
+    stable_edges: Sequence[Dict],
+    variables: Sequence[str],
+    top_k: int = TOP_K_ROOT,
+    clip: float = B_CLIP,
+) -> Dict:
+    """溯源主实现：返回根因榜 + 全变量总效应 + B 截断证据（单次求逆口径）。
+
+    返回 {"root_candidates": [...], "total_effect": {v: score}, "diagnostics": {...}}
+    """
+    # 1. 计算总因果效应矩阵 T（含截断前后条件数与被截断边清单）
+    T, idx, diag = build_total_effect_matrix(stable_edges, variables,
+                                             clip=clip, return_diag=True)
 
     # 2. 确定效应变量（症状端）：terminal 节点 + marker
     effect_vars: Set[str] = set()
@@ -257,7 +317,48 @@ def select_root_candidates(
 
     for i, c in enumerate(selected, 1):
         c["rank"] = i
-    return selected
+
+    total_effect_all = {c["variable"]: c["total_effect"] for c in ordered}
+    return {"root_candidates": selected, "total_effect": total_effect_all,
+            "diagnostics": diag}
+
+
+def clip_sensitivity(
+    topology: Dict[str, Dict],
+    marker: str,
+    stable_edges: Sequence[Dict],
+    variables: Sequence[str],
+    clips: Sequence[float] = CLIP_SENSITIVITY,
+    base_clip: float = B_CLIP,
+    top_k: int = TOP_K_ROOT,
+) -> Dict:
+    """V23-ALGO-001：B 截断阈值 3/5/10 的 Top-K 排名敏感性（只出证据，不改默认值）。"""
+    base = trace_roots(topology, marker, stable_edges, variables,
+                       top_k=top_k, clip=base_clip)
+    base_top = [c["variable"] for c in base["root_candidates"]]
+    variants: List[Dict] = []
+    for c in clips:
+        r = trace_roots(topology, marker, stable_edges, variables,
+                        top_k=top_k, clip=c)
+        top = [x["variable"] for x in r["root_candidates"]]
+        variants.append({
+            "clip": float(c),
+            "top5": top,
+            "top1": top[0] if top else None,
+            "rank_overlap_at_5": len(set(top) & set(base_top)),
+            "top1_same": bool(top and base_top and top[0] == base_top[0]),
+            "n_clipped_edges": r["diagnostics"]["n_clipped_edges"],
+            "cond_IminusB_after_clip": r["diagnostics"]["cond_IminusB_after_clip"],
+        })
+    return {
+        "b_clip_default": float(base_clip),
+        "clips_tested": [float(c) for c in clips],
+        "top5_default": base_top,
+        "variants": variants,
+        "top1_stable": bool(variants) and all(v["top1_same"] for v in variants),
+        "min_rank_overlap_at_5": min((v["rank_overlap_at_5"] for v in variants),
+                                     default=0),
+    }
 
 
 # ==================== 传导路径生成 ====================

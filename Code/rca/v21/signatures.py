@@ -139,8 +139,13 @@ def bootstrap_lingam_template(blocks: List[np.ndarray], variables: List[str],
                               median_platform: float,
                               n_bootstrap: int = LINGAM_N_BOOTSTRAP,
                               seed: int = GLOBAL_SEED,
-                              use_ontology: bool = True) -> Dict:
-    """对一个 (k,g) 模板跑轨迹级 Bootstrap LiNGAM（每次本体约束后独立求逆）。"""
+                              use_ontology: bool = True,
+                              extra_meta: Optional[Dict] = None) -> Dict:
+    """对一个 (k,g) 模板跑轨迹级 Bootstrap LiNGAM（每次本体约束后独立求逆）。
+
+    extra_meta：只追加元信息（run_id/baseline_coverage/gating 等），
+    不参与任何算法口径（bootstrap 单位、稳定边阈值、求逆方式均不变）。
+    """
     from lingam import DirectLiNGAM
     rng = np.random.default_rng(seed)
     graph_only = compute_graph_only_scale(blocks, variables, marker, mu)
@@ -172,7 +177,7 @@ def bootstrap_lingam_template(blocks: List[np.ndarray], variables: List[str],
     frontier = bfs_frontier([(e["from"], e["to"]) for e in stable], marker)
     unstable = [j for j, info in stats["cL"].items() if info["piL"] < STABLE_F]
 
-    return {
+    out = {
         "variables": variables, "marker": marker,
         "n_train_trajectories": n_traj, "n_bootstrap": n_bootstrap,
         "median_platform": float(median_platform),
@@ -186,14 +191,19 @@ def bootstrap_lingam_template(blocks: List[np.ndarray], variables: List[str],
             "mean_removed_per_fit": float(np.mean(n_removed_log)),
         },
         "flags": {"unstable_magnitude_marker_edges": unstable},
+        "engine": "lingam",
     }
+    if extra_meta:
+        out.update(extra_meta)
+    return out
 
 
 def fit_single_template(blocks: List[np.ndarray], variables: List[str],
                         marker: str, ontology: Dict,
                         mu: Dict[str, float], sigma: Dict[str, float],
                         median_platform: float,
-                        use_ontology: bool = True) -> Dict:
+                        use_ontology: bool = True,
+                        extra_meta: Optional[Dict] = None) -> Dict:
     """D3 留一标定用：在全部给定块上确定性单次 DirectLiNGAM（无有放回重采样）。
 
     与 bootstrap_lingam_template 返回同构（n_bootstrap=1），单图边即标定拓扑。
@@ -210,7 +220,7 @@ def fit_single_template(blocks: List[np.ndarray], variables: List[str],
     stats = aggregate_edge_stats([B_c], variables, marker)
     stable = select_stable_edges(stats)
     frontier = bfs_frontier([(e["from"], e["to"]) for e in stable], marker)
-    return {
+    out = {
         "variables": variables, "marker": marker,
         "n_train_trajectories": len(blocks), "n_bootstrap": 1,
         "median_platform": float(median_platform),
@@ -226,7 +236,11 @@ def fit_single_template(blocks: List[np.ndarray], variables: List[str],
             "mean_removed_per_fit": float(rep["n_removed"]),
         },
         "flags": {"loo_single_fit": True},
+        "engine": "lingam",
     }
+    if extra_meta:
+        out.update(extra_meta)
+    return out
 
 
 def save_signature(signature: Dict, accident_type: str, group: str,

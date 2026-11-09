@@ -55,32 +55,41 @@ Code/
 │   └── tolerance_overrides.yaml
 └── output/
     └── rca_v23/                  # v2.3 唯一产物根（新；旧 rca_v21/v23_* 冻结为历史）
-        ├── manifest.json          # run_id、git commit、参数、各产物 sha256
-        ├── registry/accident_registry.json
-        ├── variable_sets/variable_sets_{K}.json
+        ├── manifest.json          # run_id、各产物相对路径/大小/sha256（artifact.build_manifest）
+        ├── registry/
+        │   ├── accident_registry.json      # 12 类注册表快照 + ready/partial/missing 清单
+        │   └── split_manifest.json         # train/test 分组快照（v2.1 冻结输入留痕）
+        ├── variable_sets/
+        │   ├── selection_report_{K}.json   # 四阶段漏斗报告（V1–V7 + 选中变量）
+        │   └── variable_selection_summary.json
         ├── audit/data_audit_{K}.json
         ├── audit/z_pathology_audit_{K}.json
         ├── audit/changepoint_report_{K}.json
         ├── tolerances/tolerance_{K}.json
         ├── signatures/signature_{K}_{g}.json
-        ├── tracing/root_candidates_{K}_{g}.json
-        ├── tracing/conduction_{K}_{g}.json
-        ├── tracing/diff_report_{K}.json
-        ├── tracing/tracing_report_v23.txt
+        ├── tracing/root_candidates_{K}_{g}.json    # Top-5 + n_consensus/cond/clip 证据
+        ├── tracing/topology_{K}_{g}.json           # 拓扑矩阵与节点/边
+        ├── tracing/clip_sensitivity_{K}_{g}.json   # B 截断 3/5/10 敏感性
+        ├── tracing/skipped_classes.json            # 缺数据/partial 跳过清单
         ├── graphs/graph_{K}_{g}.html
         ├── graphs/graph_{K}_summary.html
+        ├── graphs/graph_all_summary.html
+        ├── reports/summary_{K}.json                # C3b 跨组汇总
+        ├── reports/diff_{K}.json                   # C3c 跨组差异
         ├── reports/rca_report_{K}_{g}.json
         ├── reports/rca_report_{K}_{g}.txt
         ├── reports/llm_explanation_{K}_{g}.json
-        └── knowledge/knowledge_validation_{K}.json
+        ├── knowledge/knowledge_validation.json
+        └── ablations/{auto_vs_v21.json,...}        # 消融/对照（唯一允许再分一层的子目录）
 ```
 
 **命名规则**
 
 - 类别 `K` ∈ `{LOCA,LOCAC,SLBIC,SLBOC,SGATR,SGBTR,RW,RI,FLB,MD,LR,LLB}`；组 `g` ∈ `{low,mid,high}`。
 - 文件名一律 `{产物类型}_{K}[_{g}].{json|html|txt}`，全大写类别、小写组名。
-- JSON 顶层必须含 `schema`、`accident_type`、`group`（或 `null`）、`run_id`、`source`（上游文件相对路径）。
+- JSON 顶层必须含 `schema`、`artifact`、`accident_type`、`group`（或 `null`）、`run_id`、`created_at`、`source`；由 `rca/v21/artifact.py` 统一注入，执行器不得手写 json.dump 落盘 v2.3 产物。
 - 不再出现 `v23_` 前缀子目录、`signatures_strict`、`signatures_no_ontology` 等并列目录；消融产物统一放 `output/rca_v23/ablations/{name}/`。
+- 文本/HTML 产物由 `artifact.write_text_artifact` 同时写同名 `.meta.json`（含 sha256 与 run_id）。
 
 ## 3. 与旧产物的对应（收敛映射）
 
@@ -88,7 +97,7 @@ Code/
 |--------|--------|------|
 | `output/rca_v21/v23_signatures/` | `output/rca_v23/signatures/` | 重算后写入；旧目录不再更新 |
 | `output/rca_v21/v23_tracing/root_candidates_*` | `output/rca_v23/tracing/` | 重算 |
-| `output/rca_v21/v23_tracing/diff_report_*` | `output/rca_v23/tracing/` | 由 `severity_aggregation` 在签名重算后统一重跑 |
+| `output/rca_v21/v23_tracing/diff_report_*` | `output/rca_v23/reports/diff_{K}.json` | 由 `severity_aggregation` 在签名重算后统一重跑 |
 | `output/rca_v21/v23_graphs/graph_{K}_{g}.html` | `output/rca_v23/graphs/` | 由 `run_v23_graphs.py` 从 v23 签名统一生成 |
 | `output/rca_v21/v23_graphs/graph_{K}_summary.html` | `output/rca_v23/graphs/` | 同上，与分组图同批次 |
 | `output/rca_v21/v23_llm/` | `output/rca_v23/reports/llm_explanation_*` | 12/36 份按注册表状态生成 |
