@@ -33,8 +33,8 @@ Code/
 │       ├── accident_config.py    # [新] 12 类注册表（元数据唯一来源）
 │       ├── data.py               # 加载/划分（按注册表状态门控）
 │       ├── data_audit.py         # [新] B4 数据审计 + B5 Z 病态 + B6 变点
-│       ├── variable_selector.py   # A1 论文锚定 + 四阶段漏斗（配置改读 accident_config）
-│       ├── paper_anchor.py        # A1 论文锚定单一来源（引文、专家集代理、冲突裁决）
+│       ├── variable_selector.py   # A1 论文锚定（候选加权、可剔除留痕）+ 四阶段漏斗
+│       ├── paper_anchor.py        # A1 论文锚定单一来源（引文、早期机理筛选集代理、冲突裁决）
 │       ├── knowledge.py          # 96 变量本体 + 12 类 ALLOWED_RELATIONS
 │       ├── external_knowledge.py # [新] YAML → 本体合并（只扩展不覆盖）
 │       ├── signatures.py         # C1 12类×3组因果签名（含 K2/偏离度挂载点）
@@ -61,7 +61,7 @@ Code/
         │   ├── accident_registry.json      # 12 类注册表快照 + ready/partial/missing 清单
         │   └── split_manifest.json         # train/test 分组快照（v2.1 冻结输入留痕）
         ├── variable_sets/
-        │   ├── selection_report_{K}.json   # 论文锚定 + 四阶段漏斗报告（V0–V7 + 选中变量）
+        │   ├── selection_report_{K}.json   # 论文锚定 + 四阶段漏斗报告（V0–V7、v3_status 三态、dropped_anchor/anchor_impact）
         │   └── variable_selection_summary.json
         ├── audit/data_audit_{K}.json
         ├── audit/z_pathology_audit_{K}.json

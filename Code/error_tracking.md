@@ -750,6 +750,7 @@
 - **原方案怎么写**：§3.2 四阶段漏斗（硬过滤→评分→物理约束→VIF），强制集只含“触发变量 + 关键响应 + 子系统代表”；论文只作为背景引用，未进入选取规则。
 - **为什么改**：论文 p.4 写明 “eight key variables identified through XGBoost feature selection and **validated by domain experts**”，原漏斗会按数据驱动剔除专家认可变量（高 VIF 时尤其），与论文口径不一致。原文**未给 8 变量名单**，也未报告 XGBoost 超参/重要性阈值/VIF/降维/变量集敏感性分析；因此只能锚定“专家验证集必须进模型”，不能替论文补名单。
 - **改法**：新增阶段0「论文锚定」（`rca/v21/paper_anchor.py` 单一来源）。锚定集与 `forced ∪ subsystem_reps` 合并为强制保留集，阶段3 去重、阶段4 VIF 迭代不得剔除；代理集用 v2.1 `CLASS_VARIABLES`（LOCA 14 / SGATR 15 / FLB 14），**显式标注为工程假设**。冲突裁决：近常量/缺失>50%/零值 → 剔除并记录 `dropped_stage1`；Z 病态 → 保留并标记 `z_pathological`；VIF≥500 → 保留并标记实测值；数据集无该列 → 记 `missing_in_data` 不报错。新增 V0 校验。
+  > **2026-11-10 返工**：上述“保护集 + 保留并标记 + 版本标注 v2.1 专家集”实现已废弃，改为候选加权、可剔除留痕，见 V23-DESIGN-023。
 - **影响产物/验收**：`variable_sets/selection_report_{K}.json` 新增 `paper_anchor` 块（引文、代理来源、used/dropped/kept_pathological、conflict_policy）；§3.2/§3.3/§3.5/§7.1 加条款；A4 验收口径改为“锚定 + 自动补选”。
 - **证据**：run_id=`v23-20261110T043640`，锚定 14/14、14/15、14/14；SGATR `WLR` 因 `near_constant(sigma=0.00e+00,nunique=1)` 记录剔除；LOCA/SGATR/FLB 各保留 Z 病态/高 VIF 锚定变量 7/13/12 个（保留并标记）。
 - **结论**：closed（改代码+重跑）。
@@ -792,6 +793,28 @@
 - **裁决**：按 §3.3 冲突裁决「保留并标记」，不回退锚定；报告如实写 `stability.degraded=true` 与“数值不稳定、结论降级”。
 - **影响**：LOCA_mid Top1=WECS 属降级结论，论文引用时必须标注；不得当作与其余 8 组同等级证据。
 - **结论**：closed（接受并标记；论文引用需注明）。
+  > **2026-11-10 返工复核**：锚定改为可剔除后，`run_id=v23-20261110T050332` 的 9 组 `stability.degraded` 全为 false，LOCA_mid clip_ratio=0.1507（原 0.4516），本条的“接受并标记”不再适用，见 V23-DESIGN-023。
+
+### V23-DESIGN-023：锚定集被当作不可剔除保护集（返工）
+
+- **原实现（V23-DESIGN-018 首版）**：锚定集并入 `forced ∪ subsystem_reps` 保护集，阶段3 去重与阶段4 VIF 迭代均不得剔除；VIF≥500 的锚定变量“保留并标记”；V3 在“无非保护变量”时按空集视为通过；锚定来源写成“v2.1 专家冻结集（`rca.rca_config.CLASS_VARIABLES`）”。
+- **问题**：`run_id=v23-20261110T043640` 实测 `max_vif_all`=2.85e13 / 8.92e9 / 1.05e12，v2.1 共线性病回潮；SGATR 因全部变量进保护集而出现“V3 按空集视为通过”，校验被架空；LOCA_mid 截断比 0.4516>0.35 触发降级、`B_CLIP` 成承重墙。版本标注亦属事实错误：`rca_config.CLASS_VARIABLES` 是 2026-10-26 Initial commit `544f3a3` 的早期方案配置（LOCA 14 / SGATR 15 / FLB 14），不是 v2.1 的 20 变量硬编码集。
+- **改法**：
+  1. 锚定改 `candidate_weighted`：进候选优先队列 + `ANCHOR_SCORE_BONUS=0.15` 评分加权；阶段3 去冗余、阶段4 VIF 迭代、`N_MAX` 裁剪均可剔除；`protected` 只含 `forced` 与仍入选的 `subsystem_reps`。
+  2. 剔除留痕：`dropped_anchor` 记 `stage`/`reason`/`vif`/`z_pathological`/`max_vif_at_drop`/`n_vars_before`；`anchor_impact` 记声明/保留/剔除数、**剔除前后 `max_vif_all`**、VIF 前后变量数、Top-1 指针；去冗余剔除后被 N_MIN 回补的锚定变量单列 `readded_anchor`，不再同时出现在 retained/dropped。
+  3. V3 修空集漏洞：作用在**实际入选集合**（含仍保留的锚定变量）；pass/fail/n-a 三态，n/a 必写原因（VIF 矩阵奇异或 p<3）；新增 `V0_anchor_accounted` 记账校验。
+  4. 修 VIF 迭代上界死锁：`len(selected) > len(protected & set(selected))`。原上界把已被去冗余剔除的保护变量计入分母，LOCA 卡在 11 变量（V1 fail）。
+  5. 版本标注按事实改称“早期机理筛选集”，注明 commit `544f3a3` 与每类变量数；报告新增 `v21_set_reference` 与 `proxy_vs_v21_diff`，不自行替换为 v2.1 集。
+  6. `all_pass` 与选择器内部统一为 `v is not False`（V3 n/a 不判失败）；V1–V7 未全通过的 `log_error` 文案改为“保留当前集合并如实记录（不自动回退）”。
+- **证据（`run_id=v23-20261110T050332`，9/9 步 ok，合计 291.0s，`pytest tests -q` 125 passed）**：
+  - 变量数：LOCA/SGATR/FLB 各 **15**（返工前 20/20/21；上界死锁未修时 LOCA=11）。
+  - `max_vif_all`：**2.162e3 / 4.288e5 / 7.757e9**（返工前 2.85e13 / 8.92e9 / 1.05e12）；非保护变量 max VIF：**490.0 / 249.9 / 49.6**。
+  - V3 三态：三类均 **fail**，且 offenders 全部是**保护变量（关键响应/子系统代表）**，无一是锚定变量——LOCA: VOL 2161.6、RRCA 1271.0；SGATR: PSGB 4.288e5、PSGA 4.209e5、LSGA 1.271e4、LSGB 5214.7、NSGA 694.5、RHBR 683.8；FLB: PSGA/PSGB 7.756e9、WFWA/WFWB 8.63e8、QMGB 2039.5、PWNT 1740.7、WSTB 1661.5、TAVG 883.0、WCHG 670.7。
+  - 锚定：LOCA 14 声明 / 8 保留 / 6 剔除（deduplicate 4 + vif_iter 2：THA 2432.3、WRCA 813.0；LVPZ 被回补）；SGATR 15/7/8（WLR `stage1_or_missing`；P 被回补）；FLB 14/6/8（deduplicate 6 + vif_iter 2：QMWT 4152.8、WRCA 509.8）。
+  - 稳定性：**0/9 降级**；LOCA_mid clip_ratio=0.1507、cond_after_clip=529.8（原 0.4516/816.8），其余 0–0.2609。
+  - Top-1（相对 `v23-20261110T043640`）：LOCA_low RHMT 不变；LOCA_mid WECS→TRB；LOCA_high LVPZ→WECS；SGATR_low/mid NSGA 不变；SGATR_high RHBR→RM2；FLB_low P→WFWA；FLB_mid WCHG 不变；FLB_high P→PSGA。
+- **未解决（需人工裁决，不自行改）**：V3 仍 fail 的根因已不是锚定，而是 §4.3 关键响应集本身含近完全共线测点对、且 `forced` 仍是绝对保护：FLB 的 PSGA/PSGB 与 WFWA/WFWB 相关系数 **1.000000**；SGATR PSGA/PSGB=0.999916、LSGA/LSGB=0.994073；LOCA VOL 与 TAVG/P 相关≈0.91。可选处置：(a) 阶段3 对精确重复测点对去重（保留一路，另一路记 `dropped_key_response`）；(b) V5 口径放宽为“每个共线组至少一个代表”；(c) 接受 V3 fail 并在论文写明。三者均改数值或口径，待确认后执行。
+- **结论**：closed（锚定语义与 V3 口径已返工；关键响应的共线保护问题另立裁决）。
 
 ---
 
@@ -829,5 +852,38 @@
 
 **收口计数（本轮）**：新增 6 条（DESIGN-018/019/020/021/022、CODE-028）全部 closed；累计 open=0。
 **保持登记**：V23-DATA-001、V23-DATA-003、RCA-010。
+
+---
+
+## v2.3 全链验收记录（锚定返工，run_id=v23-20261110T050332）
+
+**命令**：`cd Code && PYTHONPATH=. ../.venv/bin/python -m rca.v21.run_v23_all --n-bootstrap 100 --rerun-reason "E-R2 影响数值：论文锚定改候选加权可剔除并留痕；V3 改三态；修复 VIF 迭代上界死锁"`
+**重跑原因（`rerun_reason`，方案 §6.4）**：E-R2 影响数值（锚定语义、V3 口径、VIF 迭代行为均改变变量集与签名）；按例外只跑一次全链，其余验证用单测 + 单阶段。
+**结果**：9/9 步 ok、failed=0、合计 291.0s；单步 variable_sets 8.18 / audit 3.16 / tolerances 0.42 / end2end 279.07 / graphs 0.02 / aggregation 0.01 / deviation 0.05 / explanation_reports 0.06 / manifest 0.02（秒）；`pytest tests -q` → **125 passed**；`with_ab=false`（A/B 仍引用冻结件）。
+
+| 项 | 结果 | 来源 |
+|---|---|---|
+| 产物 | 146 个文件；JSON 均带 `run_id=v23-20261110T050332`；A/B 2 个文件仍属冻结批次 | `manifest.json` |
+| 变量选取 | LOCA/SGATR/FLB 各 **15**；V0/V1/V2/V4/V5/V6/V7 全 true，**V3 三类均 fail（保护变量共线，见 V23-DESIGN-023）** | `variable_sets/` |
+| `max_vif_all` | **2.162e3 / 4.288e5 / 7.757e9**；非保护 max VIF 490.0 / 249.9 / 49.6 | `selection_report_{K}.json` |
+| 锚定 | 14/8/6、15/7/8、14/6/8（声明/保留/剔除）；剔除含 vif_iter（LOCA THA 2432.3、WRCA 813.0；FLB QMWT 4152.8、WRCA 509.8） | `paper_anchor.dropped_anchor`/`anchor_impact` |
+| 稳定性门控 | **0/9 降级**；LOCA_mid clip_ratio 0.1507（原 0.4516），最高 FLB_mid 0.2609 | `signatures/*.json` auxiliary.stability |
+| 解释 | 9 份模板 rule + 3 份类级 + 1 份全局，`degraded=false`（backend=rule） | `reports/llm_explanation_*` |
+
+**根因 Top-1（本轮）**：LOCA = RHMT / TRB / WECS；SGATR = NSGA / NSGA / RM2；FLB = WFWA / WCHG / PSGA。
+
+| 模板 | 旧 Top1（043640） | 新 Top1（050332） | 变化 |
+|---|---|---|---|
+| LOCA_low | RHMT | RHMT | 不变 |
+| LOCA_mid | WECS | TRB | **变**（降级解除后重算） |
+| LOCA_high | LVPZ | WECS | **变** |
+| SGATR_low | NSGA | NSGA | 不变 |
+| SGATR_mid | NSGA | NSGA | 不变 |
+| SGATR_high | RHBR | RM2 | **变** |
+| FLB_low | P | WFWA | **变** |
+| FLB_mid | WCHG | WCHG | 不变 |
+| FLB_high | P | PSGA | **变** |
+
+**收口计数（本轮）**：新增 1 条（DESIGN-023）closed；DESIGN-018/022 加返工注记；累计 open=0；**待裁决 1 项**：§4.3 关键响应集含精确重复测点对（forced 绝对保护），V3 因此 fail，处置方案三选一待用户确认。
 
 

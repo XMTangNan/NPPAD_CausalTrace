@@ -328,19 +328,20 @@ v2.3对应实现：
 
 ### 3.2 论文锚定 + 四阶段漏斗架构
 
-> **论文依据**：原文 p.2（Fig.2 Feature Selector）明确采用“data-driven feature selection methods or manual selection based on domain expertise”；p.4（Dataset Description）写明 “eight key variables identified through XGBoost feature selection and validated by domain experts”。**原文未给出这 8 个变量的名单**，也未报告 XGBoost 超参、重要性阈值、VIF/降维、变量集敏感性分析（Table 1 的消融是本体/知识图谱消融，不是变量集消融）。因此本方案不替论文补名单，只把“专家验证集必须进模型”落成可执行条款（阶段0），数据驱动只在锚定集之外补选与剔除病态变量。
+> **论文依据**：原文 p.2（Fig.2 Feature Selector）明确采用“data-driven feature selection methods or manual selection based on domain expertise”；p.4（Dataset Description）写明 “eight key variables identified through XGBoost feature selection and validated by domain experts”。**原文未给出这 8 个变量的名单**，也未报告 XGBoost 超参、重要性阈值、VIF/降维、变量集敏感性分析（Table 1 的消融是本体/知识图谱消融，不是变量集消融）。因此本方案不替论文补名单，只把“专家验证变量应优先进入候选”落成可执行条款（阶段0）：锚定是**候选优先 + 评分加权**，不是不可剔除的保护集；数据驱动在锚定之外补选，锚定变量与其他变量同等接受数据质量门、去冗余与 VIF 迭代的检验，剔除必须留理由。
 
 ```
 96 个原始参数
     │
     ▼
 ┌─────────────────────────────────────┐
-│ 阶段0：论文锚定（强制保留集，§3.3）    │
-│  - 论文/专家验证变量进入强制保留集      │
-│  - 与 forced ∪ subsystem_reps 合并     │
-│  - 原文未给名单 → 用 v2.1 专家冻结集代理│
-│    （显式标注为工程假设）               │
-│  → 锚定集不参与 VIF 迭代剔除            │
+│ 阶段0：论文锚定（候选加权，§3.3）      │
+│  - 锚定变量进候选优先队列 + 评分加权    │
+│    （ANCHOR_SCORE_BONUS=0.15）        │
+│  - 不与 forced 合并，不作保护集        │
+│  - 原文未给名单 → 早期机理筛选集代理    │
+│    （commit 544f3a3；工程假设）        │
+│  → 可被去冗余/VIF/裁剪剔除，须留理由    │
 └─────────────────────────────────────┘
     │
     ▼
@@ -384,7 +385,7 @@ v2.3对应实现：
 
 ### 3.3 各阶段量化标准
 
-#### 阶段0：论文锚定（强制保留集，V23-DESIGN-018）
+#### 阶段0：论文锚定（候选加权约束，V23-DESIGN-018；返工 V23-DESIGN-023）
 
 **论文事实（只引原文，不补话）**
 
@@ -397,21 +398,34 @@ v2.3对应实现：
 
 **落地条款**
 
-1. 锚定集 = 论文明确使用的变量。因原文未给名单，本方案以 **v2.1 专家冻结变量集**（`rca_config.CLASS_VARIABLES`：LOCA 14 / SGATR 15 / FLB 14）作为可执行代理，**显式标注为工程假设**，不得表述为“论文原始 8 变量”。
-2. 锚定集与现有 `forced`（触发变量 + 关键响应变量）、`subsystem_reps`（子系统代表变量）合并为**强制保留集**；阶段3 去重、阶段4 VIF 迭代均不得剔除锚定变量。
-3. 数据驱动（阶段1/2）只在锚定集**之外**负责补选；阶段1 的数据质量门对锚定变量仍然生效，但剔除必须记录原因（`dropped_stage1`），不得静默丢弃。
-4. 数据集未采集的锚定列记 `missing_in_data`，不报错（锚定自然失效）。
+1. 锚定集 = 论文明确使用的变量。因原文未给名单，本方案以 **早期机理筛选集**（`rca.rca_config.CLASS_VARIABLES`：LOCA 14 / SGATR 15 / FLB 14，来源 commit `544f3a3`，2026-10-26 Initial commit）作为可执行代理，**显式标注为工程假设**，不得表述为“论文原始 8 变量”，也不得表述为“v2.1 专家冻结集”——它与 v2.1 硬编码 20 变量集不是同一集合（差异见下）。
+2. 锚定变量进入**候选优先队列**并获得评分加权（`ANCHOR_SCORE_BONUS=0.15`，评分为 [0,1] 归一化），但**不是保护集**：阶段3 去冗余、阶段4 VIF 迭代、变量数裁剪均可剔除锚定变量。保护集只保留物理约束要求的 `forced`（触发变量 + 关键响应变量）与在选中的 `subsystem_reps`（子系统代表）。
+3. 剔除必须写理由与影响：`dropped_anchor` 记录 `stage`（`stage1_or_missing`/`deduplicate`/`vif_iter`/`n_max_trim`）、`reason`（近常量、缺列、去冗余、VIF 实测值、N_MAX 裁剪）、`z_pathological`、`max_vif_at_drop`、`n_vars_before`；`anchor_impact` 记录锚定声明/保留/剔除数、**剔除前后 `max_vif_all`**、VIF 前后变量数、Top-1 变化指针。做到“剔了谁、为什么、代价是什么”可查。
+4. 数据驱动（阶段1/2）在锚定集之外负责补选；阶段1 的数据质量门对锚定变量同样生效，剔除记入 `dropped_anchor(stage=stage1_or_missing)`（与 `dropped_stage1` 同源），不得静默丢弃。
+5. 数据集未采集的锚定列记 `missing_in_data`，不报错（锚定自然失效）。
 
-**冲突裁决（可执行）**
+**早期机理筛选集 vs v2.1 硬编码集（实测差异）**
+
+| 事故类 | 早期机理筛选集 | v2.1 `V_graph` | 交集 | 仅早期集有 | 仅 v2.1 有 |
+|--------|---------------|----------------|------|-----------|-----------|
+| LOCA | 14 | 20 | 13 | WRCA | LSGA, LSGB, PSGB, WFWA, WFWB, WSTA, WSTB |
+| SGATR | 15 | 20 | 11 | TF, TSAT, WLR, WRCA | DNBR, LSGA, LSGB, WECS, WFWA, WFWB, WHPI, WSTA, WSTB |
+| FLB | 14 | 20 | 12 | VOID, WRCA | LSGA, LSGB, WECS, WFWA, WFWB, WHPI, WSTA, WSTB |
+
+> 是否改用 v2.1 硬编码集**不自行替换**，须人工确认。已知风险：v2.1 的 20 变量集同时包含 PSGA/PSGB、WFWA/WFWB、LSGA/LSGB 等近完全共线测点对（FLB 的 PSGA/PSGB 与 WFWA/WFWB 相关系数 1.000000），直接接入会把 v2.1 的共线性病带回流程。
+
+**冲突裁决（可执行；锚定不享有绝对保护）**
 
 | 冲突情形 | 裁决 | 理由 |
 |----------|------|------|
-| 锚定变量被阶段1 判为近常量/缺失>50%/全程零值 | **剔除并记录**（`dropped_stage1` + reason） | 无分布的列 LiNGAM 无法建模，强制保留只会产生 NaN/病态解 |
-| 锚定变量 Z 病态（σ/\|μ\| < 1%） | **保留并标记**（`kept_pathological.z_pathological=true`） | Z 病态是数值尺度问题，不是物理无关；σ_floor 已在阶段2 修正 |
-| 锚定变量 VIF ≥ 500 | **保留并标记**（不参与 VIF 迭代剔除，报告 `final_vif` 实测值） | 锚定变量间的高共线是核电压强耦合的物理事实；剔除会破坏论文锚定 |
+| 锚定变量被阶段1 判为近常量/缺失>50%/全程零值 | **剔除并记录**（`dropped_anchor.stage=stage1_or_missing` + reason） | 无分布的列 LiNGAM 无法建模，强制保留只会产生 NaN/病态解 |
+| 锚定变量与同子系统变量高度相关 | **剔除并记录**（`stage=deduplicate`，保留评分更高者） | 冗余测点不增加信息量，锚定加权只保证优先进入候选，不保证最终入选 |
+| 锚定变量 Z 病态（σ/\|μ\| < 1%） | **不单独剔除**，仅标记 `z_pathological=true` | Z 病态是数值尺度问题，不是物理无关；若同时 VIF≥500，则在 VIF 迭代中剔除并记录 `z_pathological=true` |
+| 锚定变量 VIF ≥ 500 | **剔除并记录**（`stage=vif_iter`，写实测 VIF、`max_vif_at_drop`、`n_vars_before`） | 共线性会破坏 LiNGAM 方向辨识；论文锚定是优先权，不是免剔除权 |
+| 变量数 > N_MAX | 按评分裁剪，锚定变量同样可被裁剪（`stage=n_max_trim`） | 算法约束优先，裁剪留痕 |
 | 锚定变量在数据集中不存在 | **记录 `missing_in_data`，不报错** | 数据集覆盖问题，不应阻断整类分析 |
 
-> 与漏斗的关系：阶段0 是**集合约束**，不改变阶段1–4 的评分与过滤逻辑；它只保证“论文/专家认可的变量不会被数据驱动剔除”，并让每一次保留/剔除都有可回溯记录（`variable_sets/selection_report_{K}.json` 的 `paper_anchor` 块）。
+> 与漏斗的关系：阶段0 是**候选约束**（优先队列 + 评分加权），不改变阶段1–4 的评分与过滤逻辑，也不豁免任何数据质量门与共线性校验；每一次保留/剔除都落在 `variable_sets/selection_report_{K}.json` 的 `paper_anchor` 块（`anchor_retained`/`dropped_anchor`/`anchor_impact`）。
 
 #### 阶段1：硬过滤
 
@@ -466,6 +480,7 @@ score(v) = 0.25 × norm(CV(v))
 | 触发变量 | 必须包含 | 不参与 VIF 剔除 |
 | 关键响应变量 | 必须包含 | 不参与 VIF 剔除 |
 | 子系统代表变量 | 必须包含 | 不参与 VIF 剔除 |
+| 锚定变量 | 优先进入候选 + 评分加权 | **不在保护表内**：可被 VIF 迭代剔除，落 `dropped_anchor`（见 §3.3） |
 
 ### 3.4 变量选取算法伪代码
 
@@ -552,9 +567,13 @@ def select_variables(accident_type, raw_data, ontology, severity_by_traj, random
     trigger = ontology.get_trigger_var(accident_type)
     key_responses = ontology.get_key_responses(accident_type)
     forced = [v for v in [trigger] + key_responses if v is not None]
-    # 论文锚定（方案 §3.3 阶段0）：与 forced / subsystem_reps 合并为强制保留集
+    # 论文锚定（方案 §3.3 阶段0）：候选优先 + 评分加权，不是保护集
     anchor = paper_anchor(accident_type, num_cols)   # 见 rca/v21/paper_anchor.py
-    forced = forced + [v for v in anchor if v not in forced and v in candidates]
+    for v in anchor:                 # 命中候选的锚定变量加分并进优先队列
+        if v in candidates:
+            scores[v] = min(1.0, scores[v] + ANCHOR_SCORE_BONUS)
+            if v not in top30:
+                top30.append(v)
 
     for v in forced:
         if v not in top30 and v in candidates:
@@ -574,9 +593,9 @@ def select_variables(accident_type, raw_data, ontology, severity_by_traj, random
     # 阶段4：因果发现适配
     selected = list(top30)
 
-    # 4a. VIF 迭代剔除
+    # 4a. VIF 迭代剔除（锚定变量与普通变量同等参与；上界用仍在集合内的保护变量计数）
     vif_log = []
-    while len(selected) > len(forced):
+    while len(selected) > len(set(forced) & set(selected)):
         vifs = compute_vif_safe(raw_data[selected])
         if vifs is None:
             break
@@ -622,14 +641,14 @@ def norm_quantile_dict(value_dict, lower=0.05, upper=0.95):
 
 ### 3.5 校验规则（变量选取质量门控）
 
-每类事故的变量集必须通过以下校验，否则回退到人工指定变量集：
+每类事故的变量集必须通过以下校验；未通过时**如实记录失败项并标记该类需人工裁决**，不自动回退、不调阈值掩盖。
 
 | 校验项 | 通过条件 | 不通过处置 |
 |--------|---------|-----------|
-| V0 论文锚定 | 锚定集全部入选，或每个未入选项都有 `dropped_stage1`/`missing_in_data` 记录 | 记录并标记，不阻断（锚定不因病态被剔除） |
+| V0 论文锚定 | 锚定集全体“入选，或有剔除记录”：每个未入选锚定变量都有 `dropped_anchor` 记录（`stage1_or_missing`/`deduplicate`/`vif_iter`/`n_max_trim`） | 记账校验（`V0_anchor_accounted`）；缺记录才是失败，剔除本身不算失败 |
 | V1 变量数 | 15 ≤ p ≤ 25 | 按得分补充/剔除 |
 | V2 子系统覆盖 | 所有相关子系统 ≥1 变量 | 强制补入该子系统最高得分变量 |
-| V3 VIF | 非保护变量 VIF < 500（保护集免剔除） | 迭代剔除高 VIF 变量 |
+| V3 VIF | 作用在**实际入选集合**（含仍保留的锚定变量）上，三态：全部 VIF<500 → pass；存在 ≥500 → fail；VIF 不可算或 p<3 → n/a（须在 `v3_note` 写明原因） | fail 时迭代剔除 **非保护**变量；保护变量（触发/关键响应/在选子系统代表）按物理约束保留，fail 如实记录 offenders 与 `max_vif_all` |
 | V4 触发变量 | 包含该事故触发变量 | 强制保留 |
 | V5 物理链完整 | 关键传导路径变量全部入选 | 强制补入缺失变量 |
 | V6 选取客观性 | 综合得分可复现（同数据同结果） | 重跑一致性 |
@@ -1630,10 +1649,10 @@ external_knowledge/           [新建] §5.2 外部知识专家库
 
 | 指标 | 通过条件 | 度量方式 |
 |------|---------|---------|
-| V0 论文锚定 | 锚定集全部入选，或未入选项均有 `dropped_stage1`/`missing_in_data` 记录；锚定变量遇 Z 病态/高 VIF 保留并标记 | `selection_report_{K}.json` 的 `paper_anchor` 块 |
+| V0 论文锚定 | 每个锚定变量要么入选，要么有 `dropped_anchor` 记录（含 stage/reason/VIF/剔除前后 `max_vif_all`） | `selection_report_{K}.json` 的 `paper_anchor` 块（`dropped_anchor`/`anchor_impact`） |
 | V1 变量数 | 每类 15 ≤ p ≤ 25 | 计数 |
 | V2 子系统覆盖 | 所有相关子系统 ≥1 变量 | 本体查询 |
-| V3 VIF | 所有变量 VIF < 500；触发变量/关键响应/子系统代表为保护集不剔除（仅 R²>0.998 剔除） | statsmodels VIF |
+| V3 VIF | 三态：pass=实际入选集合（含保留锚定变量）全部 VIF<500；fail=存在 ≥500；n/a=VIF 不可算或 p<3（须写原因）。fail 不调阈值掩盖 | statsmodels VIF + `v3_status`/`v3_note`/`max_vif_all` |
 | V4 触发变量 | 包含该事故触发变量 | 集合包含检查 |
 | V5 物理链完整 | 关键传导路径变量全部入选 | 本体路径检查 |
 | V6 选取客观性 | 综合得分可复现（同数据同结果） | 重跑一致性 |
@@ -1805,12 +1824,12 @@ v2.3 的产物可直接作为 v3 P0/P1 的输入数据。
 
 | 步骤 | 内容 | 状态 | 证据 |
 |------|------|:----:|------|
-| A1 | 新建 `variable_selector.py`：论文锚定 + 四阶段漏斗 | ✅ | `Code/rca/v21/variable_selector.py` + `paper_anchor.py`；阶段0 锚定（与 forced∪subsystem_reps 合并）→硬过滤→评分(CV0.25+非高斯0.20+MI0.30+区分度0.25)→强制变量+子系统覆盖+去冗余→VIF迭代(N=15–25) |
+| A1 | 新建 `variable_selector.py`：论文锚定 + 四阶段漏斗 | ✅ | `Code/rca/v21/variable_selector.py` + `paper_anchor.py`；阶段0 锚定（候选优先 + 评分加权，不作保护集；剔除落 `dropped_anchor`）→硬过滤→评分(CV0.25+非高斯0.20+MI0.30+区分度0.25)→强制变量+子系统覆盖+去冗余→VIF迭代(N=15–25)；V3 三态 |
 | A2 | 扩展 `ENTITY_TABLE`：12 类子系统映射 | ✅ | `knowledge.py` 现覆盖 NPPAD README Table 2 全部 96 变量（排除 TIME），10 个子系统分类；选中变量 0 未登记 |
 | A3 | 新建 `accident_config.py`：12 类配置表 | ⚠️ | 12 类全量配置表待数据到位后建；当前 3 类关键响应已按 §4.3 内联于 `variable_selector.py`（LOCA: P/TAVG/VOL/WECS/WHPI；SGATR: PSGA/PSGB/LSGA/LSGB/RM2；FLB: WFWA/WFWB/TAVG/PWNT/PSGA/PSGB） |
-| A4 | 3 类事故验证：论文锚定 + 自动补选 | ✅ | 2026-11-10 重跑 `run_id=v23-20261110T043640`：LOCA/SGATR/FLB 各 20/20/21 变量，V0–V7 全通过（锚定 14/14、14/15、14/14，SGATR 缺 WLR 已记录 `dropped_stage1`）；A/B 对照降为**一次性消融**，产物冻结为 `ablations/frozen_ab_variable_selection_v23-20261110T034433.json`（`frozen=true`），不再随主链重算 |
+| A4 | 3 类事故验证：论文锚定（候选加权、可剔除留痕）+ 自动补选 | ✅ | 2026-11-10 返工全链 `run_id=v23-20261110T050332`（9/9 ok，291.0s，125 tests passed）：LOCA/SGATR/FLB 各 **15** 变量；`max_vif_all`=2.162e3/4.288e5/7.757e9（非保护 max 490.0/249.9/49.6）；V0/V1/V2/V4/V5/V6/V7 全通过，**V3 三类均 fail**——offenders 全为保护变量（§4.3 关键响应含近完全共线测点对，见台账 V23-DESIGN-023）；锚定 14/8/6、15/7/8、14/6/8（声明/保留/剔除，剔除均含 VIF 与剔除前后 `max_vif_all`）；稳定性 **0/9 降级**（LOCA_mid clip_ratio 0.4516→0.1507）。A/B 对照仍为**一次性消融**冻结件 `ablations/frozen_ab_variable_selection_v23-20261110T034433.json`（`frozen=true`），不随主链重算 |
 
-> **VIF 阈值决策留痕（评审 P0-1）**：方案 §3.5 原定 VIF<10，实测核电数据物理强耦合不可行——v2.1 硬编码 20 变量集自身 max VIF=9.45e10（16/20>10）；逐轨迹 VIF 更差（WHPI/WECS 达 1e15）。故放宽至 VIF_MAX=500，仅校验非保护变量（保护变量按设计不剔除），同时报告 `max_vif_all`（含保护变量）透明披露。指标名已对齐为 `V3_vif_lt_500`。
+> **VIF 阈值决策留痕（评审 P0-1）**：方案 §3.5 原定 VIF<10，实测核电数据物理强耦合不可行——v2.1 硬编码 20 变量集自身 max VIF=9.45e10（16/20>10）；逐轨迹 VIF 更差（WHPI/WECS 达 1e15）。故放宽至 VIF_MAX=500；**V3 作用在实际入选集合（含仍保留的锚定变量与保护变量）上，pass/fail/n-a 三态，fail 时如实披露 offenders 与 `max_vif_all`，不调阈值掩盖**。指标名已对齐为 `V3_vif_lt_500`。
 >
 > **信息泄漏修复（评审 P0-3）**：变量选取原用 `range(2,101)` 含 20 条 test 轨迹，已改为仅读 `split_manifest.json` 的 train severities（79 条/类）。
 
@@ -1959,6 +1978,7 @@ T = (I − B)⁻¹                                   # 总因果效应矩阵（�
 | 5 | 变量选取用了全部 99 条轨迹（含 20 条 test 轨迹），信息泄漏 | 自动变量集被 test 信息污染 | 改为仅读 `split_manifest.json` 的 train severities（79 条/类） |
 | 6 | V3 VIF 阈值从方案 §3.5 的 <10 放宽至 500，指标名仍叫 V3_vif_lt_10 | "V1–V7 全通过"名不副实 | 指标名改为 V3_vif_lt_500；新增 max_vif_all 字段透明披露含保护变量的真实最大 VIF；方案中留痕决策理由（核电数据物理强耦合不可行） |
 | 7 | V5 恒真：只校验 WHPI/WECS，未按 §4.3 校验各事故关键响应 | LOCA 选中集无 P/TAVG 但 V5 仍 True | `get_key_responses(accident_type)` 按 §4.3 返回各事故关键响应（LOCA: P/TAVG/VOL/WECS/WHPI） |
+| 8 | 论文锚定首版把锚定集并入 `forced` 作为**不可剔除的保护集** | `max_vif_all` 回到 2.85e13/8.92e9/1.05e12；SGATR 出现“无非保护变量，V3 按空集视为通过”；LOCA_mid 截断比 45% 触发降级，B_CLIP 成承重墙 | 锚定改**候选优先 + 评分加权**（ANCHOR_SCORE_BONUS=0.15），可被去冗余/VIF/裁剪剔除并落 `dropped_anchor`（含 VIF、剔除前后 `max_vif_all`、变量数）；V3 改作用在实际入选集合上的 pass/N-A/fail 三态；锚定来源改称“早期机理筛选集”（commit 544f3a3），并与 v2.1 硬编码集列差异；详见 `Code/error_tracking.md` V23-DESIGN-023 |
 
 **错误 1 是核心算法错误，必须引以为戒**：V2.3 的 RCA 模块必须使用论文 Algorithm 2 的 T=(I−B)⁻¹ 总因果效应矩阵排序，禁止退化为纯拓扑排序。
 
