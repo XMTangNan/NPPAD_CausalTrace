@@ -182,3 +182,75 @@ def test_stability_gate_thresholds():
                                    "n_clipped_edges": 33}, 91)
     assert bad_ratio["degraded"] is True
     assert "0.363" in bad_ratio["reasons"][0]
+
+
+def test_variable_order_permutation_invariance():
+    """V23-CODE-023：置换输入变量顺序后稳定边集合与前沿不变。"""
+    import numpy as np
+    from rca.v21.signatures import bootstrap_lingam_template
+
+    rng = np.random.default_rng(7)
+    n = 600
+    a = rng.normal(size=n)
+    b = 0.9 * a + rng.normal(scale=0.6, size=n)
+    c = 0.8 * b + rng.normal(scale=0.6, size=n)
+    d = 0.7 * c + rng.normal(scale=0.6, size=n)
+    X = np.column_stack([a, b, c, d])
+    blocks = [X[:300], X[300:]]
+    variables = ["A", "B", "C", "D"]
+    kw = dict(marker="A",
+              ontology={"forbidden": [], "competitive": [], "allowed": []},
+              mu={v: 0.0 for v in variables},
+              sigma={v: 1.0 for v in variables},
+              median_platform=1.0, n_bootstrap=10, seed=11,
+              use_ontology=False)
+
+    base = bootstrap_lingam_template(blocks, variables, **kw)
+    perm = [3, 1, 0, 2]
+    other = bootstrap_lingam_template(
+        [blk[:, perm] for blk in blocks],
+        [variables[i] for i in perm], **kw)
+
+    def edge_set(sig):
+        return {(e["from"], e["to"]) for e in sig["stable_edges"]}
+
+    assert len(base["stable_edges"]) > 0
+    assert base["variables"] == other["variables"] == variables
+    assert edge_set(base) == edge_set(other)
+    assert base["frontier"] == other["frontier"]
+
+
+def test_bootstrap_fits_on_canonical_order(monkeypatch):
+    """V23-CODE-023：无论调用方传入何种列序，实际喂给 LiNGAM 的矩阵列序一致。"""
+    import numpy as np
+    import lingam
+    from rca.v21.signatures import bootstrap_lingam_template
+
+    seen = []
+    Real = lingam.DirectLiNGAM
+
+    class Spy(Real):
+        def fit(self, X):
+            seen.append(np.array(X, copy=True))
+            return super().fit(X)
+
+    monkeypatch.setattr(lingam, "DirectLiNGAM", Spy)
+
+    rng = np.random.default_rng(3)
+    n = 200
+    # 每列加不同偏置，便于核对列序（mu=0/sigma=1 时偏置原样保留）
+    X = np.column_stack([rng.normal(size=n) + 10 * k for k in range(4)])
+    variables = ["VOID", "P", "TAVG", "WLD"]  # 字母序 = P, TAVG, VOID, WLD
+    kw = dict(marker="P", ontology={"forbidden": [], "competitive": [], "allowed": []},
+              mu={v: 0.0 for v in variables}, sigma={v: 1.0 for v in variables},
+              median_platform=1.0, n_bootstrap=2, seed=5, use_ontology=False)
+
+    bootstrap_lingam_template([X[:100], X[100:]], variables, **kw)
+    perm = [2, 0, 3, 1]
+    bootstrap_lingam_template([X[:100][:, perm], X[100:][:, perm]],
+                              [variables[i] for i in perm], **kw)
+
+    canonical = [variables.index(v) for v in sorted(variables)]
+    for z in seen:  # 两次调用的列序都等于字母序（按列偏置核对）
+        assert z[:, 0].mean() == pytest.approx(10 * canonical[0], abs=0.5)
+        assert z[:, 3].mean() == pytest.approx(10 * canonical[3], abs=0.5)

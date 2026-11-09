@@ -7,7 +7,7 @@
   阶段1 硬过滤：近常量（σ<1e-6 或唯一值<3）、缺失率>50%、全程零值 剔除
   阶段2 数据驱动评分：CV(0.25) + 非高斯(0.20) + 轨迹级MI(0.30) + 跨轨迹区分度(0.25)
   阶段3 物理知识校验：触发变量+关键响应强制保留、子系统覆盖、冗余消除
-  阶段4 因果发现适配：VIF<10 迭代剔除、变量数 15-25
+  阶段4 因果发现适配：VIF<500 迭代剔除、变量数 15-25
 
 复用：
 - core.utils 的 logger / log_error / save_json / load_json（统一错误跟踪 + 持久化）
@@ -56,6 +56,18 @@ VIF_MAX = 500.0
 N_MIN = 15
 N_MAX = 25
 TOP_K = 30
+
+# 变量列序固定规则（V23-CODE-023）：字母序（ASCII，变量名全大写）。
+# 为什么必须固定：DirectLiNGAM 的逐变量回归顺序对输入列序敏感，同一变量集
+# 仅改变列序即可改变学到的邻接矩阵（实测 SGATR_high Top1 由 RM2 变 RHBR）。
+# 选字母序而非本体序：本体序会隐含“物理可信度”偏好，且随本体表增删漂移；
+# 字母序与选取得分、数据、本体表完全解耦，审稿人可按名字直接复算列序。
+VARIABLE_ORDER_RULE = "alphabetical_ascii"
+
+
+def canonical_variable_order(variables: Sequence[str]) -> List[str]:
+    """按固定规则（字母序）返回变量列表，作为全链唯一列序口径。"""
+    return sorted(variables)
 
 
 # ==================== 纯函数工具 ====================
@@ -349,6 +361,10 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
                 log_error("STAT", f"回补变量 {v} 致 VIF 超标 ({accident_type})",
                           "回补变量引入或加剧共线性", "跳过该候选，尝试下一个", "open")
 
+    # 列序口径固定（V23-CODE-023）：进入因果发现前按字母序排一次，
+    # 后续 VIF 报告/落盘/建模全部使用该顺序，杜绝选择器内部顺序外泄到 Top1。
+    selected = canonical_variable_order(selected)
+
     # ---------- 校验报告（方案 §3.5 V1-V7）----------
     final_vifs = compute_vif_safe(raw_data[selected].dropna())
     # V7 方案口径：|skewness| > 0.5 的变量占比 ≥ 60%（评审 P1-8：原代码误将 |skew|+|kurt| 合并）
@@ -379,6 +395,7 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
         "max_vif_all": max_vif_all,
         "vif_max_threshold": VIF_MAX,
         "selected": selected,
+        "variable_order_rule": VARIABLE_ORDER_RULE,
         "random_state": random_state,
         "non_gauss_frac": skew_frac,
         "checks": {

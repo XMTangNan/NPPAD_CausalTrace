@@ -151,6 +151,18 @@ def bootstrap_lingam_template(blocks: List[np.ndarray], variables: List[str],
     `auxiliary`（K2 三态 + K3 覆盖 + 偏离度），既有键语义不变。
     """
     from lingam import DirectLiNGAM
+    from rca.v21.variable_selector import canonical_variable_order
+
+    # 列序归一（V23-CODE-023）：DirectLiNGAM 逐变量回归对输入列序敏感，
+    # 同一变量集仅换列序即可换来不同邻接矩阵。此处按全链唯一规则（字母序）
+    # 同步重排 variables 与 blocks 的列，使稳定边集合与调用方传入顺序无关。
+    canonical = canonical_variable_order(variables)
+    if canonical != list(variables):
+        index_of = {v: i for i, v in enumerate(variables)}
+        order = [index_of[v] for v in canonical]
+        variables = canonical
+        blocks = [b[:, order] for b in blocks]
+
     rng = np.random.default_rng(seed)
     graph_only = compute_graph_only_scale(blocks, variables, marker, mu)
     n_traj = len(blocks)
