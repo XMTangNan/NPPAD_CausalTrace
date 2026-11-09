@@ -347,7 +347,11 @@ def render_group_html(k: str, g: str, sig: Dict, rc: Dict, topo: Dict,
       {len(variables)} 个节点 / {len(sub_edges)} 条稳定边。</div>
     <div class="note" style="margin-top:8px">
       边数={rc['n_stable_edges']}，截断边={rc.get('n_clipped_edges')}，
-      引擎=lingam，n_bootstrap={rc.get('n_bootstrap')}。
+      截断比={(rc.get('stability') or {}).get('clip_ratio')}，
+      引擎=lingam，n_bootstrap={rc.get('n_bootstrap')}。<br>
+      <b>数值稳定性</b>：{(rc.get('stability') or {}).get('label', '未记录')}
+      （cond_after_clip={(rc.get('stability') or {}).get('cond_after_clip')}；
+      V23-ALGO-001 门控，B_CLIP=5 不变）。
     </div>
   </div>
   {_k2_card(aux.get("k2"))}
@@ -436,6 +440,7 @@ def render_class_summary_html(k: str, run_id: str, generated_at: str,
                        f'<td class="num">{rcs[g]["n_stable_edges"]}</td>'
                        f'<td class="num">{rcs[g].get("n_clipped_edges")}</td>'
                        f'<td class="num">{rcs[g].get("cond_IminusB")}</td>'
+                       f'<td>{(rcs[g].get("stability") or {}).get("label", "—")}</td>'
                        f'<td><b>{html.escape(str(top1_g))}</b></td></tr>')
 
     data = {"run_id": run_id, "generated_at": generated_at, "accident_type": k,
@@ -471,7 +476,7 @@ def render_class_summary_html(k: str, run_id: str, generated_at: str,
     <table><tr><th>变量</th><th>含义</th>{gcols}<th>入榜组数</th></tr>{rows}</table>
     <h2 style="margin-top:14px">各组关键指标</h2>
     <table><tr><th>组</th><th>候选数</th><th>稳定边</th><th>截断边</th>
-      <th>cond(I−B)</th><th>Top1</th></tr>{group_stat}</table>
+      <th>cond(I−B)</th><th>数值稳定性</th><th>Top1</th></tr>{group_stat}</table>
   </div>
 </div>
 <div class="foot">NPPAD-CausalTrace v2.3 C 阶段 · 同源产物 run_id={html.escape(run_id)}</div>
@@ -490,6 +495,8 @@ def render_all_summary_html(rows: List[Dict], run_id: str, generated_at: str,
                  f'<td class="num">{r["cond"]}</td>'
                  f'<td class="num">{r["top1_stable"]}</td>'
                  f'<td class="num">{r["overlap5"]}</td>'
+                 f'<td class="num">{html.escape(str(r["clip_top1"]))}</td>'
+                 f'<td>{html.escape(str(r["stability"]))}</td>'
                  f'<td>{html.escape(str(r["top1"]))}</td></tr>')
     data = {"run_id": run_id, "generated_at": generated_at, "rows": rows}
     return f"""<!DOCTYPE html>
@@ -501,7 +508,7 @@ def render_all_summary_html(rows: List[Dict], run_id: str, generated_at: str,
   <h2>各模板关键指标</h2>
   <table><tr><th>类别</th><th>组</th><th>稳定边</th><th>截断边</th>
     <th>cond(I−B)</th><th>clip 敏感性 Top1 稳定</th><th>Top5 最小重叠</th>
-    <th>Top1 根因</th></tr>{body}</table>
+    <th>Top1(3/5/10)</th><th>数值稳定性</th><th>Top1 根因</th></tr>{body}</table>
   <div class="note" style="margin-top:8px">{html.escape(GRAPH_NOTE)}；
     稳定边筛选口径：{html.escape(STABLE_LEGEND)}；截断阈值 b_clip=5.0（敏感性证据见
     tracing/clip_sensitivity_*.json）。{html.escape(tail)}</div>
@@ -551,6 +558,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
                 "overlap5": "",
                 "top1": (rc["root_candidates"][0]["variable"]
                          if rc["root_candidates"] else None),
+                "stability": (rc.get("stability") or {}).get("label", ""),
+                "clip_top1": "",
             })
             logger.info(f"[C3] graph_{k}_{g}.html 已生成")
 
@@ -571,6 +580,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         if sens:
             row["top1_stable"] = "是" if sens.get("top1_stable") else "否"
             row["overlap5"] = sens.get("min_rank_overlap_at_5")
+            row["clip_top1"] = "/".join(str(v.get("top1")) for v in sens.get("variants", []))
         row["cond"] = row["cond"] if row["cond"] is not None else "—"
 
     if overview:

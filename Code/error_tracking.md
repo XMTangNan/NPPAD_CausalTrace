@@ -427,8 +427,10 @@
 - **证据**：`source_tracing.py:24,171` 新增 `B_CLIP=5.0` 与 `np.clip`；提交 53cf0a5。
 - **根因**：LiNGAM 在 PSGA/PSGB→WSTB 等共线对上给出 |weight|~1e5，`(I-B)^-1` 条件数 ~1e11。
 - **解决**：保留截断，但在 `data_audit`/manifest 中记录截断前后条件数、被截断边清单，并做 3/5/10 阈值敏感性，结果写报告。
-- **状态**：⚠️ 敏感性已产出（`clip_sensitivity_{K}_{g}.json`）：clip=5 后 cond 仍 1e1–1e3（SGATR_high 2038），并非旧注的“→3–4”；clip=3 时 FLB_mid Top-1 由 PSGB 变 WCHG（Top-5 集合不变）。默认 B_CLIP=5.0 未改，论文需引用该敏感性表
-- **补充观察（2026-11-10，V23-CODE-021 重跑暴露）**：SGATR 变量集合未变、仅列序变化（VOID 第 5→第 11），SGATR_high Top-1 由 RM2 变 RHBR（分数 0.835→1.451），说明 T=(I−B)⁻¹ 排序对输入列序敏感；本次不固定列序（会再改一轮全部结论），仅在论文“数值稳定性”一节如实报告，弃权门控见本批 V23-ALGO-001 决策
+- **状态**：closed（2026-11-10 决策：保留 `B_CLIP=5` 不换阈值，新增弃权门控）
+- **决策与实现（2026-11-10）**：`source_tracing.stability_gate`——`cond_after_clip > 1e4` 或 `n_clipped/n_stable > 0.35` 时该模板标“数值不稳定、结论降级”（排名仍输出但降级引用），否则“数值稳定”。门控写入签名 `auxiliary.stability`、`root_candidates.stability`、图总览/组卡、报告第 2 节；主表新增截断比、`Top1(3/5/10)`、`Top5∩(3/5/10)` 与稳定性列。
+- **实测（run_id=v23-20261110T030015）**：9 组截断后 cond 33.1–3638（最大 SGATR_low 3638 < 1e4），截断比 0.027–0.264（最大 SGATR_low 0.264 < 0.35），**降级 0/9**；clip=3 时 FLB_mid Top1 由 PSGB 变 WCHG，clip=10 时 LOCA_mid Top1 由 QMGB 变 WECS，其余 Top1 不变；Top5 重叠最低 3/5（FLB_high）/4/5（SGATR_low/mid），其余 5/5。
+- **补充观察（V23-CODE-021 重跑暴露）**：SGATR 变量集合未变、仅列序变化（VOID 第 5→第 11），SGATR_high Top-1 由 RM2 变 RHBR，说明 T=(I−B)⁻¹ 排序对输入列序敏感；本次不固定列序（会再改一轮全部结论），仅在论文“数值稳定性”一节如实报告。
 
 ---
 

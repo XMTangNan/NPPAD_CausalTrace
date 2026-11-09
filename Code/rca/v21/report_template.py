@@ -112,6 +112,7 @@ def generate_rca_report(k: str, g: str, run_id: Optional[str] = None) -> Dict:
         "n_clipped_edges": payload["n_clipped_edges"],
         "cond_IminusB": payload["cond_IminusB"],
         "cond_IminusB_after_clip": payload["cond_IminusB_after_clip"],
+        "stability": payload.get("stability"),
         "consensus_available": payload["consensus_available"],
         "n_consensus": payload["n_consensus"],
         "baseline_coverage": payload["baseline_coverage"],
@@ -224,6 +225,11 @@ def report_to_text(report: Dict) -> str:
              f"被截断边 {g2['n_clipped_edges']} 条。")
     L.append(f"  条件数 cond(I−B)：截断前 {_f(g2['cond_IminusB'])}，"
              f"截断后 {_f(g2['cond_IminusB_after_clip'])}。")
+    stab = g2.get("stability") or {}
+    if stab:
+        L.append(f"  数值稳定性：{stab.get('label', '未记录')}"
+                 f"（截断比 {_f(stab.get('clip_ratio'))}；"
+                 + ("；".join(stab.get("reasons") or []) or "未触发门控") + "）。")
     L.append(f"  共识：n_consensus={'null' if g2['n_consensus'] is None else g2['n_consensus']}"
              f"（单引擎口径，稳定边不构成多引擎共识）。")
     baseline = g2.get("baseline_coverage") or {}

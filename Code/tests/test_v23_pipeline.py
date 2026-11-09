@@ -70,6 +70,14 @@ def test_single_engine_fields_and_same_run_id(tmp_path, monkeypatch):
     assert all(0 <= v["rank_overlap_at_5"] <= 5 for v in sens["variants"])
     assert isinstance(sens["top1_stable"], bool)
 
+    # V23-ALGO-001：弃权门控（默认 B_CLIP=5 不变，越界才降级）
+    stab = rc["stability"]
+    assert stab["thresholds"] == {"cond_after_clip_max": 1e4, "clip_ratio_max": 0.35}
+    assert stab["label"] in ("数值稳定", "数值不稳定、结论降级")
+    assert sig["auxiliary"]["stability"]["label"] == stab["label"]
+    assert 0.0 <= stab["clip_ratio"] <= 1.0
+    assert stab["n_clipped"] == rc["n_clipped_edges"]
+
     # 排名连续性 & 规模
     ranks = [c["rank"] for c in rc["root_candidates"]]
     assert ranks == list(range(1, len(ranks) + 1))
@@ -155,3 +163,22 @@ def test_two_runs_are_reproducible(tmp_path, monkeypatch):
             == pytest.approx([c["total_effect"] for c in rc2["root_candidates"]],
                              rel=1e-9, abs=1e-12))
     assert rc1["cond_IminusB"] == pytest.approx(rc2["cond_IminusB"], rel=1e-9)
+
+
+def test_stability_gate_thresholds():
+    """V23-ALGO-001：越界才降级，B_CLIP 不改。"""
+    from rca.v21 import source_tracing as ST
+
+    ok = ST.stability_gate({"cond_IminusB_after_clip": 3643.0,
+                            "n_clipped_edges": 26}, 91)
+    assert ok["degraded"] is False and ok["label"] == "数值稳定"
+    assert ok["clip_ratio"] == pytest.approx(26 / 91, abs=1e-4)
+
+    bad_cond = ST.stability_gate({"cond_IminusB_after_clip": 10001.0,
+                                  "n_clipped_edges": 0}, 91)
+    assert bad_cond["degraded"] is True and bad_cond["reasons"]
+
+    bad_ratio = ST.stability_gate({"cond_IminusB_after_clip": 10.0,
+                                   "n_clipped_edges": 33}, 91)
+    assert bad_ratio["degraded"] is True
+    assert "0.363" in bad_ratio["reasons"][0]

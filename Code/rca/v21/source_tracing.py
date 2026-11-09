@@ -323,6 +323,41 @@ def trace_roots(
             "diagnostics": diag}
 
 
+# V23-ALGO-001 弃权门控：任一触发即“数值不稳定、结论降级”
+STABILITY_COND_MAX = 1e4        # 截断后 (I-B) 条件数上限
+STABILITY_CLIP_RATIO_MAX = 0.35  # 被截断边 / 稳定边 上限
+
+
+def stability_gate(diag: Dict, n_stable_edges: int) -> Dict:
+    """V23-ALGO-001：数值稳定性弃权门控（保留 B_CLIP=5，不换阈值）。
+
+    cond_after_clip > 1e4 或 n_clipped/n_stable > 0.35 → 该模板标
+    “数值不稳定、结论降级”，排名仍输出但降级引用；均不触发则“数值稳定”。
+    """
+    cond = diag.get("cond_IminusB_after_clip")
+    n_clipped = int(diag.get("n_clipped_edges", 0))
+    ratio = n_clipped / max(int(n_stable_edges), 1)
+    reasons: List[str] = []
+    if cond is not None and float(cond) > STABILITY_COND_MAX:
+        reasons.append(f"cond_after_clip={float(cond):.4g} > {STABILITY_COND_MAX:g}")
+    if ratio > STABILITY_CLIP_RATIO_MAX:
+        reasons.append(f"n_clipped/n_stable={ratio:.3f} > {STABILITY_CLIP_RATIO_MAX:g}")
+    degraded = bool(reasons)
+    return {
+        "degraded": degraded,
+        "label": "数值不稳定、结论降级" if degraded else "数值稳定",
+        "cond_after_clip": cond,
+        "n_clipped": n_clipped,
+        "n_stable": int(n_stable_edges),
+        "clip_ratio": round(ratio, 4),
+        "thresholds": {"cond_after_clip_max": STABILITY_COND_MAX,
+                       "clip_ratio_max": STABILITY_CLIP_RATIO_MAX},
+        "reasons": reasons,
+        "note": ("B_CLIP=5 不变；仅当截断后条件数或截断比例越界时降级，"
+                 "不改变默认阈值（V23-ALGO-001）"),
+    }
+
+
 def clip_sensitivity(
     topology: Dict[str, Dict],
     marker: str,

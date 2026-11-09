@@ -246,6 +246,9 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
     """计算并写入 signature / root_candidates / topology / clip_sensitivity。"""
     r = compute_template(k, g, gvars, inputs, n_bootstrap, cons)
     sig, diag, roots = r["sig"], r["diag"], r["roots"]
+    # V23-ALGO-001：弃权门控（B_CLIP 保持 5，仅标记降级）
+    stability = ST.stability_gate(diag, len(r["stable"]))
+    sig.setdefault("auxiliary", {})["stability"] = stability
     sig_name = f"signature_{k}_{g}"
     sig_src = f"signatures/{sig_name}.json"
 
@@ -265,6 +268,7 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
         "consensus_note": (CONSENSUS_NOTE if not cons["available"]
                            else cons.get("note")),
         "b_clip": diag["b_clip"],
+        "stability": stability,
         "gating": r["gating"],
         "baseline_coverage_summary": {
             "expected_points": r["baseline_coverage"]["expected_points"],
@@ -318,11 +322,17 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
         "k": k, "g": g, "n_stable_edges": len(r["stable"]),
         "n_clipped_edges": diag["n_clipped_edges"],
         "cond_IminusB": diag["cond_IminusB"],
+        "cond_IminusB_after_clip": diag["cond_IminusB_after_clip"],
         "top5": [c["variable"] for c in roots],
         "top1": roots[0]["variable"] if roots else None,
         "n_consensus": r["n_consensus"],
         "top1_stable_clip": sens["top1_stable"],
         "min_rank_overlap_at_5": sens["min_rank_overlap_at_5"],
+        "clip_top1": "/".join(str(v["top1"]) for v in sens["variants"]),
+        "clip_top5_overlap": "/".join(str(v["rank_overlap_at_5"]) for v in sens["variants"]),
+        "stability_label": stability["label"],
+        "stability_degraded": stability["degraded"],
+        "clip_ratio": stability["clip_ratio"],
         "coverage_ratio": r["baseline_coverage"]["mean_coverage_ratio"],
     }
 
@@ -500,12 +510,19 @@ def main(argv: Optional[Sequence[str]] = None) -> str:
     lines = [f"NPPAD-CausalTrace v2.3 C 阶段（run_id={run_id}）",
              f"n_bootstrap={args.n_bootstrap} | 引擎=lingam（单引擎）| "
              f"consensus_available={bool(args.with_gam_consensus)}",
-             "", f"{'模板':<14}{'稳定边':>7}{'截断边':>7}{'cond(I-B)':>12}"
-                 f"{'Top1':>8}{'Top5重叠':>9}"]
+             "", f"{'模板':<14}{'稳定边':>7}{'截断边':>7}{'截断比':>8}{'cond截断后':>12}"
+                 f"{'Top1':>8}{'Top5重叠':>9}{'Top1(3/5/10)':>18}"
+                 f"{'Top5∩(3/5/10)':>16}  {'稳定性':<8}"]
     for r in results:
         lines.append(f"{r['k'] + '_' + r['g']:<14}{r['n_stable_edges']:>7}"
-                     f"{r['n_clipped_edges']:>7}{str(round(r['cond_IminusB'], 3)):>12}"
-                     f"{str(r['top1']):>8}{r['min_rank_overlap_at_5']:>9}")
+                     f"{r['n_clipped_edges']:>7}{r['clip_ratio']:>8.3f}"
+                     f"{r['cond_IminusB_after_clip']:>12.2f}"
+                     f"{str(r['top1']):>8}{r['min_rank_overlap_at_5']:>9}"
+                     f"{r['clip_top1']:>18}{r['clip_top5_overlap']:>16}"
+                     f"  {r['stability_label']:<8}")
+    n_degraded = sum(1 for r in results if r["stability_degraded"])
+    lines.append(f"稳定性门控（V23-ALGO-001）：cond_after_clip>1e4 或 截断比>0.35 触发降级；"
+                 f"本批降级 {n_degraded}/{len(results)} 个模板；B_CLIP=5 不变")
     lines.append("")
     for r in results:
         lines.append(f"[REPRO] {r['k']}_{r['g']} n_stable_edges={r['n_stable_edges']} "

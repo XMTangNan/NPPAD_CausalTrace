@@ -693,6 +693,11 @@ def build_payload(k: str, g: str, run_id: Optional[str] = None) -> Dict:
     if int(baseline.get("n_truncated") or 0) > 0:
         limitations.append(
             f"恢复段不完整：{baseline.get('n_truncated')} 条训练轨迹 t_last 早于基线窗口末端")
+    stab = rc.get("stability") or {}
+    if stab.get("degraded"):
+        limitations.append(
+            "数值不稳定、结论降级：" + "；".join(stab.get("reasons") or []) +
+            "（V23-ALGO-001 门控，排名仅供参考）")
     if summary is not None and not (summary.get("cross_group") or {}).get("top1_stable"):
         limitations.append("跨组不稳定：三组 Top-1 不一致，单组结论不能外推为类级结论")
     if not k2["available"]:
@@ -728,6 +733,7 @@ def build_payload(k: str, g: str, run_id: Optional[str] = None) -> Dict:
         "b_clip": rc.get("b_clip"),
         "cond_IminusB": rc.get("cond_IminusB"),
         "cond_IminusB_after_clip": rc.get("cond_IminusB_after_clip"),
+        "stability": rc.get("stability"),
         "consensus_available": bool(rc.get("consensus_available")),
         "n_consensus": rc.get("n_consensus"),
         "baseline_coverage": baseline,
