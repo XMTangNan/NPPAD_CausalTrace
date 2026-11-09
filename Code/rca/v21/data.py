@@ -21,7 +21,66 @@ from rca.rca_config_v21 import (
     MAIN_WINDOW_START, MAIN_WINDOW_END, BASELINE_WINDOW_START, BASELINE_WINDOW_END,
     CONSTANT_SIGMA, MARKER_INJECT_TOL, V21_OUTPUT,
 )
+from rca.v21.accident_config import READY_CODES, get_accident
 from core.utils import logger
+
+
+# ==================== 类别数据可用性门控（v2.3 B 阶段）====================
+class ClassDataMissing(RuntimeError):
+    """注册表标记 data_missing，或目录/CSV 实际不存在。
+
+    属性：
+    - code：事故类别代码
+    - reason：缺失原因（registry_status_data_missing / no_csv_found / not_in_registry）
+    - expected_dir：期望的数据目录（不臆造占位数据）
+    """
+
+    def __init__(self, code: str, reason: str, expected_dir: str | Path,
+                 status: str = "data_missing"):
+        self.code = code
+        self.reason = reason
+        self.expected_dir = Path(expected_dir)
+        self.status = status
+        super().__init__(
+            f"[ClassDataMissing] code={code} status={status} "
+            f"data_dir={self.expected_dir} reason={reason}")
+
+
+def ensure_class_available(code: str) -> Dict:
+    """按注册表门控：ready/partial 返回 config，data_missing/无 CSV 抛 ClassDataMissing。"""
+    try:
+        cfg = get_accident(code)
+    except KeyError:
+        cfg = None
+    if not cfg:
+        raise ClassDataMissing(code, "not_in_registry", REPO_DATA / code,
+                               status="unknown")
+    cfg = dict(cfg)
+    status = str(cfg.get("status", "data_missing"))
+    data_dir = Path(cfg.get("data_dir") or (REPO_DATA / code))
+    cfg["data_dir"] = data_dir
+    cfg.setdefault("code", code)
+    if status == "data_missing":
+        raise ClassDataMissing(code, "registry_status_data_missing", data_dir, status)
+    csvs = sorted(data_dir.glob("*.csv")) if data_dir.is_dir() else []
+    if not csvs:
+        raise ClassDataMissing(code, "no_csv_found", data_dir, status)
+    return cfg
+
+
+def list_class_severities(code: str) -> List[int]:
+    """扫描数据目录下 `{severity}.csv`，返回升序 severity 列表（不臆造缺失值）。"""
+    try:
+        cfg = get_accident(code) or {}
+    except KeyError:
+        cfg = {}
+    data_dir = Path(cfg.get("data_dir") or (REPO_DATA / code))
+    sevs: List[int] = []
+    if data_dir.is_dir():
+        for p in data_dir.glob("*.csv"):
+            if p.stem.isdigit():
+                sevs.append(int(p.stem))
+    return sorted(sevs)
 
 
 # ==================== 加载 ====================
@@ -30,6 +89,7 @@ def csv_path(accident_type: str, severity: int) -> Path:
 
 
 def load_trajectory(accident_type: str, severity: int) -> pd.DataFrame:
+    ensure_class_available(accident_type)
     df = pd.read_csv(csv_path(accident_type, severity))
     if "TIME" not in df.columns:
         raise ValueError(f"{accident_type}/{severity}.csv 缺 TIME 列")
@@ -56,13 +116,17 @@ def load_window(accident_type: str, severity: int, start: float, end: float,
 
 # ==================== 划分（13.3.1）====================
 def build_split_manifest(seed: int = SPLIT_SEED) -> Dict:
-    """sev-1 固定基线源（不进组）；每组从严重度区间随机抽配额为测试，其余进训练模板。"""
+    """sev-1 固定基线源（不进组）；每组从严重度区间随机抽配额为测试，其余进训练模板。
+
+    v2.3：仅对注册表中 data_ready 的类别出划分；partial/missing 类的处置由执行器负责
+    （本函数不生成占位划分，也不改返回结构）。
+    """
     rng = np.random.default_rng(seed)
     manifest = {"seed": seed,
                 "main_window": [MAIN_WINDOW_START, MAIN_WINDOW_END],
                 "baseline_window": [BASELINE_WINDOW_START, BASELINE_WINDOW_END],
                 "classes": {}}
-    for k in ACCIDENT_TYPES:
+    for k in READY_CODES:
         cls = {"marker": MARKERS[k], "baseline_severities": list(BASELINE_SEVERITIES),
                "groups": {}}
         for g in GROUP_ORDER:
