@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import Dict, List
 
+from causalrca.config.paths import CODE_ROOT
 from rca.v21.graph_visualization import render_graph_html
 from rca.v21.source_tracing import (
     compute_topology,
@@ -23,7 +24,7 @@ from rca.v21.source_tracing import (
 
 
 # ==================== 路径配置 ====================
-BASE_DIR = Path(__file__).resolve().parents[2]          # CausalTrace/Code/
+BASE_DIR = CODE_ROOT                                     # CausalTrace/Code/（锚点取自新包）
 OUTPUT_DIR = BASE_DIR / "output" / "rca_v21"
 SIG_DIR = OUTPUT_DIR / "signatures_strict"
 SIG_FULL_DIR = OUTPUT_DIR / "signatures"    # 含 cL 总效应列，用于 V2 验证

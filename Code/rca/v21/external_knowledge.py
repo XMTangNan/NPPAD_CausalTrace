@@ -17,10 +17,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
+from causalrca.config.paths import CODE_ROOT
 from rca.v21.knowledge import ENTITY_TABLE
 
-# Code/external_knowledge（__file__ = Code/rca/v21/external_knowledge.py）
-EXT_KNOWLEDGE_DIR: Path = Path(__file__).resolve().parents[2] / "external_knowledge"
+# Code/external_knowledge：锚点取自新包常量，本文件搬迁后无需再数 parents 层级
+EXT_KNOWLEDGE_DIR: Path = CODE_ROOT / "external_knowledge"
 
 YAML_FILES = ("variable_dictionary", "physics_relations", "fault_templates",
               "forbidden_edges", "tolerance_overrides")
