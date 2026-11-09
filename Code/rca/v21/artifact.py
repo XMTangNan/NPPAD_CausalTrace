@@ -25,6 +25,8 @@ _ALLOWED = frozenset({
     "write_text_artifact",
     "sha256_file",
     "build_manifest",
+    "legacy_input",
+    "repo_relative",
 })
 
 # 导入时的原值快照：pytest 的 monkeypatch 认为本模块 dict 里没有这些名字（读走

@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -31,7 +30,7 @@ from rca.rca_config_v21 import (
     LEARN_WINDOW_START, LEARN_WINDOW_END, LEARN_WINDOW_POINTS,
     BASELINE_WINDOW_START, BASELINE_WINDOW_END, BASELINE_WINDOW_POINTS,
     LINGAM_N_BOOTSTRAP, CONSTANT_SIGMA, PHYSICAL_CANDIDATES,
-    SAFETY_STEP_VARS, TIME_STEP, V21_OUTPUT, V23_SUBDIRS,
+    SAFETY_STEP_VARS, TIME_STEP, V23_SUBDIRS,
 )
 from rca.v21.accident_config import (
     READY_CODES, PARTIAL_CODES, MISSING_CODES, get_accident,
@@ -51,6 +50,20 @@ CONSENSUS_NOTE = "单引擎稳定边，不等同共识边"
 
 
 # ==================== 输入 ====================
+def _load_frozen_input(name: str) -> Dict:
+    """读 v2.3 registry 里的冻结输入；缺文件才回退 v2.1 根（只读，不许回写）。
+
+    S1 契约：split_manifest / shared_baseline / marker_scale 由 A 阶段写入
+    V23_SUBDIRS["registry"]，C 阶段只认 v2.3 根；v2.1 仅作旧产物兼容回退。
+    """
+    path = artifact.V23_SUBDIRS["registry"] / f"{name}.json"
+    if path.exists():
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    logger.warning(f"[v23c] 回退 v2.1 只读输入: {name}.json（未在 v2.3 registry 找到）")
+    return D.load_json(f"{name}.json")
+
+
 def load_inputs() -> Dict:
     """C 阶段输入（A/B 阶段已冻结的划分、共享基线、marker 尺度、变量集）。"""
     if not VS_SUMMARY.exists():
@@ -58,12 +71,13 @@ def load_inputs() -> Dict:
     with open(VS_SUMMARY, encoding="utf-8") as f:
         vs = json.load(f)
     return {
-        "manifest": D.load_json("split_manifest.json"),
-        "baseline": D.load_json("shared_baseline.json"),
-        "scale": D.load_json("marker_scale.json"),
+        "manifest": _load_frozen_input("split_manifest"),
+        "baseline": _load_frozen_input("shared_baseline"),
+        "scale": _load_frozen_input("marker_scale"),
         "selected_vars": vs["selected_vars"],
         "vs_report": {
-            k: str(Path("rca_v23") / "variable_sets" / f"selection_report_{k}.json")
+            k: artifact.repo_relative(V23_SUBDIRS["variable_sets"]
+                                      / f"selection_report_{k}.json")
             for k in vs["selected_vars"]
         },
     }
@@ -135,7 +149,7 @@ def load_consensus(k: str, g: str, run_id: str, enabled: bool) -> Dict:
                 "consensus_run_id": None, "sha256": None}
     if k not in ("LOCA", "SGATR", "FLB"):
         raise ValueError(f"{k} 不在 3 类 pilot 内，无 GAM 共识文件可接入")
-    path = V21_OUTPUT / f"consensus_{k}_{g}.json"
+    path = artifact.legacy_input(f"consensus_{k}_{g}.json")
     if not path.exists():
         raise FileNotFoundError(f"启用 --with-gam-consensus 但缺共识文件: {path}")
     with open(path, encoding="utf-8") as f:

@@ -12,16 +12,16 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Dict, List
 
-from rca.rca_config_v21 import ACCIDENT_TYPES, GROUP_ORDER, MARKERS
+from rca.rca_config_v21 import ACCIDENT_TYPES, GROUP_ORDER, MARKERS, V21_OUTPUT
 from rca.v21.source_tracing import compute_topology, select_root_candidates
 from core.utils import logger, save_json
 
-SIG_DIR = Path("output/rca_v21/v23_signatures")
-TRACING_DIR = Path("output/rca_v21/v23_tracing")
-V21_TRACING_DIR = Path("output/rca_v21/tracing")
+# 绝对路径：不再依赖 CWD（旧写法 Path("output/rca_v21/...") 只能在 Code/ 下跑）
+SIG_DIR = V21_OUTPUT / "v23_signatures"
+TRACING_DIR = V21_OUTPUT / "v23_tracing"
+V21_TRACING_DIR = V21_OUTPUT / "tracing"
 
 
 def validate_template(k: str, g: str) -> Dict:

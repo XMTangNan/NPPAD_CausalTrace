@@ -5,8 +5,13 @@
 产物（Code/STRUCTURE.md §2）：
   output/rca_v23/registry/accident_registry.json   12 类注册表快照
   output/rca_v23/registry/split_manifest.json      v2.1 冻结分组快照（只读输入留痕）
+  output/rca_v23/registry/shared_baseline.json     v2.1 冻结共享基线快照
+  output/rca_v23/registry/marker_scale.json        v2.1 冻结 marker 尺度快照
   output/rca_v23/variable_sets/selection_report_{K}.json
   output/rca_v23/variable_sets/variable_selection_summary.json
+
+S1 契约：三份"输入快照"由 A 阶段统一写入 v2.3 registry，C 阶段只读 v2.3 根
+（`run_v23_end2end.load_inputs` 优先读 registry，v2.1 根仅作只读回退）。
 """
 from __future__ import annotations
 
@@ -20,6 +25,24 @@ from rca.v21.accident_config import (ALL_CODES, MISSING_CODES, PARTIAL_CODES,
 from rca.v21.variable_selector import build_raw_dataframe, select_variables
 from core.utils import logger
 
+# A 阶段负责落 v2.3 registry 的三份冻结输入（文件名保持不变，便于与 v2.1 对照）
+FROZEN_INPUTS = ("split_manifest", "shared_baseline", "marker_scale")
+
+
+def snapshot_frozen_inputs(run_id: str) -> None:
+    """把 v2.1 冻结输入复制进 v2.3 registry（只读快照，值不做任何改动）。"""
+    for name in FROZEN_INPUTS:
+        src = A.legacy_input(f"{name}.json")
+        if not src.exists():
+            raise FileNotFoundError(
+                f"缺 v2.1 冻结输入: {src}（先跑 R0/A 阶段前置）")
+        payload = D.load_json(f"{name}.json")
+        if name == "split_manifest":
+            # 与旧行为一致：只留分组快照主体，不带 v2.1 的窗口/seed 元数据
+            payload = {"classes": payload["classes"]}
+        A.write_artifact(name, payload, "registry", run_id=run_id,
+                         source=f"output/rca_v21/{name}.json（v2.1 冻结，只读快照）")
+
 
 def main() -> None:
     run_id = A.new_run_id("v23a")
@@ -32,10 +55,8 @@ def main() -> None:
                                            "partial_codes": PARTIAL_CODES,
                                            "missing_codes": MISSING_CODES},
                      "registry", run_id=run_id, source="rca/v21/accident_config.py")
+    snapshot_frozen_inputs(run_id)
     manifest = D.load_json("split_manifest.json")
-    A.write_artifact("split_manifest", {"classes": manifest["classes"]},
-                     "registry", run_id=run_id,
-                     source="output/rca_v21/split_manifest.json（v2.1 冻结）")
 
     all_reports: Dict[str, dict] = {}
     all_selected: Dict[str, List[str]] = {}

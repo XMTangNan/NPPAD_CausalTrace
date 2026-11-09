@@ -254,3 +254,51 @@ def test_bootstrap_fits_on_canonical_order(monkeypatch):
     for z in seen:  # 两次调用的列序都等于字母序（按列偏置核对）
         assert z[:, 0].mean() == pytest.approx(10 * canonical[0], abs=0.5)
         assert z[:, 3].mean() == pytest.approx(10 * canonical[3], abs=0.5)
+
+
+# ==================== S1：单产物根（v2.3 registry 优先，v2.1 只读回退）====================
+def test_stage_a_snapshots_three_frozen_inputs(tmp_path, monkeypatch):
+    """A 阶段把 split_manifest / shared_baseline / marker_scale 写进 v2.3 registry。"""
+    from rca.v21 import run_variable_selector as VS
+
+    subs = _patch_output(monkeypatch, tmp_path / "s1a")
+    VS.snapshot_frozen_inputs("v23a-testrun")
+
+    for name in ("split_manifest", "shared_baseline", "marker_scale"):
+        assert (subs["registry"] / f"{name}.json").exists(), name
+    baseline = _read(subs["registry"], "shared_baseline.json")
+    assert baseline["run_id"] == "v23a-testrun"
+    assert baseline["mu"] and baseline["sigma"]
+    assert baseline["schema"] == artifact.SCHEMA
+    # 取值零变化：与 v2.1 冻结文件逐项一致
+    v21 = E2E.D.load_json("shared_baseline.json")
+    assert baseline["mu"] == v21["mu"] and baseline["sigma"] == v21["sigma"]
+    scale = _read(subs["registry"], "marker_scale.json")
+    assert scale["median_platform"] == E2E.D.load_json("marker_scale.json")["median_platform"]
+
+
+def test_load_inputs_prefers_v23_registry(tmp_path, monkeypatch):
+    """C 阶段读 v2.3 registry（不再回读 v2.1 根）。"""
+    subs = _patch_output(monkeypatch, tmp_path / "s1b")
+    subs["registry"].joinpath("split_manifest.json").write_text(
+        json.dumps({"classes": {"LOCA": {"groups": {"low": {
+            "train_template_severities": [99]}}}}}), encoding="utf-8")
+    subs["registry"].joinpath("shared_baseline.json").write_text(
+        json.dumps({"mu": {"X": 1.0}, "sigma": {"X": 2.0}}), encoding="utf-8")
+    subs["registry"].joinpath("marker_scale.json").write_text(
+        json.dumps({"median_platform": {"LOCA": 2.0}}), encoding="utf-8")
+
+    inputs = E2E.load_inputs()
+    assert inputs["manifest"]["classes"]["LOCA"]["groups"]["low"][
+        "train_template_severities"] == [99]
+    assert inputs["baseline"]["mu"] == {"X": 1.0}
+    assert inputs["scale"]["median_platform"]["LOCA"] == 2.0
+
+
+def test_load_inputs_falls_back_to_v21(tmp_path, monkeypatch):
+    """v2.3 registry 缺文件时才回退 v2.1 只读输入（旧产物兼容）。"""
+    _patch_output(monkeypatch, tmp_path / "s1c")
+    inputs = E2E.load_inputs()
+    assert "classes" in inputs["manifest"]
+    assert inputs["baseline"]["mu"] and inputs["baseline"]["sigma"]
+    assert "median_platform" in inputs["scale"]

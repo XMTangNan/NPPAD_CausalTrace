@@ -15,10 +15,28 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
-from causalrca.config.constants_v21 import V23_OUTPUT, V23_SUBDIRS
+from causalrca.config.constants_v21 import V21_OUTPUT, V23_OUTPUT, V23_SUBDIRS
+from causalrca.config.paths import PROJECT_ROOT
 from causalrca.io.logging import logger
 
 SCHEMA = "causaltrace/v2.3"
+
+
+def legacy_input(name: str) -> Path:
+    """v2.1 遗留的只读输入（output/rca_v21/<name>）。
+
+    v2.3 只读不回写；所有对 v2.1 根的直接引用都走这里，避免执行器各自拼路径。
+    """
+    return V21_OUTPUT / name
+
+
+def repo_relative(path) -> str:
+    """转成仓库内相对路径（POSIX 风格），保证产物里记录的来源与 CWD 无关。"""
+    p = Path(path).resolve()
+    try:
+        return p.relative_to(PROJECT_ROOT).as_posix()
+    except ValueError:
+        return p.as_posix()
 
 
 def new_run_id(prefix: str = "v23") -> str:
