@@ -18,12 +18,11 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
+from causalrca.config.constants_v23 import EDGE_DIFF_THRESHOLD, MECH_JACCARD_THRESHOLD
 from rca.rca_config_v21 import GROUP_ORDER, MARKERS, READY_CODES
 from rca.v21 import artifact
 from core.utils import logger
 
-EDGE_DIFF_THRESHOLD = 0.5   # 边数差异 > 50% 触发差异标注
-MECH_JACCARD_THRESHOLD = 0.5
 CONSENSUS_NOTE = "单引擎稳定边，不等同共识边"
 
 

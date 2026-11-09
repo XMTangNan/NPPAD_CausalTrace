@@ -15,17 +15,23 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
+from causalrca.config.constants_v23 import (
+    B_CLIP,
+    CLIP_SENSITIVITY,
+    MAX_PATH_DEPTH,
+    MAX_PATH_LEN,
+    MAX_PATHS_PER_ROOT,
+    STABILITY_CLIP_RATIO_MAX,
+    STABILITY_COND_MAX,
+    TOP_K_ROOT,
+)
 from rca.v21.chains import edge_key, validate_path_edges
 from rca.v21.knowledge import ENTITY_TABLE
 
 
-# ==================== 配置（方案 §1.3 决策） ====================
-TOP_K_ROOT = 5            # 根变量默认输出 Top 5
-B_CLIP = 5.0              # B 矩阵元素截断阈值：|B|>B_CLIP 视为共线性伪影
-CLIP_SENSITIVITY = (3.0, 5.0, 10.0)  # V23-ALGO-001 敏感性档位（不改默认值）
-MAX_PATH_LEN = 4          # 传导路径最大边数
-MAX_PATH_DEPTH = 5        # 传导路径最大节点数（= MAX_PATH_LEN + 1）
-MAX_PATHS_PER_ROOT = 20   # 每个根变量输出的路径数上限（防组合爆炸）
+# ==================== 配置（方案 §1.3 决策；取值统一在 causalrca.config.constants_v23）====================
+# TOP_K_ROOT=5 / B_CLIP=5.0 / CLIP_SENSITIVITY=(3,5,10) / MAX_PATH_LEN=4 /
+# MAX_PATH_DEPTH=5 / MAX_PATHS_PER_ROOT=20 均由新包提供，本模块只做显式取用。
 
 
 # ==================== 数据加载 ====================
@@ -324,8 +330,7 @@ def trace_roots(
 
 
 # V23-ALGO-001 弃权门控：任一触发即“数值不稳定、结论降级”
-STABILITY_COND_MAX = 1e4        # 截断后 (I-B) 条件数上限
-STABILITY_CLIP_RATIO_MAX = 0.35  # 被截断边 / 稳定边 上限
+# STABILITY_COND_MAX / STABILITY_CLIP_RATIO_MAX 取自 causalrca.config.constants_v23
 
 
 def stability_gate(diag: Dict, n_stable_edges: int) -> Dict:

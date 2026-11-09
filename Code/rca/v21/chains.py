@@ -26,6 +26,7 @@ import math
 from collections import Counter
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from causalrca.config.constants_v23 import RRF_K
 from rca.rca_config_v21 import (
     ACCIDENT_TYPES, GROUP_ORDER, W_FULL, W_MASKED,
     STABLE_F, STABLE_DIR, FRONTIER_MAX_DEPTH,
@@ -37,8 +38,8 @@ from rca.v21.marker_effects import effective_marker_map
 from rca.v21.pipeline import apply_minmax
 from core.utils import logger
 
-# 13.10 冻结值 60：RRF 倒数排名融合常数 k_RRF（方案 §5 R5 / §13.10）。
-RRF_K = 60
+# 13.10 冻结值 60：RRF 倒数排名融合常数 k_RRF（方案 §5 R5 / §13.10）；
+# 取值统一在 causalrca.config.constants_v23.RRF_K，本模块只做显式取用。
 # 13.10 措辞纪律：事故工况名（marker 只是故障指示器，不是根因）。
 ROOT_CAUSE_NAME = {
     "LOCA": "LOCA（一回路破口）工况",

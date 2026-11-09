@@ -21,6 +21,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from causalrca.config.constants_v23 import (
+    LLM_FAITHFUL_DECIMALS as FAITHFUL_DECIMALS,
+    LLM_FLOAT_TOL as FLOAT_TOL,
+    LLM_TIMEOUT_S as V23_LLM_TIMEOUT_S,
+)
 from config import (
     LLM_API_KEY_ENV, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT,
     LLM_TEMPERATURE,
@@ -29,8 +34,7 @@ from core.utils import logger
 from rca.v21 import artifact
 from rca.v21.chains import ROOT_CAUSE_NAME, render_chain_text, _entity, _vname
 
-# 数值校验浮点容差
-FLOAT_TOL = 1e-3
+# 数值校验浮点容差（取值见 causalrca.config.constants_v23.LLM_FLOAT_TOL）
 # 忠实性校验里排除的非物理变量大写词（术语，不视为幻觉）
 _NON_VAR_TERMS = {
     "RRF", "GAM", "ANM", "BFS", "MAD", "LINGAM", "RCA", "LLM", "API",
@@ -324,8 +328,8 @@ V23_LLM_BASE_URL_ENV = "CAUSALTRACE_LLM_BASE_URL"
 V23_LLM_API_KEY_ENV = "CAUSALTRACE_LLM_API_KEY"
 V23_LLM_MODEL_ENV = "CAUSALTRACE_LLM_MODEL"
 V23_LLM_MODEL_DEFAULT = "deepseek-chat"
-V23_LLM_TIMEOUT_S = 30          # 标准库 urllib，硬超时 30s（测试可 monkeypatch）
-FAITHFUL_DECIMALS = 2           # 数值对拍容差：保留 2 位小数后相等
+# V23_LLM_TIMEOUT_S / FAITHFUL_DECIMALS 取自 causalrca.config.constants_v23
+# （LLM_TIMEOUT_S=30、LLM_FAITHFUL_DECIMALS=2，测试仍可 monkeypatch 本模块同名变量）
 K2_SIGNATURE_KEYS = ("physics", "physics_constraint", "physics_constraints",
                      "k2", "physics_residual")
 K2_ARTIFACT_NAMES = ("physics_constraint_{k}_{g}", "k2_{k}_{g}",

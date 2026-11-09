@@ -100,6 +100,30 @@ def test_path_anchors_point_to_repo():
     assert registry.REPO_DATA == paths.REPO_DATA
 
 
+def test_v23_thresholds_are_centralized_and_unchanged():
+    """S3：v2.3 阈值只在 causalrca.config.constants_v23 定义，旧模块取值不变。"""
+    from causalrca.config import constants_v23 as C23
+    from rca.v21 import chains, llm_explanation as LE
+    from rca.v21 import severity_aggregation as SA
+    from rca.v21 import source_tracing as ST
+
+    assert (C23.TOP_K_ROOT, C23.B_CLIP) == (5, 5.0)
+    assert C23.CLIP_SENSITIVITY == (3.0, 5.0, 10.0)
+    assert (C23.MAX_PATH_LEN, C23.MAX_PATH_DEPTH, C23.MAX_PATHS_PER_ROOT) == (4, 5, 20)
+    assert (C23.STABILITY_COND_MAX, C23.STABILITY_CLIP_RATIO_MAX) == (1e4, 0.35)
+    assert (C23.EDGE_DIFF_THRESHOLD, C23.MECH_JACCARD_THRESHOLD) == (0.5, 0.5)
+    assert (C23.RRF_K, C23.LLM_TIMEOUT_S, C23.LLM_FAITHFUL_DECIMALS) == (60, 30, 2)
+
+    # 旧模块仍暴露同名变量（读取方无需改），且取值与新包一致
+    assert ST.B_CLIP == C23.B_CLIP and ST.TOP_K_ROOT == C23.TOP_K_ROOT
+    assert ST.STABILITY_COND_MAX == C23.STABILITY_COND_MAX
+    assert SA.EDGE_DIFF_THRESHOLD == C23.EDGE_DIFF_THRESHOLD
+    assert chains.RRF_K == C23.RRF_K
+    assert LE.V23_LLM_TIMEOUT_S == C23.LLM_TIMEOUT_S
+    assert LE.FAITHFUL_DECIMALS == C23.LLM_FAITHFUL_DECIMALS
+    assert LE.FLOAT_TOL == C23.LLM_FLOAT_TOL
+
+
 def test_no_dynamic_globals_injection():
     """shim 禁止 globals().update(vars(...)) 式动态注入（会破坏 AST/IDE/类型检查）。"""
     for modname in ("rca.v21.artifact", "rca.rca_config_v21", "rca.v21.accident_config",
