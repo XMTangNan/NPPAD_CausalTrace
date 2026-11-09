@@ -57,6 +57,10 @@ VIF_MAX = 500.0
 N_MIN = 15
 N_MAX = 25
 TOP_K = 30
+# 论文锚定评分加权（V23-DESIGN-023）：候选优先，但**不改变 VIF 剔除资格**。
+# 取值 0.15 的依据：评分已归一到 [0,1]，0.15 足以让锚定变量进入 TOP_K 前列，
+# 又不足以把高共线变量强留在最终集合（VIF≥500 仍会被剔除并记录）。
+ANCHOR_SCORE_BONUS = 0.15
 
 # 变量列序固定规则（V23-CODE-023）：字母序（ASCII，变量名全大写）。
 # 为什么必须固定：DirectLiNGAM 的逐变量回归顺序对输入列序敏感，同一变量集
@@ -316,35 +320,55 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
             if best not in top_k:
                 top_k.append(best)
 
-    # ---------- 阶段3b：论文锚定（V23-DESIGN-018）----------
-    # 论文原文：最终变量集 = XGBoost 特征选择 + 领域专家验证（p.4）；但未给出名单。
-    # 因此锚定集取「专家冻结集」的可执行代理（工程假设），锚定变量一律进入保护集：
-    # 数据驱动只在锚定集之外补选，且不剔除锚定变量（冲突裁决见 paper_anchor.CONFLICT_POLICY）。
+    # ---------- 阶段3b：论文锚定（V23-DESIGN-018；返工 V23-DESIGN-023）----------
+    # 论文原文：最终变量集 = XGBoost 特征选择 + 领域专家验证（p.4），但未给出名单；
+    # 代理取项目「早期机理筛选集」（工程假设，非 v2.1 硬编码集）。
+    # 语义（返工）：候选优先 + 评分加权，**不是保护集**；VIF 迭代/病态处理可剔除，
+    # 剔除必须写理由（近常量/缺列/Z 病态/VIF 实测值）与影响（见 anchor_impact）。
     anchor_spec = build_anchor(accident_type, num_cols)
-    anchor_vars = [v for v in anchor_spec["anchor_variables"] if v in candidates]
-    anchor_dropped = []
-    for v in anchor_spec["anchor_variables"]:
+    anchor_all = list(anchor_spec["anchor_variables"])
+    anchor_dropped: List[Dict] = []
+    for v in anchor_all:
         if v in candidates:
             continue
         if v in anchor_spec["missing_in_data"]:
             reason = "missing_in_data"   # 数据集未采集该列，锚定自然失效（不报错）
         else:
             reason = stage1_drop_reason(v, stage1_log) or "not_numeric_column"
-        anchor_dropped.append({"var": v, "reason": reason})
+        anchor_dropped.append({"var": v, "stage": "stage1_or_missing", "reason": reason})
+
+    anchor_vars = [v for v in anchor_all if v in candidates]
+    for v in anchor_vars:
+        scores[v] = min(1.0, float(scores.get(v, 0.0)) + ANCHOR_SCORE_BONUS)
     for v in anchor_vars:
         if v not in top_k:
             top_k.append(v)
 
-    top_k = deduplicate(top_k, scores, forced=list(forced) + anchor_vars)
+    top_k = deduplicate(top_k, scores, forced=list(forced))
+    for v in anchor_vars:
+        if v not in top_k:
+            anchor_dropped.append({
+                "var": v, "stage": "deduplicate",
+                "reason": "与原集合高相关且评分低于保留变量（去冗余阶段剔除）",
+            })
 
     # ---------- 阶段4：因果发现适配（方案 §3.3 阶段4）----------
     selected = list(top_k)
+    n_vars_before_vif = len(selected)
     vif_log: List[Dict] = []
-    # 保护集 = 强制变量（触发+关键响应）+ 每子系统代表（V2 不被 VIF 剔除破坏）
-    protected = set(forced) | set(subsystem_reps) | set(anchor_vars)
+    # 保护集 = 强制变量（触发+关键响应）+ 每子系统代表（保证 V2 覆盖）；
+    # 锚定变量不在保护集内：可被 VIF 迭代剔除（V23-DESIGN-023）。
+    protected = set(forced) | set(subsystem_reps)
 
-    # 4a. VIF 迭代剔除（仅非保护变量可被剔除）
-    while len(selected) > len(protected):
+    max_vif_before_removal = None
+    if len(selected) > 1:
+        vifs0 = compute_vif_safe(raw_data[selected].dropna())
+        max_vif_before_removal = max(vifs0.values()) if vifs0 else None
+
+    # 4a. VIF 迭代剔除（锚定变量同样参与；剔除留理由与当时影响）
+    # 上界用「仍在集合内的保护变量」计数：去冗余可能已剔除某子系统代表，
+    # 若按 protected 原始集合计数，迭代会被提前终止（LOCA 曾因此卡在 11 变量）。
+    while len(selected) > len(protected & set(selected)):
         vifs = compute_vif_safe(raw_data[selected].dropna())
         if vifs is None:
             log_error("ALGO", f"VIF 矩阵奇异 ({accident_type})",
@@ -357,14 +381,37 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
         max_vif_var = max(non_protected, key=lambda v: vifs.get(v, 0.0))
         if vifs.get(max_vif_var, 0.0) < VIF_MAX:
             break
-        vif_log.append({"var": max_vif_var, "vif": vifs[max_vif_var]})
+        entry = {"var": max_vif_var, "vif": vifs[max_vif_var],
+                 "max_vif_at_drop": max(vifs.values()),
+                 "n_vars_before": len(selected)}
+        vif_log.append(entry)
+        if max_vif_var in anchor_vars:
+            mu = float(raw_data[max_vif_var].mean())
+            sd = float(raw_data[max_vif_var].std())
+            z_path = bool(abs(mu) > 1e-9 and abs(sd / mu) < 0.01)
+            anchor_dropped.append({
+                "var": max_vif_var, "stage": "vif_iter",
+                "reason": f"vif={vifs[max_vif_var]:.3e} >= VIF_MAX({VIF_MAX:.0f})",
+                "vif": float(vifs[max_vif_var]),
+                "z_pathological": z_path,
+                "max_vif_at_drop": float(max(vifs.values())),
+                "n_vars_before": len(selected),
+            })
         selected.remove(max_vif_var)
 
     # 4b. 变量数约束 15-25
     if len(selected) > N_MAX:
+        protected_kept = protected & set(selected)
         non_protected_sorted = sorted([v for v in selected if v not in protected],
                                        key=lambda v: scores.get(v, 0.0), reverse=True)
-        selected = list(protected & set(selected)) + non_protected_sorted[:N_MAX - len(protected & set(selected))]
+        trimmed = non_protected_sorted[:N_MAX - len(protected_kept)]
+        for v in non_protected_sorted[N_MAX - len(protected_kept):]:
+            if v in anchor_vars:
+                anchor_dropped.append({
+                    "var": v, "stage": "n_max_trim",
+                    "reason": f"变量数>{N_MAX}，按评分裁剪（score={scores.get(v, 0.0):.3f}）",
+                })
+        selected = list(protected_kept) + trimmed
     elif len(selected) < N_MIN:
         remaining = sorted([v for v in candidates if v not in selected],
                            key=lambda v: scores.get(v, 0.0), reverse=True)
@@ -385,30 +432,46 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
     # 后续 VIF 报告/落盘/建模全部使用该顺序，杜绝选择器内部顺序外泄到 Top1。
     selected = canonical_variable_order(selected)
 
-    # ---------- 校验报告（方案 §3.5 V1-V7）----------
+    # 去冗余阶段记录可能因 N_MIN 回补而失效：最终在集合内的锚定变量不算剔除，
+    # 单列 readded_anchor 记录“剔了又补回”，避免同一变量同时出现在 retained/dropped。
+    readded_anchor = sorted({d["var"] for d in anchor_dropped if d["var"] in selected})
+    anchor_dropped = [d for d in anchor_dropped if d["var"] not in selected]
+
+    # ---------- 校验报告（方案 §3.5 V0-V7）----------
     final_vifs = compute_vif_safe(raw_data[selected].dropna())
     # V7 方案口径：|skewness| > 0.5 的变量占比 ≥ 60%（评审 P1-8：原代码误将 |skew|+|kurt| 合并）
     skew_frac = (sum(1 for v in selected if raw_metrics["skew"].get(v, 0) > 0.5)
                  / max(len(selected), 1))
-    # V3：保护变量（强制+子系统代表）按设计不参与 VIF 剔除，但 VIF 仍报告；
-    #      校验阈值 VIF_MAX=500（方案 §3.5 原 VIF<10 对核电数据不可行——见 max_vif_all，
-    #      即 v2.1 硬编码集自身 max VIF≈1e10；放宽决策需在方案中留痕）
-    non_protected_vifs = {v: final_vifs[v] for v in selected
-                          if v not in protected} if final_vifs else {}
-    max_vif_all = max(final_vifs.values()) if final_vifs else None
+    # V3（返工 V23-DESIGN-023）：作用在**实际入选集合**上（含保留的锚定变量），三态：
+    #   pass = 全部 VIF < VIF_MAX；fail = 存在 VIF ≥ VIF_MAX；
+    #   n/a  = VIF 无法计算或变量数 < 3（必须写明原因，不得用空集蒙混过关）。
+    vif_all = {v: float(final_vifs[v]) for v in selected} if final_vifs else {}
+    if final_vifs is None:
+        v3_status, v3_note = "n/a", "VIF 无法计算（协方差矩阵奇异），V3 不适用"
+    elif len(selected) < 3:
+        v3_status, v3_note = "n/a", f"入选变量仅 {len(selected)} 个（<3），VIF 不适用"
+    else:
+        offenders = {v: round(float(x), 1) for v, x in vif_all.items() if x >= VIF_MAX}
+        v3_status = "fail" if offenders else "pass"
+        v3_note = (f"入选集合存在 VIF≥{VIF_MAX:.0f} 的变量：{offenders}"
+                   if offenders else
+                   f"入选集合（含保留的锚定变量）VIF 全部 < {VIF_MAX:.0f}")
+    max_vif_all = max(vif_all.values()) if vif_all else None
+    non_protected_vifs = {v: vif_all[v] for v in selected if v not in protected} if vif_all else {}
 
-    # 锚定变量冲突记录：Z 病态 / 高 VIF 一律保留并标记（不静默剔除）
-    anchor_kept: List[Dict] = []
+    # 锚定保留记录：Z 病态仅标记，不再作为保留理由
+    anchor_retained: List[Dict] = []
     for v in anchor_vars:
         if v not in selected:
             continue
         mu = float(raw_data[v].mean())
         sd = float(raw_data[v].std())
-        z_path = bool(abs(mu) > 1e-9 and abs(sd / mu) < 0.01)
-        vif_v = None if not final_vifs else float(final_vifs.get(v, 0.0))
-        if z_path or (vif_v is not None and vif_v >= VIF_MAX):
-            anchor_kept.append({"var": v, "z_pathological": z_path, "vif": vif_v,
-                                "action": "keep+flag"})
+        anchor_retained.append({
+            "var": v,
+            "z_pathological": bool(abs(mu) > 1e-9 and abs(sd / mu) < 0.01),
+            "vif": None if not vif_all else round(float(vif_all.get(v, 0.0)), 1),
+            "action": "retained",
+        })
 
     report = {
         "accident_type": accident_type,
@@ -419,14 +482,15 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
         "forced": forced,
         "subsystem_reps": subsystem_reps,
         "protected": sorted(protected),
+        "protected_in_selected": sorted(protected & set(selected)),
         "required_subsystems": required_subsystems,
         "vif_log": vif_log,
         "n_selected": len(selected),
         "final_vif": final_vifs,
         "non_protected_vif": non_protected_vifs,
-        "v3_note": ("无非保护变量，V3 按空集视为通过（锚定/强制变量按冲突策略保留，"
-                    "其 VIF 见 final_vif 与 kept_pathological）"
-                    if not non_protected_vifs else ""),
+        "vif_all": vif_all,
+        "v3_status": v3_status,
+        "v3_note": v3_note,
         "max_vif": max(non_protected_vifs.values()) if non_protected_vifs else None,
         "max_vif_all": max_vif_all,
         "vif_max_threshold": VIF_MAX,
@@ -438,25 +502,48 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
             "paper_n_variables": anchor_spec["paper_n_variables"],
             "paper_explicit_variables": anchor_spec["paper_explicit_variables"],
             "explicit_is_empty_reason": anchor_spec["explicit_is_empty_reason"],
+            "anchor_mode": anchor_spec["anchor_mode"],
+            "anchor_score_bonus": ANCHOR_SCORE_BONUS,
             "anchor_proxy_source": anchor_spec["anchor_proxy_source"],
+            "v21_set_reference": anchor_spec["v21_set_reference"],
+            "proxy_vs_v21_diff": anchor_spec["proxy_vs_v21_diff"],
             "anchor_variables": anchor_spec["anchor_variables"],
             "anchor_used": anchor_vars,
             "n_anchor_used": len(anchor_vars),
-            "dropped_stage1": anchor_dropped,
-            "kept_pathological": anchor_kept,
+            "anchor_retained": anchor_retained,
+            "n_anchor_retained": len(anchor_retained),
+            "dropped_anchor": anchor_dropped,
+            "readded_anchor": readded_anchor,
+            "dropped_stage1": [d for d in anchor_dropped
+                               if d["stage"] == "stage1_or_missing"],
+            "anchor_impact": {
+                "n_anchor_declared": len(anchor_all),
+                "n_anchor_retained": len(anchor_retained),
+                "n_anchor_dropped": len(anchor_dropped),
+                "max_vif_all_before_removal": max_vif_before_removal,
+                "max_vif_all_final": max_vif_all,
+                "n_vars_before_vif": n_vars_before_vif,
+                "n_vars_final": len(selected),
+                "top1_change_note": ("Top-1 属下游产物；剔除代价见 error_tracking "
+                                     "对应验收记录的 run 间 Top-1 对比"),
+            },
             "conflict_policy": anchor_spec["conflict_policy"],
             "note": anchor_spec["note"],
         },
         "random_state": random_state,
         "non_gauss_frac": skew_frac,
         "checks": {
+            "V0_anchor_accounted": all(
+                (v in selected) or any(d["var"] == v for d in anchor_dropped)
+                for v in anchor_all
+            ),
             "V1_count_15_25": N_MIN <= len(selected) <= N_MAX,
             "V2_subsystem_coverage": all(
                 any(get_subsystem(v) == sub for v in selected)
                 for sub in required_subsystems
             ),
-            "V3_vif_lt_500": (all(v < VIF_MAX for v in non_protected_vifs.values())
-                              if non_protected_vifs else True),
+            # 三态：True=pass / False=fail / None=n/a（原因见 v3_note）
+            "V3_vif_lt_500": (None if v3_status == "n/a" else v3_status == "pass"),
             "V4_trigger_included": trigger in selected,
             "V5_key_responses_included": all(v in selected for v in key_responses),
             "V6_reproducible": None,   # 由调用方二次运行后回填
@@ -467,18 +554,20 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
     all_pass = all(v is not False for v in report["checks"].values())
     _fmt = lambda x: "n/a" if x is None else f"{x:.1f}"  # noqa: E731
     logger.info(f"[变量选取] {accident_type}: {len(selected)} 变量入选 "
-                f"(V1={report['checks']['V1_count_15_25']}, "
+                f"(V0={report['checks']['V0_anchor_accounted']}, "
+                f"V1={report['checks']['V1_count_15_25']}, "
                 f"V2={report['checks']['V2_subsystem_coverage']}, "
-                f"V3={report['checks']['V3_vif_lt_500']} "
+                f"V3={v3_status} "
                 f"(max_nonprot={_fmt(report['max_vif'])}, max_all={_fmt(max_vif_all)}), "
                 f"V4={report['checks']['V4_trigger_included']}, "
                 f"V5={report['checks']['V5_key_responses_included']}, "
                 f"V7={report['checks']['V7_skew_gt_0.5_60pct']}) "
+                f"anchor={len(anchor_retained)}/{len(anchor_all)} "
                 f"all_pass={all_pass}")
 
     if not all_pass:
         log_error("DESIGN", f"变量选取 V1-V7 未全通过 ({accident_type})",
                   "自动选取变量集未满足全部校验门控",
-                  "按方案 §3.5 回退到 v2.1 硬编码变量集", "open")
+                  "保留当前选择集并如实记录失败项（不自动回退，需人工裁决）", "open")
 
     return selected, report

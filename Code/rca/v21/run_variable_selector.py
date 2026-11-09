@@ -72,7 +72,9 @@ def main() -> None:
         "selected_vars": all_selected,
         "checks_summary": {k: all_reports[k]["checks"] for k in all_selected},
         "n_selected": {k: len(all_selected[k]) for k in all_selected},
-        "all_pass": all(all(all_reports[k]["checks"].values()) for k in all_selected),
+        # 三态口径：True=pass / False=fail / None=n/a（V3 不适用时不得判为失败）
+        "all_pass": all(v is not False for r in all_reports.values()
+                        for v in r["checks"].values()),
         "skipped": skipped,
     }
     A.write_artifact("variable_selection_summary", summary, "variable_sets", run_id=run_id,
