@@ -26,6 +26,9 @@ from statsmodels.stats.outliers_influence import variance_inflation_factor
 from rca.rca_config_v21 import (
     MARKERS, SAFETY_STEP_VARS, MAIN_WINDOW_START, MAIN_WINDOW_END,
 )
+from rca.v21.accident_config import (
+    ALL_CODES, key_responses, marker_of,
+)
 from rca.v21.knowledge import ENTITY_TABLE, ALLOWED_RELATIONS
 from core.utils import logger, log_error
 
@@ -95,18 +98,22 @@ def compute_vif_safe(df: pd.DataFrame) -> Optional[Dict[str, float]]:
 
 
 # ==================== 本体查询辅助（复用 knowledge.py 数据，不新增 knowledge.py 接口）====================
-# 按事故类型的触发变量与关键响应（来源：方案 §4.3 各组定义）
-# 注：此处为 3 类已核实事故配置；12 类全量配置待数据到位后补入 accident_config.py
+# 12 类触发变量与关键响应统一来自 rca/v21/accident_config.py（方案 §4.3 / 附录 A）。
+# v2.1 内联集合与方案附录 A 有差异：SGATR 内联额外含 PSGB/LSGB、FLB 额外含 PSGB，
+# 为不改动已验收的 V1-V7 结果，pilot 三类保留 v2.1 实际内联集合作为覆盖值。
+_V21_KEY_RESPONSE_OVERRIDES: Dict[str, List[str]] = {
+    "LOCA":  ["P", "TAVG", "VOL", "WECS", "WHPI"],                   # §4.3 组1
+    "SGATR": ["PSGA", "PSGB", "LSGA", "LSGB", "RM2"],                # §4.3 组3（v2.1 更全）
+    "FLB":   ["WFWA", "WFWB", "TAVG", "PWNT", "PSGA", "PSGB"],       # §4.3 组5（v2.1 更全）
+}
 ACCIDENT_KEY_RESPONSES: Dict[str, List[str]] = {
-    "LOCA":  ["P", "TAVG", "VOL", "WECS", "WHPI"],                       # §4.3 组1
-    "SGATR": ["PSGA", "PSGB", "LSGA", "LSGB", "RM2"],                    # §4.3 组4
-    "FLB":   ["WFWA", "WFWB", "TAVG", "PWNT", "PSGA", "PSGB"],          # §4.3 组5
+    c: _V21_KEY_RESPONSE_OVERRIDES.get(c, key_responses(c)) for c in ALL_CODES
 }
 
 
 def get_trigger_var(accident_type: str) -> str:
-    """触发变量 = 本类 marker（LOCA→WLR, SGATR→WTRA, FLB→WFLB）。"""
-    return MARKERS[accident_type]
+    """触发变量 = 本类 marker（与 rca_config_v21.MARKERS 同源，见 accident_config）。"""
+    return marker_of(accident_type)
 
 
 def get_key_responses(accident_type: str) -> List[str]:

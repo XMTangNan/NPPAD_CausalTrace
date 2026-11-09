@@ -6,6 +6,10 @@
 """
 from pathlib import Path
 
+from rca.v21.accident_config import (
+    ALL_CODES, READY_CODES, PARTIAL_CODES, MISSING_CODES, get_accident,
+)
+
 # ==================== 路径 ====================
 PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Code/
 CAUSALTRACE_ROOT = PROJECT_ROOT.parent
@@ -18,12 +22,49 @@ CF_DIR = V21_OUTPUT / "cf_validation"
 for _d in (V21_OUTPUT, SIGNATURE_DIR, CF_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
+# ==================== v2.3 唯一产物根（Code/STRUCTURE.md §2）====================
+# 旧 V21_OUTPUT 下的 v23_* 目录自 2026-11-10 起冻结只读；所有 v2.3 执行器只写这里。
+V23_OUTPUT = PROJECT_ROOT / "output" / "rca_v23"
+V23_SUBDIRS = {
+    "registry": V23_OUTPUT / "registry",
+    "variable_sets": V23_OUTPUT / "variable_sets",
+    "audit": V23_OUTPUT / "audit",
+    "tolerances": V23_OUTPUT / "tolerances",
+    "signatures": V23_OUTPUT / "signatures",
+    "tracing": V23_OUTPUT / "tracing",
+    "graphs": V23_OUTPUT / "graphs",
+    "reports": V23_OUTPUT / "reports",
+    "knowledge": V23_OUTPUT / "knowledge",
+    "ablations": V23_OUTPUT / "ablations",
+}
+for _d in V23_SUBDIRS.values():
+    _d.mkdir(parents=True, exist_ok=True)
+
 # ==================== 类别 / marker（13.0/13.3）====================
-ACCIDENT_TYPES = ["LOCA", "SGATR", "FLB"]
-MARKERS = {"LOCA": "WLR", "SGATR": "WTRA", "FLB": "WFLB"}
-MARKER_COLS = ["WLR", "WTRA", "WFLB"]
-# marker one-hot 互斥是 R0 必检项；WTRB 等非 pilot 类别 marker 登记但不入模
-NON_PILOT_MARKERS = ["WTRB"]
+# v2.3：12 类事故元数据唯一来源 = rca/v21/accident_config.py（STRUCTURE.md §4），
+# 本文件只做派生，禁止在此另立第二份 12 类列表。
+PILOT_ACCIDENT_TYPES = ["LOCA", "SGATR", "FLB"]
+# v2.1 旧产物/旧脚本兼容：ACCIDENT_TYPES 仍为 3 类已验收 pilot（9 模板、B2 三分类等
+# 均按此集合冻结）；v2.3 全量 12 类请用 ALL_ACCIDENT_TYPES。
+ACCIDENT_TYPES = PILOT_ACCIDENT_TYPES
+ALL_ACCIDENT_TYPES = list(ALL_CODES)
+READY_ACCIDENT_TYPES = list(READY_CODES)
+PARTIAL_ACCIDENT_TYPES = list(PARTIAL_CODES)
+MISSING_ACCIDENT_TYPES = list(MISSING_CODES)
+MARKERS = {code: get_accident(code)["marker"] for code in ALL_ACCIDENT_TYPES}
+# 仅专用故障指示器通道可入 MARKER_COLS；WSTA/WSTB/RHRD/PPM/TBLD/WLD 等过程量
+# 绝不能列入，否则 knowledge._forbidden_rules 会把正常过程变量当外生 marker 禁边。
+# 去重保序（LOCA/LOCAC 共用 WLR）：结果 = ["WLR","WTRA","WTRB","WFLB"]
+MARKER_COLS = list(dict.fromkeys([
+    cfg["marker"] for cfg in (get_accident(c) for c in ALL_ACCIDENT_TYPES)
+    if cfg["marker_type"] == "indicator"
+]))
+# v2.1 兼容别名：非 pilot 类别 marker 登记但不入模
+NON_PILOT_MARKERS = [m for m in MARKER_COLS
+                     if m not in {MARKERS[k] for k in ACCIDENT_TYPES}]
+# v2.1 D3 融合（E1 互斥判据）只对 3 类 pilot 冻结：默认参数必须用这 3 个 marker，
+# 不能直接用 MARKER_COLS（v2.3 已扩到 4 个指示器通道）。
+PILOT_MARKER_COLS = [MARKERS[k] for k in PILOT_ACCIDENT_TYPES]
 
 # ==================== 时间窗（13.3.2）====================
 TIME_STEP = 10.0

@@ -16,8 +16,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from rca.rca_config_v21 import (
-    ACCIDENT_TYPES, GROUP_ORDER, MARKERS, MARKER_COLS, W_FULL, W_MASKED,
-    ANOMALY_K, ACTIVATION_FRAC,
+    ACCIDENT_TYPES, GROUP_ORDER, MARKERS, MARKER_COLS, PILOT_MARKER_COLS,
+    W_FULL, W_MASKED, ANOMALY_K, ACTIVATION_FRAC,
 )
 from rca.v21.marker_effects import effective_marker_map
 from rca.v21.inversion import (
@@ -60,7 +60,7 @@ def observe_main_window(block: np.ndarray, cols: Sequence[str],
 
 
 def marker_main_medians(block: np.ndarray, cols: Sequence[str],
-                        marker_cols: Sequence[str] = MARKER_COLS) -> Dict[str, float]:
+                        marker_cols: Sequence[str] = PILOT_MARKER_COLS) -> Dict[str, float]:
     """FULL 条件：三 marker 主窗原始量纲中位数（MASKED 块无 marker 列，禁止调用）。"""
     pos = {v: p for p, v in enumerate(cols)}
     return {m: float(np.median(block[:, pos[m]])) for m in marker_cols}
@@ -72,8 +72,10 @@ def e1_vector(medians: Dict[str, float], epsilon: Dict[str, float]) -> Dict[str,
     for k in ACCIDENT_TYPES:
         own = MARKERS[k]
         own_on = abs(medians[own]) > epsilon[k]
-        others_off = all(abs(medians[m]) <= epsilon[k_other]
-                         for k_other, m in MARKERS.items() if m != own)
+        # 互斥判据只在 pilot 三类的 marker 之间成立（v2.3 注册表扩到 12 类后，
+        # 其余类的 marker 属设计配置，不参与 v2.1 E1 互斥口径）。
+        others_off = all(abs(medians[MARKERS[k_other]]) <= epsilon[k_other]
+                         for k_other in ACCIDENT_TYPES if MARKERS[k_other] != own)
         out[k] = 1.0 if (own_on and others_off) else 0.0
     return out
 

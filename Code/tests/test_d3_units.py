@@ -11,7 +11,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rca.rca_config_v21 import ACCIDENT_TYPES, GROUP_ORDER, MARKER_COLS
+from rca.rca_config_v21 import ACCIDENT_TYPES, GROUP_ORDER, PILOT_MARKER_COLS
 from rca.v21.pipeline import (
     fit_minmax, apply_minmax, fuse_scores, e1_vector, wilson_ci,
     score_trajectory,
@@ -229,7 +229,7 @@ def test_score_trajectory_full_and_masked():
     # FULL：仅 WLR 越阈 -> LOCA E1=1，融合分进一步抬高
     Xf = np.column_stack([np.full(T, 5.0), np.zeros(T),
                           np.full(T, 5.0), np.zeros(T), np.zeros(T)])
-    cols_f = V_THR + list(MARKER_COLS)
+    cols_f = V_THR + list(PILOT_MARKER_COLS)
     res_f = score_trajectory(Xf, cols_f, "FULL", V_THR, sigs, gates,
                              baseline, calibration, epsilon=eps)
     assert res_f["e1"] == {"LOCA": 1.0, "SGATR": 0.0, "FLB": 0.0}

@@ -1,29 +1,52 @@
-"""V2.3 Phase 1 执行器：在 LOCA/SGATR/FLB 上运行四阶段变量选取，输出选取报告。
+"""V2.3 Phase 1 执行器：四阶段变量选取（12 类注册表驱动，实际执行 ready 类）。
 
 用法（cd Code）：PYTHONPATH=. python -m rca.v21.run_variable_selector
+
+产物（Code/STRUCTURE.md §2）：
+  output/rca_v23/registry/accident_registry.json   12 类注册表快照
+  output/rca_v23/registry/split_manifest.json      v2.1 冻结分组快照（只读输入留痕）
+  output/rca_v23/variable_sets/selection_report_{K}.json
+  output/rca_v23/variable_sets/variable_selection_summary.json
 """
 from __future__ import annotations
 
-from pathlib import Path
-from typing import List
+from typing import Dict, List
 
-from rca.rca_config_v21 import ACCIDENT_TYPES, V21_OUTPUT
+from rca.rca_config_v21 import ACCIDENT_TYPES
+from rca.v21 import artifact as A
 from rca.v21 import data as D
+from rca.v21.accident_config import (ALL_CODES, MISSING_CODES, PARTIAL_CODES,
+                                     READY_CODES, REGISTRY)
 from rca.v21.variable_selector import build_raw_dataframe, select_variables
-from core.utils import logger, save_json
-
-OUT_DIR = V21_OUTPUT / "variable_selection"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+from core.utils import logger
 
 
 def main() -> None:
-    all_reports = {}
-    all_selected = {}
+    run_id = A.new_run_id("v23a")
+    logger.info(f"[变量选取] run_id={run_id}")
+
+    # 注册表与分组快照：同一 run 的其余阶段都引用这两份
+    A.write_artifact("accident_registry", {"registry": REGISTRY,
+                                           "all_codes": ALL_CODES,
+                                           "ready_codes": READY_CODES,
+                                           "partial_codes": PARTIAL_CODES,
+                                           "missing_codes": MISSING_CODES},
+                     "registry", run_id=run_id, source="rca/v21/accident_config.py")
+    manifest = D.load_json("split_manifest.json")
+    A.write_artifact("split_manifest", {"classes": manifest["classes"]},
+                     "registry", run_id=run_id,
+                     source="output/rca_v21/split_manifest.json（v2.1 冻结）")
+
+    all_reports: Dict[str, dict] = {}
+    all_selected: Dict[str, List[str]] = {}
+    skipped: Dict[str, str] = {}
 
     # 仅用 train 轨迹做变量选取，避免 test 信息泄漏（评审意见 P0-3）
-    manifest = D.load_json("split_manifest.json")
-
-    for k in ACCIDENT_TYPES:
+    for k in ALL_CODES:
+        if k not in ACCIDENT_TYPES:
+            skipped[k] = ("partial：仅 5 条轨迹，不满足四阶段漏斗最小样本"
+                          if k in PARTIAL_CODES else "data_missing：本地无该事故数据")
+            continue
         train_sevs: List[int] = []
         for g in manifest["classes"][k]["groups"].values():
             train_sevs.extend(g.get("train_template_severities", []))
@@ -40,30 +63,25 @@ def main() -> None:
         all_reports[k] = report
         all_selected[k] = selected
 
-        # 落盘：每类事故的选取报告
-        save_json(report, f"selection_report_{k}", result_dir=OUT_DIR)
-        logger.info(f"[变量选取] {k} 报告已落盘 -> {OUT_DIR / f'selection_report_{k}.json'}")
+        A.write_artifact(f"selection_report_{k}", report, "variable_sets", run_id=run_id,
+                         accident_type=k, source=f"nppad_repo/Operation_csv_data/{k}")
 
-    # 汇总
+    # 汇总（只汇总真正执行过的类，跳过类单列，绝不生成占位结论）
     summary = {
-        "accident_types": ACCIDENT_TYPES,
+        "accident_types": sorted(all_selected),
         "selected_vars": all_selected,
-        "checks_summary": {
-            k: all_reports[k]["checks"] for k in ACCIDENT_TYPES
-        },
-        "n_selected": {k: len(all_selected[k]) for k in ACCIDENT_TYPES},
-        "all_pass": all(
-            all(all_reports[k]["checks"].values()) for k in ACCIDENT_TYPES
-        ),
+        "checks_summary": {k: all_reports[k]["checks"] for k in all_selected},
+        "n_selected": {k: len(all_selected[k]) for k in all_selected},
+        "all_pass": all(all(all_reports[k]["checks"].values()) for k in all_selected),
+        "skipped": skipped,
     }
-    save_json(summary, "variable_selection_summary", result_dir=OUT_DIR)
-    logger.info(f"[变量选取] 汇总已落盘 -> {OUT_DIR / 'variable_selection_summary.json'}")
+    A.write_artifact("variable_selection_summary", summary, "variable_sets", run_id=run_id,
+                     source="rca/v21/run_variable_selector.py")
 
-    # 控制台打印对照
     logger.info("\n===== 变量选取结果汇总 =====")
-    for k in ACCIDENT_TYPES:
+    for k in all_selected:
         logger.info(f"{k}: {len(all_selected[k])} 变量 -> {all_selected[k]}")
-    logger.info(f"全部 V1-V7 通过: {summary['all_pass']}")
+    logger.info(f"全部 V1-V7 通过: {summary['all_pass']}；跳过 {len(skipped)} 类: {skipped}")
 
 
 if __name__ == "__main__":

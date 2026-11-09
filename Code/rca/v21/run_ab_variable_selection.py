@@ -17,10 +17,11 @@ from pathlib import Path
 from typing import Dict, List
 
 from rca.rca_config_v21 import (
-    ACCIDENT_TYPES, GROUP_ORDER, MARKERS, GLOBAL_SEED,
+    ACCIDENT_TYPES, GROUP_ORDER, MARKERS, GLOBAL_SEED, V23_SUBDIRS,
     LEARN_WINDOW_START, LEARN_WINDOW_END, LEARN_WINDOW_POINTS,
     STABLE_F, STABLE_DIR,
 )
+from rca.v21 import artifact as A
 from rca.v21 import data as D
 from rca.v21.knowledge import build_ontology, ALLOWED_RELATIONS
 from rca.v21.signatures import bootstrap_lingam_template, select_stable_edges, bfs_frontier
@@ -29,8 +30,9 @@ from core.utils import logger, save_json
 
 # A/B 对照用 Bootstrap 次数：与生产一致（100 次），避免 20 次分辨率 0.05 无法下结论
 AB_N_BOOTSTRAP = 100
-OUT_DIR = Path(D.V21_OUTPUT) / "ab_comparison"
+OUT_DIR = V23_SUBDIRS["ablations"]
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+VS_SUMMARY = V23_SUBDIRS["variable_sets"] / "variable_selection_summary.json"
 
 
 def _load_blocks(manifest, k, g, gvars):
@@ -96,19 +98,23 @@ def _run_one_set(manifest, baseline, scale, k, g, gvars, label):
 
 
 def main() -> None:
+    run_id = A.new_run_id("v23a-ab")
     manifest = D.load_json("split_manifest.json")
     baseline = D.load_json("shared_baseline.json")
     scale = D.load_json("marker_scale.json")
     vsets = D.load_json("variable_sets.json")
-    vs_summary = json.load(open(D.V21_OUTPUT / "variable_selection" / "variable_selection_summary.json"))
+    with open(VS_SUMMARY, encoding="utf-8") as f:
+        vs_summary = json.load(f)
 
     results: Dict[str, Dict] = {}
+    jaccards: Dict[str, float] = {}
 
     for k in ACCIDENT_TYPES:
         results[k] = {}
         auto_vars = vs_summary["selected_vars"][k]
         v21_vars = vsets["V_graph"][k]
         jaccard = len(set(auto_vars) & set(v21_vars)) / len(set(auto_vars) | set(v21_vars))
+        jaccards[k] = round(jaccard, 4)
 
         for g in GROUP_ORDER:
             logger.info(f"[A/B] {k}/{g}: auto={len(auto_vars)} vars, v2.1={len(v21_vars)} vars")
@@ -146,7 +152,7 @@ def main() -> None:
         auto_ont = sum(results[k][g]["auto"]["ontology_agreement"] for g in GROUP_ORDER) / 3
         v21_ont = sum(results[k][g]["v21"]["ontology_agreement"] for g in GROUP_ORDER) / 3
         summary[k] = {
-            "jaccard_vars": round(jaccard, 4),
+            "jaccard_vars": jaccards[k],
             "auto": {"stable_edges_avg": round(auto_stable, 1),
                      "frontier_reach_avg": round(auto_frontier, 1),
                      "ontology_agreement_avg": round(auto_ont, 4)},
@@ -161,7 +167,9 @@ def main() -> None:
             ),
         }
 
-    save_json({"detailed": results, "summary": summary}, "ab_variable_selection", result_dir=OUT_DIR)
+    A.write_artifact("ab_variable_selection", {"detailed": results, "summary": summary},
+                     "ablations", run_id=run_id,
+                     source="rca/v21/run_ab_variable_selection.py (n_bootstrap=%d)" % AB_N_BOOTSTRAP)
     logger.info(f"\n===== A/B 对照汇总（跨组均值）=====")
     for k in ACCIDENT_TYPES:
         s = summary[k]

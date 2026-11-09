@@ -333,14 +333,14 @@
 - **证据**：`Code/rca/v21/accident_config.py` 不存在；`variable_selector.py:100-104` 内联 `ACCIDENT_KEY_RESPONSES` 仅 LOCA/SGATR/FLB；`run_v23_end2end.py:21` 直接用 `ACCIDENT_TYPES`（3 类）。
 - **根因**：A3 一直标记"待数据到位后建"，导致 12 类元数据无唯一来源，执行器只能硬编码 3 类。
 - **解决**：新建 `accident_config.py` 作为 12 类唯一注册表（marker/触发/关键响应/窗口/分组/数据状态），`rca_config_v21.ACCIDENT_TYPES` 改为从注册表派生；variable_selector 改读注册表。
-- **状态**：open
+- **状态**：closed（2026-11-10；`accident_config.py` 落地，12 类齐全，`A/B 阶段实施记录` 见 V23-CODE-010）
 
 ### V23-CODE-002：`ACCIDENT_TYPES` 冻结为 3 类，12 类循环不可能发生
 - **类别**：CODE（A3/B2/C1）
 - **证据**：`rca/rca_config_v21.py:22` `ACCIDENT_TYPES = ["LOCA","SGATR","FLB"]`；`data.build_split_manifest`、`run_v23_end2end.main` 均遍历该常量。
 - **根因**：v2.1 冻结清单未随 v2.3 注册表升级。
 - **解决**：保留 `PILOT_ACCIDENT_TYPES` 兼容 v2.1 产物，新增 `ALL_ACCIDENT_TYPES`（12）与 `READY_ACCIDENT_TYPES`（按注册表 status 派生）；执行器只遍历 ready/partial。
-- **状态**：open
+- **状态**：closed（2026-11-10；`ACCIDENT_TYPES` 保留 3 类兼容，`ALL/READY/PARTIAL/MISSING_ACCIDENT_TYPES` 已派生）
 
 ### V23-DATA-001：8 类事故无本地数据，LOCAC 仅 5 条
 - **类别**：DATA（B1）
@@ -353,13 +353,13 @@
 - **类别**：CODE（B2）
 - **证据**：`data.py:28-34` `csv_path/load_trajectory` 直接拼路径，缺文件时 `pd.read_csv` 抛 `FileNotFoundError`；`build_split_manifest` 对 3 类硬编码配额。
 - **解决**：加载前查注册表 status；缺数据类抛显式 `ClassDataMissing`；split 仅对 ready 类；partial 类只提供加载不做三分组。
-- **状态**：open
+- **状态**：closed（2026-11-10；`ClassDataMissing/ensure_class_available/list_class_severities` 已实现，`build_split_manifest` 输出与旧 manifest 逐字节一致）
 
 ### V23-DESIGN-001：无 `data_audit.py`，B4/B5/B6 全缺
 - **类别**：DESIGN / CODE（B4–B6）
 - **证据**：仓库无 `data_audit.py`；无 `data_audit_*.json` / `z_pathology_audit_*.json` / `changepoint_report_*.json`；`variable_selector.py:245-249` 的 σ_floor 仍是 1%·|μ| 兜底，未接逐变量物理下限。
 - **解决**：新建 `data_audit.py`：B4 常量列/轨迹数/窗口校验；B5 σ/|μ| 审计 + 主窗 max|z| + 病态清单 + 稳健σ；B6 PELT/CUSUM 变点 + marker 稳定性评级。产物统一落 `output/rca_v23/audit/`。
-- **状态**：open
+- **状态**：closed（2026-11-10；4 类审计落地 run_id=v23b-20261110T003923；口径遗留项见 V23-DESIGN-006/007/008）
 
 ### V23-CODE-004：v2.3 根因 JSON 缺 `n_consensus`/`n_conflict`，与图/汇总不同源
 - **类别**：CODE（C2）
@@ -402,7 +402,7 @@
 - **类别**：DESIGN（D3/D5）
 - **证据**：无 `external_knowledge/` 目录、无任何 `.yaml`；无 `fault_templates.yaml`、无 `external_knowledge.py`。
 - **解决**：按 §5.2 建 `Code/external_knowledge/` 五份 YAML + `external_knowledge.py` 合并接口；K3 模板必须来自 README/工程手册，禁止从训练数据+标签提取。
-- **状态**：open
+- **状态**：closed（2026-11-10；5 份 YAML + 8 个接口 + 13 例测试；9 类模板标 `design_pending_data`）
 
 ### V23-CODE-007：LLM 解释为演示级，未接 v2.3 签名/图/忠实性
 - **类别**：CODE（D6）
@@ -414,13 +414,13 @@
 - **类别**：CODE（A4/报告）
 - **证据**：`run_v23_report.py:30` 读取 `c['V3_vif_lt_10']`，而 `variable_selector.py:383` 输出的键为 `V3_vif_lt_500`（附录 D 错误 6 已改名）。
 - **解决**：报告读取改为 `.get('V3_vif_lt_500')` 并打印阈值；旧键若存在做兼容读取。
-- **状态**：open
+- **状态**：closed（2026-11-10）
 
 ### V23-CODE-009：新模块无单测，测试仅覆盖 v2.1
 - **类别**：CODE（测试）
 - **证据**：`Code/tests/` 9 个文件均 import v2.1 模块；无 `accident_config/data_audit/physics_constraints/external_knowledge/run_v23_all` 测试。
 - **解决**：新增 `tests/test_v23_*.py`，覆盖注册表完整性、缺数据门控、Z 病态/变点纯函数、K2 三态、外部知识合并、端到端小样本 smoke。
-- **状态**：open
+- **状态**：⚠️ 部分完成（2026-11-10：`test_v23_accident_config` 16 例、`test_v23_data_audit` 7 例、`test_v23_knowledge_external` 13 例；K2 三态与 run_v23_all 测试待 D 阶段）
 
 ### V23-ALGO-001：`B` 矩阵共线伪影截断已临时补丁，缺敏感性分析
 - **类别**：ALGO
@@ -428,4 +428,71 @@
 - **根因**：LiNGAM 在 PSGA/PSGB→WSTB 等共线对上给出 |weight|~1e5，`(I-B)^-1` 条件数 ~1e11。
 - **解决**：保留截断，但在 `data_audit`/manifest 中记录截断前后条件数、被截断边清单，并做 3/5/10 阈值敏感性，结果写报告。
 - **状态**：⚠️ 补丁已提交，敏感性待补
+
+---
+
+## v2.3 A/B 阶段实施记录（2026-11-10，12 类注册表 + 数据审计）
+
+### V23-CODE-010：`MARKERS` 扩到 12 类后 `pipeline.e1_vector` 抛 KeyError: 'WSTA'
+- **类别**：CODE（A3 回归）
+- **证据**：`rca/v21/pipeline.py:76` 原为 `for k_other, m in MARKERS.items() if m != own`；MARKERS 由 3 类派生改为 12 类后，`epsilon` 只有 pilot 3 类键 → `KeyError: 'WSTA'`，任何 FULL 评分路径崩溃（`tests/test_ablation_core.py` 2 例、`test_d3_units.py` 2 例失败）。
+- **根因**：v2.1 E1 互斥判据只在 3 个 pilot marker 之间定义，却被写成遍历全局 MARKERS。
+- **解决**：改为遍历 `ACCIDENT_TYPES`（pilot 3 类）取 `MARKERS[k_other]`；`marker_main_medians` 默认参数改用新增的 `PILOT_MARKER_COLS`（3 个），`MARKER_COLS` 保留 4 个指示器通道供 v2.3 使用。
+- **状态**：closed（98/98 测试通过）
+
+### V23-CODE-011：`chains.ROOT_CAUSE_NAME` 缺 9 类导致 build_chain KeyError
+- **类别**：CODE
+- **证据**：`rca/v21/chains.py` 原字典仅 LOCA/SGATR/FLB；`tests/test_chains.py` 遍历 MARKERS 后取 `ROOT_CAUSE_NAME[k]` → `KeyError: 'LO...'`。
+- **解决**：保留 3 类冻结措辞，其余 9 类由 `accident_config.get_accident(c)['name_cn']` 派生补全。
+- **状态**：closed
+
+### V23-CODE-012：v2.1 测试硬编码「2 变量 + 3 marker」形状
+- **类别**：CODE（测试）
+- **证据**：`tests/test_ablation_core.py:70,83`、`tests/test_d3_units.py:232` 用 `V_THR + list(MARKER_COLS)`，而只构造 5 列 → `IndexError: index 5 is out of bounds`。
+- **解决**：测试改用 `PILOT_MARKER_COLS`（与 v2.1 三条 pilot 口径一致），断言逻辑不变。
+- **状态**：closed
+
+### V23-CODE-013：A/B 汇总里 `jaccard` 变量跨类复用（最后一类覆盖全部）
+- **类别**：CODE（A/B 对照）
+- **证据**：`run_ab_variable_selection.py:149` 汇总循环内引用外层循环残留的 `jaccard`，导致 3 类的 `summary[k]["jaccard_vars"]` 全部等于最后一类。
+- **解决**：按类收集 `jaccards[k]` 并在汇总中使用。
+- **状态**：closed
+
+### V23-DESIGN-005：SGATR/SGBTR 的 RM2 有向边未在方案冻结
+- **类别**：DESIGN（组3 知识）
+- **证据**：方案 §4.3 组3 将 RM2 列为关键响应，但 §4.2 未冻结 `WTR→RM2` 方向；若只给 SGBTR 加边会造成 A/B 不对称。
+- **解决**：两类均不登记该边（`knowledge.py` 注释留痕），K3 模板把 RM2 作为“症状”而非因果边；待方案确认后统一补。
+- **状态**：open（等待方案/导师确认）
+
+### V23-DATA-002：FLB 42/100 条轨迹 t_last < 2030，恢复段不覆盖
+- **类别**：DATA（B4）
+- **证据**：`data_audit_FLB.json`：sev98–100 轨迹仅到 1600；主窗 [300,1500] 全覆盖，但基线段 [520,2030] 对 42 条截断。
+- **解决**：B4 逐轨迹记录 `t_last` 与窗口覆盖布尔；下游按类截断（不改变全局 SEVERITY_BANDS）；报告注明“恢复段末端缺失”。
+- **状态**：⚠️ 已登记，下游截断待 C 阶段落实
+
+### V23-DATA-003：LOCAC 仅 6 个严重度点（1/25/50/75/100）
+- **类别**：DATA（B1/B6）
+- **证据**：`nppad_repo/Operation_csv_data/LOCAC/` 只有 5 个 CSV；`changepoint_report_LOCAC.json` 判 `insufficient`（<10 点）。
+- **解决**：LOCAC 标 `partial`，只做描述性审计与单点加载，不进三分组/签名/榜单；不生成占位结论。
+- **状态**：⚠️ 等待数据（不阻断 3 类闭环）
+
+### V23-DESIGN-006：按 §4.4.1 判据，sev-1 段 σ≈0 使 24%–30% 变量被判 Z 病态
+- **类别**：DESIGN / STAT（B5）
+- **证据**：`z_pathology_audit_{LOCA,SGATR,FLB}.json`：病态 29/17/23 个（30.2%/17.7%/24.0%）；WSTA/WFWA/WFLB 在 sev-1 段 σ≈0，未截断 `max|z|` 达 383。
+- **根因**：判据 `σ/|μ|<1%` 与 `max|z|>100` 对“整段恒定、注入后才变化”的通道天然成立，病态面远大于方案预期。
+- **解决**：产物同时给 `max_abs_z_raw`（判据用）与 `max_abs_z_clipped`（±10，下游用），并逐变量记录 σ_floor 来源（physical/fallback）；下游统一用稳健 σ + ±10 截断，禁止用原始 σ 归一化。
+- **状态**：open（需在论文中说明“病态=低方差通道”口径，非数据缺陷）
+
+### V23-DESIGN-007：B6 对线性剂量阶梯直接检测会产生伪变点
+- **类别**：DESIGN / STAT（B6）
+- **证据**：FLB marker 中位数随 severity 严格线性（去趋势残差比 7e-8），直接对水平序列做分段常数 DP 会报 15 个伪变点。
+- **解决**：主结果在“去趋势残差”上检测，原始水平结果仍完整落盘（`changepoints_level_raw_*`）；FLB 最终判 0 变点，SGATR 检出 87（已知 WTRA 掉档），LOCA 检出 7/12/21/43（WLR 非单调）。
+- **状态**：closed（口径已写入产物 method 字段）
+
+### V23-DESIGN-008：σ_floor 按 unit 归并，`%` 单位变量共用 0.5 近似
+- **类别**：DESIGN（B5）
+- **证据**：`external_knowledge/tolerance_overrides.yaml` 将“水位 0.5%”推广到所有 `%` 变量（TBLD/PWR/FRCL 等），37 个变量取物理 floor、59 个回退 1%·|μ|。
+- **解决**：逐变量表可覆盖（`by_variable` 优先于 `by_unit`）；论文注明该归并是工程近似。
+- **状态**：open（低风险，待逐变量标定）
+
 

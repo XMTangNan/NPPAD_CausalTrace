@@ -6,6 +6,7 @@ from pathlib import Path
 
 from rca.rca_config_v21 import ACCIDENT_TYPES
 from rca.v21 import data as D
+from rca.v21.variable_selector import VIF_MAX
 from core.utils import logger, save_text
 
 BASE = Path(D.V21_OUTPUT)
@@ -31,12 +32,17 @@ def main() -> None:
     # --- 1. 变量选取 V1-V7 ---
     lines.append("一、变量选取 V1-V7 校验（方案 §3.5）")
     lines.append("-" * 80)
+    lines.append(f"  V3 阈值 VIF_MAX={VIF_MAX:g}（方案 §8.1 风险预案放宽，方案正文原为 <10）")
     for k in ACCIDENT_TYPES:
         c = vs_summary["checks_summary"][k]
         all_pass = all(c.values())
+        # 兼容旧产物键名：旧 run 落盘 V3_vif_lt_10，现落盘 V3_vif_lt_500
+        v3 = c.get("V3_vif_lt_500")
+        if v3 is None:
+            v3 = c.get("V3_vif_lt_10")
         lines.append(f"  {k}: n={vs_summary['n_selected'][k]} | "
                      f"V1={c['V1_count_15_25']} V2={c['V2_subsystem_coverage']} "
-                     f"V3={c['V3_vif_lt_10']} V4={c['V4_trigger_included']} "
+                     f"V3={v3} V4={c['V4_trigger_included']} "
                      f"V5={c['V5_key_responses_included']} V6={c['V6_reproducible']} "
                      f"V7={c['V7_non_gauss_60pct']} → {'ALL PASS' if all_pass else 'FAIL'}")
     lines.append(f"  Go-2（V1-V7 全通过）: {vs_summary['all_pass']}")

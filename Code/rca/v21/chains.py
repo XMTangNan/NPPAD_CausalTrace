@@ -31,6 +31,7 @@ from rca.rca_config_v21 import (
     STABLE_F, STABLE_DIR, FRONTIER_MAX_DEPTH,
 )
 from rca.v21.knowledge import ENTITY_TABLE, COMPETITIVE_PAIRS
+from rca.v21.accident_config import ALL_CODES, get_accident
 from rca.v21.signatures import bfs_frontier
 from rca.v21.marker_effects import effective_marker_map
 from rca.v21.pipeline import apply_minmax
@@ -44,6 +45,11 @@ ROOT_CAUSE_NAME = {
     "SGATR": "SGATR（蒸汽发生器A传热管破裂）工况",
     "FLB": "FLB（给水/蒸汽管道破裂）工况",
 }
+# v2.3：其余 9 类由注册表 name_cn 派生（pilot 三类的冻结措辞保持不变）。
+ROOT_CAUSE_NAME.update({
+    c: f"{c}（{get_accident(c)['name_cn']}）工况"
+    for c in ALL_CODES if c not in ROOT_CAUSE_NAME
+})
 
 # §4.2 冻结传播链登记的 marker→变量 期望符号（仅登记方向明确的 L1/L2 关系）。
 # 来源：方案 §4.2 三类冻结关系表；~ / 0 / ? / L3 / 双向竞争（WLR↔P、WFWA↔LSGA）

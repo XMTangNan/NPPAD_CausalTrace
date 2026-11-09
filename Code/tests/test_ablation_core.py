@@ -12,7 +12,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rca.rca_config_v21 import (
-    ACCIDENT_TYPES, GROUP_ORDER, MARKER_COLS, MARKERS, W_FULL,
+    ACCIDENT_TYPES, GROUP_ORDER, PILOT_MARKER_COLS, MARKERS, W_FULL,
 )
 from rca.v21.pipeline import score_trajectory, compute_metrics, apply_minmax
 from rca.v21.ablation_core import score_ablation, ABLATIONS
@@ -67,7 +67,7 @@ def test_full_matches_pipeline():
 
     Xf = np.column_stack([np.full(T, 5.0), np.zeros(T),
                           np.full(T, 5.0), np.zeros(T), np.zeros(T)])
-    cols_f = V_THR + list(MARKER_COLS)
+    cols_f = V_THR + list(PILOT_MARKER_COLS)
     ref_f = score_trajectory(Xf, cols_f, "FULL", V_THR, sigs, gates,
                              baseline, calibration, epsilon=eps)
     ab_f = score_ablation(Xf, cols_f, "FULL", V_THR, sigs, gates,
@@ -80,7 +80,7 @@ def test_E1_zeroed_full_equivalent_masked():
     T = 121
     Xf = np.column_stack([np.full(T, 5.0), np.zeros(T),
                           np.full(T, 5.0), np.zeros(T), np.zeros(T)])
-    cols_f = V_THR + list(MARKER_COLS)
+    cols_f = V_THR + list(PILOT_MARKER_COLS)
     full = score_ablation(Xf, cols_f, "FULL", V_THR, sigs, gates,
                           baseline, calibration, eps, "full")
     e1 = score_ablation(Xf, cols_f, "FULL", V_THR, sigs, gates,
