@@ -72,14 +72,17 @@ def _quality_table(results: Dict[str, Dict], run_id: str,
     missing = [c for c in MISSING_CODES if c not in classes]
     partial = [c for c in PARTIAL_CODES if c not in classes]
     lines = [f"NPPAD-CausalTrace v2.3 D2 每类公差（run_id={run_id}）",
-             f"{'类别':<8}{'稳态点数':>9}{'变量数':>8}{'Z病态数':>9}"
+             f"{'类别':<8}{'基线点数':>9}{'变量数':>8}{'常量数':>8}{'Z病态数':>9}"
              f"{'病态比例':>10}{'quality':>10}"]
     for k, tol in results.items():
         q = tol["quality"]
-        lines.append(f"{k:<8}{q['steady_segment_points']:>9}{q['n_variables_pass']:>8}"
-                     f"{q['z_pathology_count']:>9}{q['z_pathology_ratio']:>10.1%}"
+        lines.append(f"{k:<8}{q['baseline_points']:>9}{q['n_variables_pass']:>8}"
+                     f"{q['n_constant_pre_inject']:>8}{q['z_pathology_count']:>9}"
+                     f"{q['z_pathology_ratio']:>10.1%}"
                      f"{('PASS' if q['quality_pass'] else 'FAIL'):>10}")
     lines.append("")
+    lines.append("基线口径：注入前 [0,100]s 共 11 点（V23-DATA-004）；"
+                 "准稳态段只记录、不参与 μ/σ")
     lines.append("排除口径：仅本类 marker + SAFETY_STEP_VARS（V23-CODE-016）")
     lines.append("σ 口径：max(1.4826*MAD, σ_floor(v))，σ_floor 来源逐变量记录")
     if missing:

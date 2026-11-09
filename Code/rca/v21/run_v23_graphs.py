@@ -137,7 +137,8 @@ DEVIATION_COLORS = {
     "large": "#e67e22",      # 较大-橙
     "severe": "#e74c3c",     # 严重-红
 }
-DEVIATION_LEGEND = "偏离度≠根因（d=min(|x−μ|/σ_robust,10)，仅辅助展示）"
+DEVIATION_LEGEND = ("通道偏移强度（模板内相对）：档位按本模板 d_raw 的 p50/p70/p85 切分，"
+                    "p95 以上标“极端”；d=min(d_raw,10) 仅展示；≠根因")
 AUX_RANK_NOTE = ("基础排序仅用 T=(I−B)⁻¹ 总效应；K2/K3/偏离度为辅助证据，不改变排名")
 K2_STATUS_LABEL = {"violation": "违反", "not_violated": "未违反", "undecidable": "不可判定"}
 K2_STATUS_COLOR = {"violation": "#e74c3c", "not_violated": "#2ecc71",
@@ -203,7 +204,7 @@ def _deviation_card(dev: Optional[Dict]) -> str:
         f'<span><i class="dot" style="background:{color}"></i>{name}'
         f'（{counts.get(name, 0)}）</span>'
         for name, color in DEVIATION_COLORS.items())
-    return ('<div class="card" style="max-width:340px"><h2>偏离度着色</h2>'
+    return ('<div class="card" style="max-width:340px"><h2>通道偏移强度（模板内相对）</h2>'
             f'<div class="legend" style="flex-wrap:wrap">{sw}</div>'
             f'<div class="note" style="margin-top:6px">代表严重度 '
             f'sev={(dev or {}).get("severity", "-")}，变量数 {(dev or {}).get("n_variables", 0)}；'
@@ -273,7 +274,7 @@ def render_group_html(k: str, g: str, sig: Dict, rc: Dict, topo: Dict,
                f"in_degree={info.get('in_degree', 0)} out_degree={info.get('out_degree', 0)}\n"
                f"reach_size={info.get('reach_size', 0)} depth={info.get('depth', 0)}\n"
                f"总效应={'%.4f' % te if isinstance(te, (int, float)) else '-'}\n"
-               f"偏离度等级={dev_levels.get(v, '未计算')}（偏离度≠根因）")
+               f"通道偏移强度={dev_levels.get(v, '未计算')}（模板内相对，≠根因）")
         node_svgs.append(
             f'<g><rect x="{pos["x"]:.1f}" y="{pos["y"]:.1f}" width="{GV.NODE_W}" '
             f'height="{GV.NODE_H}" rx="6" fill="{fill}" stroke="{stroke}" '

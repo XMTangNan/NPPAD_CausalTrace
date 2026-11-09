@@ -4,8 +4,9 @@
 - D5：match_fault_template 命中/反向/缺失计数与 coverage，未知类 available=False；
 - D4：LOCA sev-1 主窗切片三态计数之和 = 适用关系数；变量缺失 → undecidable；
 - D2：V23-CODE-016 修正后 excluded 只含本类 marker + 安全动作变量（不含 RHRD/PPM），
-  thresholds 逐变量带 sigma_floor 与来源；
-- D9：偏离度 d 截断到 10、Z 病态/饱和变量被跳过（合成 tolerance + 合成 df）；
+  thresholds 逐变量带 sigma_floor 与来源；V23-DATA-004 基线=注入前 [0,100]s 11 点；
+- D9：偏离度按模板内 d_raw 分位（V23-DESIGN-011），病态变量不跳过（DESIGN-006），
+  d 截断到 10 仅展示，旧绝对档保留为 d_abs_level 附注（合成 tolerance + 合成 df）；
 - D2 执行器：LOCA 单类小样本落 tmp_path，产物带 run_id/schema/source。
 """
 import json
@@ -129,7 +130,38 @@ def test_tolerance_excluded_only_own_marker_and_safety():
     assert excluded == {"WLR"} | (set(SAFETY_STEP_VARS) & excluded)
     assert "RHRD" not in excluded and "PPM" not in excluded
     assert tol["thresholds"], "LOCA 应有可用阈值变量"
-    assert tol["quality"]["steady_segment_points"] > 0
+    # V23-DATA-004：基线固定为注入前 [0,100]s 共 11 点，不再用全轨迹稳态段
+    assert tol["quality"]["baseline_window"] == [0.0, 100.0]
+    assert tol["quality"]["baseline_points"] == 11
+    assert tol["quality"]["steady_segment_pre_inject"]["points"] > 0
+    assert tol["t_inject"] == 110.0
+
+
+def test_tolerance_baseline_excludes_post_injection(monkeypatch):
+    """V23-DATA-004：注入后 110–990 s 的漂移不得进入 μ/σ。"""
+    t = np.arange(140, dtype=float) * 10.0
+    post = (t >= 110.0).astype(float)
+    df = pd.DataFrame({
+        "TIME": t,
+        "WLR": 0.0,
+        "WECS": 0.0,
+        "WHPI": 1.5,
+        "P": 155.0 + 50.0 * post * (t - 110.0) / 1000.0,
+        "TAVG": 290.0 + 10.0 * post * (t - 110.0) / 1000.0,
+        "VOL": 1000.0 + 5.0 * post * (t - 110.0) / 1000.0,
+    })
+    monkeypatch.setattr(D, "load_trajectory", lambda k, s: df)
+    tol = T.compute_tolerance("LOCA")
+
+    assert tol["quality"]["baseline_points"] == 11
+    assert tol["quality"]["baseline_time"] == (0.0, 100.0)
+    assert tol["thresholds"]["P"]["mu"] == pytest.approx(155.0)
+    assert tol["thresholds"]["P"]["constant_pre_inject"] is True
+    # 注入后 P 涨到 199，若被并入基线，μ 会明显 >155
+    assert tol["thresholds"]["P"]["mu"] < 156.0
+    t0, t1 = tol["quality"]["steady_segment_pre_inject"]["time"]
+    assert t1 < 110.0 and t0 >= 0.0
+    assert tol["normal_reference"]["note"].startswith("仅作正常波动量级对照")
 
 
 def test_tolerance_sigma_floor_per_variable():
@@ -163,11 +195,19 @@ def test_deviation_clip_and_skip_pathological(monkeypatch):
     monkeypatch.setattr(D, "load_trajectory", lambda k, s: df)
 
     dev = DEV.compute_deviation("LOCA", 100, tol)
-    assert set(dev["deviations"]) == {"WLR", "VOL"}   # Z 病态/饱和被跳过
-    assert dev["deviations"]["WLR"]["d"] == 10.0      # 截断到 10
+    # V23-DESIGN-006：Z 病态变量不再跳过；仅手工饱和变量（TAVG）跳过
+    assert set(dev["deviations"]) == {"WLR", "P", "VOL"}
+    assert dev["deviations"]["WLR"]["d"] == 10.0      # 展示截断到 10
+    assert dev["deviations"]["WLR"]["d_abs_level"] == "severe"
     assert dev["deviations"]["VOL"]["d"] == pytest.approx(1.5)
-    assert dev["level_counts"]["severe"] == 1
-    assert sum(dev["level_counts"].values()) == dev["n_variables"] == 2
+    # V23-DESIGN-011：档位按模板内 d_raw 分位（3 个变量 → 33/67/100 名次）
+    assert dev["deviations"]["VOL"]["level"] == "normal"
+    assert dev["deviations"]["P"]["level"] == "moderate"
+    assert dev["deviations"]["WLR"]["level"] == "severe"
+    assert dev["level_counts"] == {"normal": 1, "moderate": 1, "large": 0, "severe": 1}
+    assert dev["abs_level_counts"]["severe"] == 2     # 旧绝对档仅附注
+    assert set(dev["percentiles"]) == {"p50", "p70", "p85", "p95"}
+    assert sum(dev["level_counts"].values()) == dev["n_variables"] == 3
 
 
 # ==================== D2 执行器端到端（小样本）====================

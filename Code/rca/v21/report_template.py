@@ -37,7 +37,7 @@ SECTION_TITLES: Dict[str, str] = {
     "3_cross_group": "跨组一致性",
     "4_physics_k2": "物理一致性 K2（三态）",
     "5_fault_template_k3": "故障模板 K3（覆盖率/反向边）",
-    "6_deviation": "偏离度（4 级计数；偏离度 ≠ 根因）",
+    "6_deviation": "通道偏移强度（模板内相对分位，4 级计数；≠根因）",
     "7_limitations": "局限性",
     "8_reproducibility": "复现信息",
 }
