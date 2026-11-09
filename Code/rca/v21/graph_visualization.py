@@ -9,6 +9,7 @@ from collections import defaultdict, deque
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from rca.v21.knowledge import ENTITY_TABLE
+from core.utils import logger
 
 
 # ==================== 视觉编码（方案 §4.3） ====================
@@ -157,10 +158,12 @@ def render_graph_html(
     root_set = set(root_vars)
     top1_var = root_vars[0] if root_vars else None
 
-    # 只保留 consensus 边（用户要求：去掉 conflict 和 single_lingam 边）
+    # V23-CODE-015：放开非 consensus 边（单引擎/无 consensus 时不再得到空图；
+    # 仅排除 conflict 边；v2.2 既有产物不重跑）
     cons_edges = [
         e for e in stable_edges
-        if consensus_clf.get(f"{e['from']}->{e['to']}", {}).get("label") == "consensus"
+        if consensus_clf.get(f"{e['from']}->{e['to']}", {}).get(
+            "label", "single_lingam") != "conflict"
     ]
 
     # C3a 信息门控：consensus 边数 < 5 标注"信息不足"，根因排名标为"不可靠"

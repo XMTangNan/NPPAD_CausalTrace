@@ -30,6 +30,8 @@ from core.utils import logger, save_json
 
 # A/B 对照用 Bootstrap 次数：与生产一致（100 次），避免 20 次分辨率 0.05 无法下结论
 AB_N_BOOTSTRAP = 100
+# V23-DESIGN-009：12 类本体边合计 84 条，backbone_hit_ratio 的固定分母
+ONTOLOGY_TOTAL_EDGES = sum(len(v) for v in ALLOWED_RELATIONS.values())
 OUT_DIR = V23_SUBDIRS["ablations"]
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 VS_SUMMARY = V23_SUBDIRS["variable_sets"] / "variable_selection_summary.json"
@@ -47,7 +49,7 @@ def _load_blocks(manifest, k, g, gvars):
 
 
 def _ontology_agreement(stable_edges, accident_type):
-    """稳定边中本体允许且方向正确的比例。"""
+    """稳定边中本体允许的比例（诊断指标，V23-DESIGN-009）；反向边单列计数。"""
     allowed = set()
     for rel in ALLOWED_RELATIONS.get(accident_type, []):
         allowed.add((rel["from"], rel["to"]))
@@ -55,9 +57,12 @@ def _ontology_agreement(stable_edges, accident_type):
             allowed.add((rel["to"], rel["from"]))
     n_stable = len(stable_edges)
     if n_stable == 0:
-        return 0.0, 0
+        return 0.0, 0, 0
     n_allowed = sum(1 for e in stable_edges if (e["from"], e["to"]) in allowed)
-    return n_allowed / n_stable, n_allowed
+    n_reverse = sum(1 for e in stable_edges
+                    if (e["from"], e["to"]) not in allowed
+                    and (e["to"], e["from"]) in allowed)
+    return n_allowed / n_stable, n_allowed, n_reverse
 
 
 def _run_one_set(manifest, baseline, scale, k, g, gvars, label):
@@ -80,8 +85,8 @@ def _run_one_set(manifest, baseline, scale, k, g, gvars, label):
     roots = select_root_candidates(topology, marker, stable, gvars, top_k=5)
     top1 = roots[0]["variable"] if roots else None
 
-    # 本体方向一致率
-    ont_agree, n_allowed = _ontology_agreement(stable, k)
+    # 本体方向一致率（诊断指标，V23-DESIGN-009）
+    ont_agree, n_allowed, n_reverse = _ontology_agreement(stable, k)
 
     return {
         "label": label,
@@ -93,6 +98,8 @@ def _run_one_set(manifest, baseline, scale, k, g, gvars, label):
         "root_cause_top5": [r["variable"] for r in roots],
         "ontology_agreement": round(ont_agree, 4),
         "n_ontology_allowed": n_allowed,
+        "n_ontology_reverse": n_reverse,
+        "backbone_hit_ratio": round(n_allowed / ONTOLOGY_TOTAL_EDGES, 4),
         "n_train_trajectories": len(blocks),
     }
 
@@ -131,6 +138,9 @@ def main() -> None:
                     "marker_out_edges": auto_metrics["n_marker_out_edges"] - v21_metrics["n_marker_out_edges"],
                     "frontier_reach": auto_metrics["frontier_reach_size"] - v21_metrics["frontier_reach_size"],
                     "ontology_agreement": round(auto_metrics["ontology_agreement"] - v21_metrics["ontology_agreement"], 4),
+                    "backbone_hit_ratio": round(auto_metrics["backbone_hit_ratio"] - v21_metrics["backbone_hit_ratio"], 4),
+                    "n_ontology_reverse": (auto_metrics["n_ontology_reverse"]
+                                           - v21_metrics["n_ontology_reverse"]),
                     "root_top1_same": auto_metrics["root_cause_top1"] == v21_metrics["root_cause_top1"],
                     "root_top5_overlap": round(
                         len(set(auto_metrics["root_cause_top5"]) & set(v21_metrics["root_cause_top5"]))
@@ -142,7 +152,8 @@ def main() -> None:
                         f"ont_agree: auto={auto_metrics['ontology_agreement']} v21={v21_metrics['ontology_agreement']} | "
                         f"top1: auto={auto_metrics['root_cause_top1']} v21={v21_metrics['root_cause_top1']}")
 
-    # 汇总（跨组均值）
+    # 汇总（跨组均值）：V23-DESIGN-009 主指标只用稳定边 / frontier / Top1 一致性，
+    # 本体相关指标降为 diagnostics（n_ontology_allowed、backbone_hit_ratio=命中/84、反向边单列）
     summary = {}
     for k in ACCIDENT_TYPES:
         auto_stable = sum(results[k][g]["auto"]["n_stable_edges"] for g in GROUP_ORDER) / 3
@@ -151,19 +162,35 @@ def main() -> None:
         v21_frontier = sum(results[k][g]["v21"]["frontier_reach_size"] for g in GROUP_ORDER) / 3
         auto_ont = sum(results[k][g]["auto"]["ontology_agreement"] for g in GROUP_ORDER) / 3
         v21_ont = sum(results[k][g]["v21"]["ontology_agreement"] for g in GROUP_ORDER) / 3
+        auto_bb = sum(results[k][g]["auto"]["backbone_hit_ratio"] for g in GROUP_ORDER) / 3
+        v21_bb = sum(results[k][g]["v21"]["backbone_hit_ratio"] for g in GROUP_ORDER) / 3
+        auto_rev = sum(results[k][g]["auto"]["n_ontology_reverse"] for g in GROUP_ORDER)
+        v21_rev = sum(results[k][g]["v21"]["n_ontology_reverse"] for g in GROUP_ORDER)
+        top1_same = sum(1 for g in GROUP_ORDER if results[k][g]["diff"]["root_top1_same"])
         summary[k] = {
             "jaccard_vars": jaccards[k],
-            "auto": {"stable_edges_avg": round(auto_stable, 1),
-                     "frontier_reach_avg": round(auto_frontier, 1),
-                     "ontology_agreement_avg": round(auto_ont, 4)},
-            "v21": {"stable_edges_avg": round(v21_stable, 1),
-                    "frontier_reach_avg": round(v21_frontier, 1),
-                    "ontology_agreement_avg": round(v21_ont, 4)},
+            "primary": {
+                "stable_edges_avg": {"auto": round(auto_stable, 1),
+                                     "v21": round(v21_stable, 1)},
+                "frontier_reach_avg": {"auto": round(auto_frontier, 1),
+                                       "v21": round(v21_frontier, 1)},
+                "top1_same_groups": top1_same,
+            },
+            "diagnostics": {
+                "ontology_total_edges": ONTOLOGY_TOTAL_EDGES,
+                "ontology_agreement_avg": {"auto": round(auto_ont, 4),
+                                           "v21": round(v21_ont, 4)},
+                "backbone_hit_ratio_avg": {"auto": round(auto_bb, 4),
+                                           "v21": round(v21_bb, 4)},
+                "n_ontology_reverse_total": {"auto": auto_rev, "v21": v21_rev},
+            },
             "verdict": (
                 f"变量集 Jaccard={jaccard:.2f}；"
                 f"稳定边 auto={auto_stable:.1f} vs v2.1={v21_stable:.1f}；"
-                f"frontier auto={auto_frontier:.1f} vs v2.1={v21_frontier:.1f}。"
-                "两套变量集各有胜负，无一致优劣结论（详见 detailed）。"
+                f"frontier auto={auto_frontier:.1f} vs v2.1={v21_frontier:.1f}；"
+                f"Top1 一致 {top1_same}/3 组。"
+                "两套变量集各有胜负，无一致优劣结论（详见 detailed）；"
+                "本体指标仅作诊断，不作主判据。"
             ),
         }
 
@@ -173,9 +200,15 @@ def main() -> None:
     logger.info(f"\n===== A/B 对照汇总（跨组均值）=====")
     for k in ACCIDENT_TYPES:
         s = summary[k]
-        logger.info(f"{k}: stable(auto={s['auto']['stable_edges_avg']} vs v21={s['v21']['stable_edges_avg']}) | "
-                    f"frontier(auto={s['auto']['frontier_reach_avg']} vs v21={s['v21']['frontier_reach_avg']}) | "
-                    f"ont_agree(auto={s['auto']['ontology_agreement_avg']} vs v21={s['v21']['ontology_agreement_avg']})")
+        p, dg = s["primary"], s["diagnostics"]
+        logger.info(
+            f"{k}: stable(auto={p['stable_edges_avg']['auto']} vs v21={p['stable_edges_avg']['v21']}) | "
+            f"frontier(auto={p['frontier_reach_avg']['auto']} vs v21={p['frontier_reach_avg']['v21']}) | "
+            f"top1_same={p['top1_same_groups']}/3 | "
+            f"backbone_hit(auto={dg['backbone_hit_ratio_avg']['auto']} vs "
+            f"v21={dg['backbone_hit_ratio_avg']['v21']}) | "
+            f"reverse(auto={dg['n_ontology_reverse_total']['auto']} vs "
+            f"v21={dg['n_ontology_reverse_total']['v21']})")
 
 
 if __name__ == "__main__":

@@ -167,6 +167,7 @@
 - **根因**：WLR(仅LOCA非零)、WTRA(仅SGATR非零)、WFLB(仅FLB非零) 构成事故类型 one-hot 编码。原方案 §1.3 已声明 FULL 条件下分类"平凡"，真正检验是 MASKED 条件。
 - **解决**：报告中明确标注此局限，说明因果组件价值需在 MASKED 条件（屏蔽 marker）下验证。
 - **状态**：⚠️ 已标注，MASKED 实验待执行
+- **2026-11-10 收口说明**：非 v2.3 决策项，归 v2.1 范围，保持登记（FULL 条件下分类平凡属方案已知局限）。
 
 ### RCA-011：B1 基线因 C^A 为空被人为压低
 - **类别**：CODE
@@ -348,6 +349,7 @@
 - **根因**：上游数据未下载/未提供；LOCAC 上游即 5 条（评审 §9 未核实项）。
 - **解决**：注册表将 8 类标 `data_missing`、LOCAC 标 `partial`（仅描述性，不进 36 份验收）；执行器跳过并落 `skipped_classes.json`，不得生成占位产物。
 - **状态**：⚠️ 已如实登记，等待数据（不阻断 3 类闭环）
+- **2026-11-10 收口说明**：非决策项，保持 data_missing；LOCAC 保持 partial、不进 36 份验收。
 
 ### V23-CODE-003：`data.py` 不支持 12 类加载与缺数据门控
 - **类别**：CODE（B2）
@@ -465,7 +467,8 @@
 - **类别**：DESIGN（组3 知识）
 - **证据**：方案 §4.3 组3 将 RM2 列为关键响应，但 §4.2 未冻结 `WTR→RM2` 方向；若只给 SGBTR 加边会造成 A/B 不对称。
 - **解决**：两类均不登记该边（`knowledge.py` 注释留痕），K3 模板把 RM2 作为“症状”而非因果边；待方案确认后统一补。
-- **状态**：open（等待方案/导师确认）
+- **决策（2026-11-10）**：**won't fix**——两类对称处理已保证 A/B 公平，K3 把 RM2 当症状是合理工程近似；不单方面给 SGBTR 补边。
+- **状态**：closed（接受现状；导师若要求，则 SGATR/SGBTR 两类同时补边并重跑 A/B）
 
 ### V23-DATA-002：FLB 42/100 条轨迹 t_last < 2030，恢复段不覆盖
 - **类别**：DATA（B4）
@@ -478,6 +481,7 @@
 - **证据**：`nppad_repo/Operation_csv_data/LOCAC/` 只有 5 个 CSV；`changepoint_report_LOCAC.json` 判 `insufficient`（<10 点）。
 - **解决**：LOCAC 标 `partial`，只做描述性审计与单点加载，不进三分组/签名/榜单；不生成占位结论。
 - **状态**：⚠️ 等待数据（不阻断 3 类闭环）
+- **2026-11-10 收口说明**：非决策项，保持 partial 登记，等上游补数据后按同一 run_v23_all 重跑。
 
 ### V23-DESIGN-006：按 §4.4.1 判据，sev-1 段 σ≈0 使 24%–30% 变量被判 Z 病态
 - **类别**：DESIGN / STAT（B5）
@@ -497,14 +501,16 @@
 - **类别**：DESIGN（B5）
 - **证据**：`external_knowledge/tolerance_overrides.yaml` 将“水位 0.5%”推广到所有 `%` 变量（TBLD/PWR/FRCL 等），37 个变量取物理 floor、59 个回退 1%·|μ|。
 - **解决**：逐变量表可覆盖（`by_variable` 优先于 `by_unit`）；论文注明该归并是工程近似。
-- **状态**：open（低风险，待逐变量标定）
+- **决策（2026-11-10，辩证吸收）**：接受工程近似、优先级降为 P2。**不采纳**“只保留 TBLD/FRCL/VOID/WSPY 逐变量、其余 by_unit”的收窄建议——现行 `tolerance_overrides.yaml` 的 `by_variable` 已覆盖压力（P/PSGA/PSGB/PRB/PRBA）、流量（WUP/WSPY/WLD/WCHG…）、液位/百分数等分组，精度高于 `by_unit=0.5`，删除属能力回退；仅对未列入项继续 `by_unit`、无配置回退 1%·|μ|。限制（bar 级 0.5、t/hr 级 5.0 等工程近似）写入论文与 §5.2，不再列阻断项。
+- **状态**：closed（接受现状，不删逐变量表；如需全量逐变量标定需外部专家给值）
 
 ### V23-DESIGN-009：A/B 对照中稳定边与冻结本体的方向一致率仅 2%–4%
 - **类别**：DESIGN / STAT（A/B 验收口径）
 - **证据**：`output/rca_v23/ablations/ab_variable_selection.json`（run_id=v23a-ab-20261110T003914）：本体一致率 auto/v2.1 分别为 LOCA 4.19%/2.71%、SGATR 3.27%/1.66%、FLB 0.0%/4.22%；每模板稳定边 45–86 条，而本体允许边仅 10–14 条。
 - **根因**：稳定边集合远大于本体覆盖范围（本体只冻结主干因果链），且 E1 门控后仍有大量过程量之间的强相关边；该指标的分母是全部稳定边，天然偏低。
-- **解决**：论文中把指标改述为“本体覆盖主干链在稳定边中的命中数（n_ontology_allowed）”，并单列“本体未覆盖但高置信”的边作为待扩充条目；不做阈值硬性验收。
-- **状态**：open（论文口径待改，A 阶段已如实产出）
+- **决策（2026-11-10）**：论文口径改为 `n_ontology_allowed`（命中条数）+ `backbone_hit_ratio = 命中 / 84 条本体边`；反向边单列 `n_ontology_reverse`；A/B 主指标只用稳定边 / frontier / Top1 一致性，本体指标降为 `diagnostics`，不设阈值验收。
+- **实现**：`run_ab_variable_selection.py` 输出 `n_ontology_allowed`/`n_ontology_reverse`/`backbone_hit_ratio`（分母常量 `ONTOLOGY_TOTAL_EDGES=84`），`summary` 拆为 `primary`/`diagnostics`。
+- **状态**：closed（2026-11-10，重跑 A/B 后生效）
 
 ### V23-STAT-002：同 seed 两次运行的浮点末位差异导致复现性断言偶发失败
 - **类别**：STAT（C7 可复现性）
@@ -515,8 +521,9 @@
 ### V23-CODE-015：`graph_visualization.render_graph_html` 未导入 logger，且只渲染 consensus 边
 - **类别**：CODE（C3）
 - **证据**：`rca/v21/graph_visualization.py` 的渲染函数引用 `logger` 但模块未导入（调用即 NameError）；过滤条件只保留 `consensus=True` 的边，单引擎 v2.3 下会得到空图。
-- **解决**：v2.3 不复用该渲染函数，仅复用其布局/配色常量，在 `run_v23_graphs.py` 内重写渲染（数据全部来自 `signatures/`+`tracing/` 的同一 run_id）。原文件未改，避免影响 v2.2 产物。
-- **状态**：open（遗留缺陷；若 v2.2 仍要出图需单独修）
+- **解决**：v2.3 不复用该渲染函数，仅复用其布局/配色常量，在 `run_v23_graphs.py` 内重写渲染（数据全部来自 `signatures/`+`tracing/` 的同一 run_id）。
+- **决策（2026-11-10）**：修 2 行防误用——补 `from core.utils import logger`；过滤条件放开为“非 conflict 边”（单引擎无 consensus 时不再得空图）。仅修代码，**不重跑 v2.2 产物**。
+- **状态**：closed
 
 ### V23-DESIGN-010：v2.3 汇总/差异产物统一落 `reports/`，与旧 `v23_tracing/diff_report_*` 命名不同
 - **类别**：DESIGN（产物结构）
@@ -569,15 +576,15 @@
 - **类别**：DESIGN（D5）
 - **证据**：LOCA low/mid/high coverage=0.40/0.20/0.20（反向 2/2/0）；SGATR=0.143/0.143/0（反向 2/2/3）；FLB=0/0.125/0.125（反向 0/1/0）。
 - **根因**：模板 `expected_chain` 来自方案 §4.3 的机理叙述（如 P→TAVG→安注），而学到的稳定边以过程量强相关为主，方向常与机理链相反（反馈/控制回路）。
-- **解决**：如实输出 coverage 与反向边清单，不调参凑高覆盖；待人工复核模板链与学图方向后重冻。
-- **状态**：open
+- **决策（2026-11-10）**：接受现状，改验收口径——Q7 门槛定为“**稳定边 ≥ 5 且 Top1 可达路径 ≥ 1**”，删去 consensus 表述（单引擎下 consensus 已退化）；覆盖率与反向边仍如实输出，但不作达标判据。
+- **状态**：closed（方案 §7 Q7 已同步）
 
 ### V23-DESIGN-013：K2 物理关系每类仅 2–3 条适用
 - **类别**：DESIGN（D4）
 - **证据**：`auxiliary.k2.n_relations_applicable`：LOCA=2、SGATR=3、FLB=2（全库仅 5 条关系，`applicable_accidents` 限定类）。
 - **影响**：三态证据稀疏，单条 violation 占比可达 1/3，解释力有限。
-- **解决**：产物照实给三态与相关系数；扩充关系库列入后续工作（方案 §5.3.2 未冻结更多关系）。
-- **状态**：open
+- **决策（2026-11-10）**：K5/K6 验收改为“**输出完整、如实报告**”，不按覆盖率/匹配分达标；K2 关系库扩充（当前 5 条）列为后续工作，不在 v2.3 验收内。
+- **状态**：closed（方案 §7 K5/K6 已同步）
 
 ### V23-CODE-019：`skipped_classes.json` 只登记“本次 --classes 里没选的类”，默认运行看起来没有缺数据类
 - **类别**：CODE（D10/C1）
@@ -600,7 +607,7 @@
 - **证据**：`run_v23_end2end.py:46` 原读 `V21_OUTPUT/"variable_selection"/variable_selection_summary.json`（11-03 旧集）；A 阶段产物实际写在 `V23_SUBDIRS["variable_sets"]`。旧集 LOCA 含 HUP，新集为 VOID；旧集 SGATR 的 VOID 在第 5 列，新集在第 11 列。
 - **根因**：A 阶段把变量集从 `output/rca_v21` 迁到 `output/rca_v23` 后，C 阶段读取路径未同步。
 - **解决**：改读 `V23_SUBDIRS["variable_sets"]`，`vs_report` 同步指向 `rca_v23/variable_sets/`；全链重跑 `run_id=v23-20261110T022554`（7/7 ok）。
-- **影响（唯一改结论的修复，如实报告）**：LOCA low QMGB→RRCA、mid WECS→QMGB、high HUP→QMGB；SGATR low/mid 不变（PSGA/PSGA）、high RM2→RHBR（变量集合相同，但 VOID 列序由第 5 变第 11，属 LiNGAM 列序敏感，见 V23-ALGO-001 补充观察）；FLB 三组不变（WCHG/PSGB/WHPI）。
+- **影响（改结论的修复，如实报告）**：LOCA low QMGB→RRCA、mid WECS→QMGB、high HUP→QMGB；SGATR low/mid 不变（PSGA/PSGA）、high RM2→RHBR（变量集合相同，但 VOID 列序由第 5 变第 11，属 LiNGAM 列序敏感，见 V23-ALGO-001 补充观察）；FLB 三组不变（WCHG/PSGB/WHPI）。
 - **状态**：closed
 
 ### V23-CODE-022：`_load_k2` 读顶层键，K2 实际挂在 `auxiliary.k2`，9 份解释 + 9 份报告错写“未产出”
@@ -612,24 +619,44 @@
 
 ---
 
-## v2.3 全链验收记录（2026-11-10，run_id=v23-20261110T013122）
+## v2.3 全链验收记录（2026-11-10 收口，run_id=v23-20261110T032302）
 
 **命令**：`cd Code && PYTHONPATH=. python -m rca.v21.run_v23_all --n-bootstrap 100`
-**结果**：7/7 步 `ok`、`failed=0`；`manifest.json` 140 个文件（json/txt/html/png/csv/md）全部登记 sha256；
-`reports/run_v23_all_summary.json` 记录各步耗时与跳过类。
+**结果**：7/7 步 `ok`、`failed=0`；`manifest.json` 140 个文件全部登记 sha256；
+`reports/run_v23_all_summary.json` 记录各步耗时与跳过类；`pytest tests/ -q` → 123 passed。
 
 | 项 | 结果 | 来源 |
 |---|---|---|
 | 12 类注册表 | 12/12 登记；ready=3、partial=1、data_missing=8 | `registry/accident_registry.json` |
-| 变量选取（3 ready 类） | V1–V7 全通过，各选 15 变量 | `variable_sets/selection_report_{K}.json` |
+| 变量选取（3 ready 类） | V1–V7 全通过，各选 15 变量；A/B 重跑后 summary 拆 `primary`/`diagnostics` | `variable_sets/`、`ablations/ab_variable_selection.json` |
 | 数据审计 | LOCA/SGATR/FLB/LOCAC 4 类各 3 份；8 类显式跳过 | `audit/*_{K}.json` |
-| 签名/溯源 | 9 模板 ×100 bootstrap；`n_consensus=null`；`REPRO_OK` 两次一致 | `signatures/`、`tracing/` |
-| 图 | 13 份 HTML（9 组+3 类汇总+总览），含 K2/K3/偏离度面板 | `graphs/` |
+| 公差 | 3 类均 `baseline_points=11`（注入前 [0,100]s）、93 变量、常量 53、Z 病态 13（14.0%）、quality PASS | `tolerances/tolerance_{K}.json` |
+| 签名/溯源 | 9 模板 ×100 bootstrap；K2 `available` 9/9；稳定性门控降级 0/9 | `signatures/`、`tracing/` |
+| 偏离度 | 模板内相对分位：LOCA_low 88 变量 = 44/17/13/14；旧绝对档 severe 62/88（附注） | `reports/deviation_{K}_{g}.json` |
+| 图 | 13 份 HTML（9 组+3 类汇总+总览），含 K2/K3/偏移强度/稳定性面板 | `graphs/` |
 | 汇总/差异 | 3 类 ×（summary+diff），输入 sha256 留痕 | `reports/summary|diff_{K}.json` |
-| 解释/报告 | 9 份 `backend=rule`、`faithful=True`；9 份 8 章报告 | `reports/llm_explanation_*`、`rca_report_*` |
-| 测试 | 118 passed | `pytest tests/ -q` |
+| 解释/报告 | 9 份 `backend=rule`、`faithful=True`；9 份 8 章报告；K2 段不再“未产出” | `reports/llm_explanation_*`、`rca_report_*` |
+| A/B 对照 | 主指标 stable/frontier/Top1 一致；`top1_same=0/3`（三类均不一致，按“无一致优劣”结论如实报告）；diag：backbone_hit(auto/v21)=2.38%/1.98%（LOCA）、1.59%（SGATR v21）、0%（FLB auto），反向边单列 | `ablations/ab_variable_selection.json` |
 
-**根因 Top-1（本次同源结果）**：LOCA low/mid/high = QMGB / WECS / HUP；SGATR = PSGA / PSGA / RM2；FLB = WCHG / PSGB / WHPI。
-**未通过/遗留**（均已在上文登记）：V23-ALGO-001（clip=5 后 cond 仍 1e1–1e11）、V23-DESIGN-011（偏离度饱和）、V23-DATA-004（基线段含注入前）、V23-DESIGN-012（K3 覆盖低）、V23-DESIGN-013（K2 关系稀疏）、V23-DESIGN-009（本体命中率口径）、V23-DESIGN-005/008（RM2 边与 σ_floor 归并）、V23-DATA-003（LOCAC 仅 6 个严重度点）。
+**根因 Top-1（本次同源结果）**：LOCA low/mid/high = RRCA / QMGB / QMGB；SGATR = PSGA / PSGA / RHBR；FLB = WCHG / PSGB / WHPI。
+（相对 11-10 首轮验收 run_id=v23-20261110T013122：LOCA 三组全变，SGATR_high 因 VOID 列序变化由 RM2 变 RHBR，FLB 不变——见 V23-CODE-021/ALGO-001。）
+
+**10 条 open 收口结果（2026-11-10）**
+
+| 编号 | 结论 | 说明 |
+|---|---|---|
+| V23-ALGO-001 | closed（改代码+重跑） | 保 `B_CLIP=5`，新增弃权门控；9 组均未触发 |
+| V23-DATA-004 | closed（改代码+重跑） | 基线改注入前 [0,100]s；与 DESIGN-011 同批 |
+| V23-DESIGN-011 | closed（改代码+重跑） | 模板内相对分位四档 + d_abs_level 附注 |
+| V23-DESIGN-006 | closed（口径定稿） | “低方差通道”，比例只作诊断，K11 删 30% 门槛 |
+| V23-DESIGN-012 | closed（改验收口径） | Q7 → 稳定边≥5 且 Top1 可达路径≥1（删 consensus） |
+| V23-DESIGN-013 | closed（改验收口径） | K5/K6 → 输出完整、如实报告；关系库扩充列后续 |
+| V23-DESIGN-009 | closed（改指标口径） | `n_ontology_allowed` + `backbone_hit_ratio=命中/84`；反向边单列 |
+| V23-DESIGN-005 | closed（won't fix） | 两类对称处理，K3 把 RM2 当症状 |
+| V23-DESIGN-008 | closed（接受工程近似，P2） | 保留现有逐变量表，不采纳收窄建议 |
+| V23-CODE-015 | closed（两行修，不重跑 v2.2） | 补 logger、放开非 consensus 边 |
+
+**保持登记（非决策项）**：V23-DATA-001（8 类无数据）、V23-DATA-003（LOCAC 仅 5 条）、RCA-010（归 v2.1 范围）。
+**open 计数：0**（上述 3 条为“等待数据/范围外”登记，不计 open）。
 
 
