@@ -33,7 +33,8 @@ Code/
 │       ├── accident_config.py    # [新] 12 类注册表（元数据唯一来源）
 │       ├── data.py               # 加载/划分（按注册表状态门控）
 │       ├── data_audit.py         # [新] B4 数据审计 + B5 Z 病态 + B6 变点
-│       ├── variable_selector.py   # A1 四阶段漏斗（配置改读 accident_config）
+│       ├── variable_selector.py   # A1 论文锚定 + 四阶段漏斗（配置改读 accident_config）
+│       ├── paper_anchor.py        # A1 论文锚定单一来源（引文、专家集代理、冲突裁决）
 │       ├── knowledge.py          # 96 变量本体 + 12 类 ALLOWED_RELATIONS
 │       ├── external_knowledge.py # [新] YAML → 本体合并（只扩展不覆盖）
 │       ├── signatures.py         # C1 12类×3组因果签名（含 K2/偏离度挂载点）
@@ -43,7 +44,7 @@ Code/
 │       ├── deviation.py          # D9 偏离度 d=min(|x-μ|/σ_robust,10)
 │       ├── severity_aggregation.py # C3b/C3c 汇总图 + 差异报告
 │       ├── graph_visualization.py  # C3/C3a 分组 HTML + 信息门控
-│       ├── llm_explanation.py      # D6 LLM 解释 + 忠实性校验
+│       ├── llm_explanation.py      # D6 模板 rule + 类级/全局汇总（LLM 可选）+ 忠实性校验
 │       ├── report_template.py      # D7 模板兜底
 │       ├── run_v23_all.py        # [新] 阶段 D 一站式：审计→变量集→签名→溯源→图→汇总→报告
 │       └── run_v23_graphs.py     # [新] 9/36 份分组 HTML + 12 份汇总图（只读 v23 JSON）
@@ -60,7 +61,7 @@ Code/
         │   ├── accident_registry.json      # 12 类注册表快照 + ready/partial/missing 清单
         │   └── split_manifest.json         # train/test 分组快照（v2.1 冻结输入留痕）
         ├── variable_sets/
-        │   ├── selection_report_{K}.json   # 四阶段漏斗报告（V1–V7 + 选中变量）
+        │   ├── selection_report_{K}.json   # 论文锚定 + 四阶段漏斗报告（V0–V7 + 选中变量）
         │   └── variable_selection_summary.json
         ├── audit/data_audit_{K}.json
         ├── audit/z_pathology_audit_{K}.json
@@ -79,10 +80,14 @@ Code/
         ├── reports/deviation_{K}_{g}.json          # D9 偏离度四档计数
         ├── reports/rca_report_{K}_{g}.json
         ├── reports/rca_report_{K}_{g}.txt
-        ├── reports/llm_explanation_{K}_{g}.json
-        ├── reports/run_v23_all_summary.json        # D10 全链 10 步状态
+        ├── reports/llm_explanation_{K}_{g}.json   # 模板级（固定 rule）
+        ├── reports/llm_explanation_class_{K}.json # 类级汇总（LLM 可选，失败降级 rule）
+        ├── reports/llm_explanation_global.json    # 全局结论（同上）
+        ├── reports/run_v23_all_summary.json        # D10 全链 9 步状态 + rerun_reason
         ├── knowledge/knowledge_validation.json
-        └── ablations/{auto_vs_v21.json,...}        # 消融/对照（唯一允许再分一层的子目录）
+        └── ablations/                              # 消融/对照（唯一允许再分一层的子目录）
+            ├── frozen_ab_variable_selection_<run_id>.json  # 一次性 A/B 冻结件（frozen=true）
+            └── ab_variable_selection.json          # 旧轮直跑产物（保留仅作溯源，不再更新）
 ```
 
 **命名规则**
@@ -140,28 +145,35 @@ Code/
 
 ```
 cd Code
-# 全链一次跑完（变量选取/审计→公差→签名/溯源→图→汇总/差异→偏离度→解释/报告→A/B→manifest），单 run_id
-PYTHONPATH=. python -m rca.v21.run_v23_all --n-bootstrap 100
-PYTHONPATH=. python -m rca.v21.run_v23_all --classes LOCA,SGATR,FLB --n-bootstrap 100
-PYTHONPATH=. python -m rca.v21.run_v23_all --dry-run          # 只打印 10 步计划
-PYTHONPATH=. python -m rca.v21.run_v23_all --skip-llm         # 跳过 LLM（默认 rule 后端）
+# 全链（验收/发布动作，9 步；需显式声明重跑原因，见下方“运行约定”）
+PYTHONPATH=. python -m rca.v21.run_v23_all --n-bootstrap 100 --rerun-reason "E-R1 出对外数字：论文表格定稿"
+PYTHONPATH=. python -m rca.v21.run_v23_all --classes LOCA SGATR FLB --n-bootstrap 100 --rerun-reason "E-R2 ..."
+PYTHONPATH=. python -m rca.v21.run_v23_all --dry-run          # 只打印 9 步计划（不校验 rerun_reason）
+PYTHONPATH=. python -m rca.v21.run_v23_all --skip-llm         # 解释后端固定 rule（默认即 rule）
+PYTHONPATH=. python -m rca.v21.run_v23_all --with-ab ...      # 追加一次性 A/B 消融（默认关闭，10 步）
 
-# 分步重跑（仍必须传同一 --run-id，否则汇总/报告拒绝混源）
+# 分步重跑（开发默认路径；仍必须传同一 --run-id，否则汇总/报告拒绝混源）
 PYTHONPATH=. python -m rca.v21.run_variable_selector           # A 阶段：变量选取 + 注册表快照
-PYTHONPATH=. python -m rca.v21.run_ab_variable_selection       # A 阶段：A/B 对照（9×2×100 bootstrap）
+PYTHONPATH=. python -m rca.v21.run_ab_variable_selection       # A/B 一次性消融（不随主链；产物需冻结归档）
 PYTHONPATH=. python -m rca.v21.data_audit                      # B 阶段：B4/B5/B6
 PYTHONPATH=. python -m rca.v21.run_v23_tolerances --run-id <id>
 PYTHONPATH=. python -m rca.v21.run_v23_end2end --n-bootstrap 100
 PYTHONPATH=. python -m rca.v21.run_v23_graphs --run-id <id>
 PYTHONPATH=. python -m rca.v21.severity_aggregation --run-id <id>
-PYTHONPATH=. python -m rca.v21.run_v23_llm_explanation --run-id <id>
+PYTHONPATH=. python -m rca.v21.run_v23_llm_explanation --run-id <id>   # 模板 rule + 类级/全局（--backend llm 可选）
 PYTHONPATH=. python -m rca.v21.run_v23_report --run-id <id>
 PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（125 例）
 ```
 
+**运行约定（强制，方案 §6.4）**
+
+- 默认**禁止**每次改代码就跑全链；先用「受影响单测 + 单阶段重跑（复用上游 run_id）+ 冻结产物比对」验证。
+- 仅 E-R1 出对外数字 / E-R2 影响数值 / E-R3 产物结构或契约 / E-R4 跨阶段对不上 四类例外允许全链，且必须传 `--rerun-reason` 并写入 `run_v23_all_summary.json`；未声明原因的重跑不得引用。
+- 每轮全链留痕：run_id、rerun_reason、耗时、步数、相对上一轮的变量集/9 组 Top-1/稳定边变化。
+
 `run_v23_all` 结束落盘：
 - `output/rca_v23/manifest.json`：`run_id`、各产物相对路径/大小/sha256（六类扩展名全覆盖）；
-- `output/rca_v23/reports/run_v23_all_summary.json`：10 步 `status: ok|skipped|failed`、耗时、产物计数、跳过类、LLM 可用性；
+- `output/rca_v23/reports/run_v23_all_summary.json`：9 步 `status: ok|skipped|failed`、耗时、产物计数、跳过类、`rerun_reason`、LLM 可用性；
 - 任一步失败 → summary 记 `failed` 并非 0 退出，绝不静默跳过。
 
 **不再使用**：`output/rca_v21/v23_*` 下的 `tracing_report_v23.txt` 等旧汇总（11-04 产物，已冻结只读）。验收结论以 `reports/summary_{K}.json`、`reports/diff_{K}.json` 与 `manifest.json` 为准。
@@ -170,10 +182,10 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
 
 | 阶段 | 条目 | 落点 | 验收 |
 |------|------|------|------|
-| A | A1 变量选取 | 已有 `variable_selector.py`，改为读 `accident_config` | V1–V7 3/3 |
+| A | A1 变量选取（论文锚定 + 四阶段） | `variable_selector.py` + `paper_anchor.py` | V0–V7 3/3 |
 | A | A2 ENTITY_TABLE 96 | 已有 | 选中变量 0 未登记 |
 | A | A3 `accident_config.py` 12 类 | 新建 | 12 条记录字段完整、status 明确 |
-| A | A4 3 类 A/B 对照 | `ab_comparison/` | 已有，重跑到 `rca_v23` |
+| A | A4 3 类 A/B 对照（一次性消融） | `ablations/frozen_ab_variable_selection_<run_id>.json` | 已冻结（frozen=true），不随主链重算 |
 | B | B1 数据清单 | `registry/accident_registry.json` | 3 ready + 1 partial + 8 missing 如实记录 |
 | B | B2 data.py 12 类 | 按注册表加载 | 缺类抛 `ClassDataMissing` 而非臆造 |
 | B | B3 变量集 | `variable_sets/` | 3/3（+LOCAC 描述性） |
@@ -191,7 +203,7 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
 | D | D3 外部知识 | `external_knowledge/` + `external_knowledge.py` | YAML 全部加载无冲突 |
 | D | D4 K2 残差三态 | `physics_constraints.py` 接入签名/图 | 三态比例落盘 |
 | D | D5 K3 模板 | `external_knowledge/fault_templates.yaml` | 12 类模板，来源标注 |
-| D | D6 LLM 解释 | `llm_explanation.py` | 9 份，faithful 校验 + 降级标记 |
+| D | D6 解释（模板 rule + 类级/全局汇总） | `llm_explanation.py` | 9 模板 + 3 类级 + 1 全局，faithful 校验 + 降级标记 |
 | D | D7 模板兜底 | `report_template.py` | 9 份 |
 | D | D8 Alg3 | `cf_validation.py` | 复用，不改口径 |
 | D | D9 偏离度 | `deviation.py` 接入图/榜单 | 9 份 deviation + 图内着色 |

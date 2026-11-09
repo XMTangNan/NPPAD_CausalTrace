@@ -326,10 +326,22 @@ v2.3对应实现：
 - 物理知识覆盖（子系统完整、因果链连续）
 - 因果发现可计算（变量数 15-25、VIF<500）
 
-### 3.2 四阶段漏斗架构
+### 3.2 论文锚定 + 四阶段漏斗架构
+
+> **论文依据**：原文 p.2（Fig.2 Feature Selector）明确采用“data-driven feature selection methods or manual selection based on domain expertise”；p.4（Dataset Description）写明 “eight key variables identified through XGBoost feature selection and validated by domain experts”。**原文未给出这 8 个变量的名单**，也未报告 XGBoost 超参、重要性阈值、VIF/降维、变量集敏感性分析（Table 1 的消融是本体/知识图谱消融，不是变量集消融）。因此本方案不替论文补名单，只把“专家验证集必须进模型”落成可执行条款（阶段0），数据驱动只在锚定集之外补选与剔除病态变量。
 
 ```
 96 个原始参数
+    │
+    ▼
+┌─────────────────────────────────────┐
+│ 阶段0：论文锚定（强制保留集，§3.3）    │
+│  - 论文/专家验证变量进入强制保留集      │
+│  - 与 forced ∪ subsystem_reps 合并     │
+│  - 原文未给名单 → 用 v2.1 专家冻结集代理│
+│    （显式标注为工程假设）               │
+│  → 锚定集不参与 VIF 迭代剔除            │
+└─────────────────────────────────────┘
     │
     ▼
 ┌─────────────────────────────────────┐
@@ -371,6 +383,35 @@ v2.3对应实现：
 ```
 
 ### 3.3 各阶段量化标准
+
+#### 阶段0：论文锚定（强制保留集，V23-DESIGN-018）
+
+**论文事实（只引原文，不补话）**
+
+| 事实 | 原文位置 | 原文要点 |
+|------|----------|----------|
+| 特征选择方式 | p.2, Fig.2 Feature Selector | “data-driven feature selection methods or manual selection based on domain expertise” |
+| 最终变量集 | p.4, Dataset Description | “eight key variables identified through XGBoost feature selection and validated by domain experts” |
+| 数据来源 | p.4 | potentiometers / load cells / drive temperatures / robot kinematics |
+| 未报告项 | — | 8 个变量的**名单**、XGBoost 超参与重要性阈值、VIF/PCA/降维、变量集敏感性分析（原文未给出） |
+
+**落地条款**
+
+1. 锚定集 = 论文明确使用的变量。因原文未给名单，本方案以 **v2.1 专家冻结变量集**（`rca_config.CLASS_VARIABLES`：LOCA 14 / SGATR 15 / FLB 14）作为可执行代理，**显式标注为工程假设**，不得表述为“论文原始 8 变量”。
+2. 锚定集与现有 `forced`（触发变量 + 关键响应变量）、`subsystem_reps`（子系统代表变量）合并为**强制保留集**；阶段3 去重、阶段4 VIF 迭代均不得剔除锚定变量。
+3. 数据驱动（阶段1/2）只在锚定集**之外**负责补选；阶段1 的数据质量门对锚定变量仍然生效，但剔除必须记录原因（`dropped_stage1`），不得静默丢弃。
+4. 数据集未采集的锚定列记 `missing_in_data`，不报错（锚定自然失效）。
+
+**冲突裁决（可执行）**
+
+| 冲突情形 | 裁决 | 理由 |
+|----------|------|------|
+| 锚定变量被阶段1 判为近常量/缺失>50%/全程零值 | **剔除并记录**（`dropped_stage1` + reason） | 无分布的列 LiNGAM 无法建模，强制保留只会产生 NaN/病态解 |
+| 锚定变量 Z 病态（σ/\|μ\| < 1%） | **保留并标记**（`kept_pathological.z_pathological=true`） | Z 病态是数值尺度问题，不是物理无关；σ_floor 已在阶段2 修正 |
+| 锚定变量 VIF ≥ 500 | **保留并标记**（不参与 VIF 迭代剔除，报告 `final_vif` 实测值） | 锚定变量间的高共线是核电压强耦合的物理事实；剔除会破坏论文锚定 |
+| 锚定变量在数据集中不存在 | **记录 `missing_in_data`，不报错** | 数据集覆盖问题，不应阻断整类分析 |
+
+> 与漏斗的关系：阶段0 是**集合约束**，不改变阶段1–4 的评分与过滤逻辑；它只保证“论文/专家认可的变量不会被数据驱动剔除”，并让每一次保留/剔除都有可回溯记录（`variable_sets/selection_report_{K}.json` 的 `paper_anchor` 块）。
 
 #### 阶段1：硬过滤
 
@@ -511,6 +552,9 @@ def select_variables(accident_type, raw_data, ontology, severity_by_traj, random
     trigger = ontology.get_trigger_var(accident_type)
     key_responses = ontology.get_key_responses(accident_type)
     forced = [v for v in [trigger] + key_responses if v is not None]
+    # 论文锚定（方案 §3.3 阶段0）：与 forced / subsystem_reps 合并为强制保留集
+    anchor = paper_anchor(accident_type, num_cols)   # 见 rca/v21/paper_anchor.py
+    forced = forced + [v for v in anchor if v not in forced and v in candidates]
 
     for v in forced:
         if v not in top30 and v in candidates:
@@ -582,6 +626,7 @@ def norm_quantile_dict(value_dict, lower=0.05, upper=0.95):
 
 | 校验项 | 通过条件 | 不通过处置 |
 |--------|---------|-----------|
+| V0 论文锚定 | 锚定集全部入选，或每个未入选项都有 `dropped_stage1`/`missing_in_data` 记录 | 记录并标记，不阻断（锚定不因病态被剔除） |
 | V1 变量数 | 15 ≤ p ≤ 25 | 按得分补充/剔除 |
 | V2 子系统覆盖 | 所有相关子系统 ≥1 变量 | 强制补入该子系统最高得分变量 |
 | V3 VIF | 非保护变量 VIF < 500（保护集免剔除） | 迭代剔除高 VIF 变量 |
@@ -1050,7 +1095,7 @@ def load_external_knowledge(accident_type):
 | C2 结构知识 | | ✅ | | 总效应矩阵→K2量级；反事实→K2一致性 |
 | C3 知识本体 | ✅ | | | 变量子系统/物理关系→K1约束 |
 | C4 专家公差 | | ✅ | | μ±3σ→K2异常判定 |
-| C5 LLM | | | ✅ | 因果图提示→K3机制解释 |
+| C5 LLM | | | ✅ | 降频：仅类级 3 份 + 全局 1 份；模板级固定 rule（V23-DESIGN-020） |
 | C6 模板 | | | ✅ | 结构化模板→K3兜底 |
 
 > 每个组件只在其主通道起作用，避免多通道重复使用同一信息。C2 是数据驱动产物，归入 K2 数值通道（量级/一致性）。
@@ -1094,7 +1139,7 @@ def load_external_knowledge(accident_type):
 | K2→因果图 | 因果图生成后 | 残差三态判定，违反约束的边标"physcons_violation" |
 | C2+C3+C4→C5 | 报告生成时 | 总效应矩阵+本体+异常序列化为 prompt 注入 LLM |
 | C5→C6 | LLM 调用失败/忠实性校验不通过 | 自动降级到模板解释 |
-| C6→C5 | 模板解释后可选 | LLM 对模板报告润色（忠实性约束下） |
+| C6→C5 | 模板解释后可选 | 仅汇总解释可再走 LLM；模板级不再调用（V23-DESIGN-020） |
 
 ### 5.7 层级融合方式
 
@@ -1111,9 +1156,10 @@ def load_external_knowledge(accident_type):
 - K2 残差判定：违反约束的边标"physcons_violation"，作为负证据
 
 **第三层：解释增强（不影响数据结论）**
-- C5 LLM 解释：基于因果事实生成自然语言
-- C6 模板兜底：保证流程不中断
-- 所有解释经过忠实性校验（正则匹配变量名/数值）
+- 模板级解释：固定 rule 结构化报告（9 份），**不逐模板调用 LLM**（V23-DESIGN-020 降频）
+- C5 LLM 解释：仅用于每类事故 1 份类级汇总 + 1 份全局结论（共 4 份），带同 run_id + 输入哈希缓存
+- C6 模板兜底：LLM 失败/无 key 时自动降级为 rule 汇总，流程不中断
+- 所有解释经过忠实性校验（正则匹配变量名/数值/模板 id，必须能在产物中找到）
 
 ### 5.8 Algorithm 3 反事实验证完整实现逻辑
 
@@ -1487,7 +1533,7 @@ $$
 | D3 | 外部知识接入：`external_knowledge/` 目录 + 加载接口（§5.2） | YAML 知识文件 + 加载模块 |
 | D4 | 实现 K2 数值约束：5 类近似物理关系 + 残差三态判定（§5.3.2） | `physics_constraints.py` |
 | D5 | 实现 K3 机制模板：12 类事故预期机制模板（§5.3.3） | `fault_templates.yaml` |
-| D6 | 实现 C5 LLM 解释：因果图提示注入 + 忠实性校验 | `llm_explanation.py`（原 explanation.py，实际文件名为 llm_explanation.py） |
+| D6 | 实现 C5 解释：模板级 rule + 类级/全局汇总（LLM 可选）+ 忠实性校验 | `llm_explanation.py`（原 explanation.py，实际文件名为 llm_explanation.py） |
 | D7 | 实现 C6 模板兜底：结构化 RCA 报告模板 | `report_template.py` |
 | D8 | Algorithm 3 补充：完善 `counterfactual_validation` 的论文对应逻辑与输出结构（§5.8） | `cf_validation.py` 补充 |
 | D9 | **数据偏离度功能**：`deviation.py` + 节点着色 + 排行榜列 + 分位弹窗 + "偏离度≠根因"4处提示（§5.10） | `deviation.py` + 扩展 HTML |
@@ -1535,6 +1581,47 @@ external_knowledge/           [新建] §5.2 外部知识专家库
 | 外部知识格式 | YAML（非 RDF/Neo4j） | 轻量、版本化、人工可读；与 JSON 本体合并逻辑简单 |
 | LLM | DeepSeek V4.1-Flash | 已有实现（v2.1 Phase 5.5），忠实性校验已验证 |
 
+### 6.4 全链重跑准入规定（强制，2026-11-10 生效）
+
+> 条款来源：项目推进效率的明确要求（V23-DESIGN-021）。全链（`run_v23_all`）是**验收/发布动作**，不是开发动作；除本条列出的例外，默认禁止每改一处代码就重跑全链。
+
+**6.4.1 规则本体**
+
+1. 默认禁止全链重跑。任何代码改动先按下述最小集验证，通过后才允许提交。
+2. 全链重跑必须事先声明触发原因，并在 `reports/run_v23_all_summary.json` 写入 `rerun_reason`（未填写即视为违规重跑，结果不得引用）。
+3. 判断口径：**只有“下游数字可能改变”或“阶段间契约改变”才构成例外**；其余一律走定向验证。
+
+**6.4.2 允许跑全链的例外（四类，须逐条对应）**
+
+| 例外 | 判定标准 | 举例 |
+|------|----------|------|
+| E-R1 出对外数字 | 需要交付论文/答辩/汇报所用数字，或需要冻结结果 | 论文表格定稿、冻结 Top-1 与稳定边 |
+| E-R2 影响数值 | 改动触及变量选取、阈值与常量、排序与权重、数据窗口/基线、bootstrap 次数、变量列序、随机种子 | 论文锚定变量集、VIF 门限、bootstrap 100→50、列序归一 |
+| E-R3 影响产物结构/契约 | 改动影响产物 schema、目录结构、步骤序列、阶段间输入输出契约 | A/B 摘出主链（步骤 10→9）、新增 `--with-ab`、产物改名/挪目录 |
+| E-R4 跨阶段对不上 | 单阶段复算后仍无法确认上下游是否一致，必须整链重算 | run_id 混源、签名与溯源模板集合不一致 |
+
+**6.4.3 明确禁止触发全链的改动**
+
+注释、日志文案、报错提示、打印格式、文档与台账、纯等价重构、补单测、类型标注、变量重命名（不改语义）、测试夹具调整。此类改动只允许跑受影响单测（必要时加 `--dry-run` 核对步骤计划）。
+
+**6.4.4 每次全链必须留痕**
+
+1. 记录 `run_id`、`rerun_reason`（必须命中 6.4.2 的 E-R1~E-R4 之一并写清具体项）、耗时、步骤数；
+2. 记录**相对上一轮**发生变化的数字：变量集差异（新增/剔除/缺失）、9 组 Top-1、稳定边数；无变化也要写“无变化”；
+3. 留痕位置：`reports/run_v23_all_summary.json` 的 `rerun_reason` 字段 + `Code/error_tracking.md` 对应用条目；
+4. 未声明原因的全链重跑，其产物不得作为验收证据。
+
+**6.4.5 替代验证最小集（开发默认路径）**
+
+| 组合 | 覆盖什么 | 不能覆盖什么 |
+|------|----------|--------------|
+| 受影响模块单测（`pytest tests/<module> -q`） | 函数级正确性、边界、schema 断言 | 真实数据分布、跨阶段数值联动 |
+| 单阶段重跑（`python -m rca.v21.<stage> --run-id <上游run_id>`） | 该阶段在真实产物上的行为与产物结构 | 上游数字变化对该阶段的下游影响 |
+| `--dry-run` | 步骤序列、参数装配、步骤数 | 任何数值结果 |
+| 与已冻结产物比对（sha256 / 关键指标：变量集、Top-1、稳定边数） | 行为等价性、非预期漂移 | 全新数据或口径变更后的正确性 |
+
+标准组合：**单测 + 单阶段重跑（复用上游 run_id）+ 冻结产物比对**；三者全过即可提交，无需全链。若单阶段产物与冻结产物在关键指标上出现非预期差异，升级为 E-R4 例外。
+
 ---
 
 ## 7. 验证指标体系
@@ -1543,6 +1630,7 @@ external_knowledge/           [新建] §5.2 外部知识专家库
 
 | 指标 | 通过条件 | 度量方式 |
 |------|---------|---------|
+| V0 论文锚定 | 锚定集全部入选，或未入选项均有 `dropped_stage1`/`missing_in_data` 记录；锚定变量遇 Z 病态/高 VIF 保留并标记 | `selection_report_{K}.json` 的 `paper_anchor` 块 |
 | V1 变量数 | 每类 15 ≤ p ≤ 25 | 计数 |
 | V2 子系统覆盖 | 所有相关子系统 ≥1 变量 | 本体查询 |
 | V3 VIF | 所有变量 VIF < 500；触发变量/关键响应/子系统代表为保护集不剔除（仅 R²>0.998 剔除） | statsmodels VIF |
@@ -1717,10 +1805,10 @@ v2.3 的产物可直接作为 v3 P0/P1 的输入数据。
 
 | 步骤 | 内容 | 状态 | 证据 |
 |------|------|:----:|------|
-| A1 | 新建 `variable_selector.py`：四阶段漏斗 | ✅ | `Code/rca/v21/variable_selector.py`；硬过滤→评分(CV0.25+非高斯0.20+MI0.30+区分度0.25)→强制变量+子系统覆盖+去冗余→VIF迭代(N=15–25) |
+| A1 | 新建 `variable_selector.py`：论文锚定 + 四阶段漏斗 | ✅ | `Code/rca/v21/variable_selector.py` + `paper_anchor.py`；阶段0 锚定（与 forced∪subsystem_reps 合并）→硬过滤→评分(CV0.25+非高斯0.20+MI0.30+区分度0.25)→强制变量+子系统覆盖+去冗余→VIF迭代(N=15–25) |
 | A2 | 扩展 `ENTITY_TABLE`：12 类子系统映射 | ✅ | `knowledge.py` 现覆盖 NPPAD README Table 2 全部 96 变量（排除 TIME），10 个子系统分类；选中变量 0 未登记 |
 | A3 | 新建 `accident_config.py`：12 类配置表 | ⚠️ | 12 类全量配置表待数据到位后建；当前 3 类关键响应已按 §4.3 内联于 `variable_selector.py`（LOCA: P/TAVG/VOL/WECS/WHPI；SGATR: PSGA/PSGB/LSGA/LSGB/RM2；FLB: WFWA/WFWB/TAVG/PWNT/PSGA/PSGB） |
-| A4 | 3 类事故验证：自动选取 vs v2.1 硬编码 | ✅ | `variable_selection/` 三类各 15 变量通过 V1–V7（V6 二次运行实校）；`ab_comparison/ab_variable_selection.json`（100 bootstrap）记录 A/B 对照：Jaccard=0.35，三套各有胜负，无一致优劣结论 |
+| A4 | 3 类事故验证：论文锚定 + 自动补选 | ✅ | 2026-11-10 重跑 `run_id=v23-20261110T043640`：LOCA/SGATR/FLB 各 20/20/21 变量，V0–V7 全通过（锚定 14/14、14/15、14/14，SGATR 缺 WLR 已记录 `dropped_stage1`）；A/B 对照降为**一次性消融**，产物冻结为 `ablations/frozen_ab_variable_selection_v23-20261110T034433.json`（`frozen=true`），不再随主链重算 |
 
 > **VIF 阈值决策留痕（评审 P0-1）**：方案 §3.5 原定 VIF<10，实测核电数据物理强耦合不可行——v2.1 硬编码 20 变量集自身 max VIF=9.45e10（16/20>10）；逐轨迹 VIF 更差（WHPI/WECS 达 1e15）。故放宽至 VIF_MAX=500，仅校验非保护变量（保护变量按设计不剔除），同时报告 `max_vif_all`（含保护变量）透明披露。指标名已对齐为 `V3_vif_lt_500`。
 >
@@ -1732,7 +1820,7 @@ v2.3 的产物可直接作为 v3 P0/P1 的输入数据。
 |------|------|:----:|------|
 | B1 | 确认 12 类事故 CSV 数据路径 | ⚠️ | 仅 LOCA/SGATR/FLB 三类数据已确认；LOCAC 仅 5 条轨迹；其余 8 类待数据 |
 | B2 | 扩展 `data.py`：12 类轨迹级加载 | ❌ | `data.py` 仍仅支持 3 类 |
-| B3 | 每类事故生成变量集 | ⚠️ | 仅 LOCA/SGATR/FLB 三类（`variable_selection/selection_report_{k}.json`） |
+| B3 | 每类事故生成变量集 | ⚠️ | 仅 LOCA/SGATR/FLB 三类（`variable_sets/selection_report_{k}.json`） |
 | B4 | 数据审计：常量列/轨迹数/时间窗口 | ❌ | 无 `data_audit.py`，无 12 类审计报告 |
 | B5 | 共享基线 Z 病态检测 | ❌ | 无 `z_pathology_audit.json`；稳健 σ 仅在 variable_selector 内用 σ_floor 兜底 |
 | B6 | 严重度变点检测 | ❌ | 无 `changepoint_report.json`；沿用 v2.1 固定三分组 |
@@ -1758,7 +1846,7 @@ v2.3 的产物可直接作为 v3 P0/P1 的输入数据。
 | D3 | 外部知识接入：`external_knowledge/` 目录 | ❌ | 目录未创建，无 YAML 知识文件 |
 | D4 | K2 数值约束：5 类近似物理关系 + 残差三态 | ✅ | `physics_constraints.py` 新建；5 类关系（装量-泄漏/SG水位/安注触发/传热管泄漏/反应性-功率），三态判定 violation/not_violated/undecidable；已在 sev-1 上测试 |
 | D5 | K3 机制模板：12 类事故预期机制模板 | ❌ | 无 `fault_templates.yaml` |
-| D6 | C5 LLM 解释：因果图提示注入 + 忠实性校验 | ✅ | 3 类×3 组共 9 份 LLM 解释已生成（`v23_llm/`），全部 faithful=True、degraded=False；未达 12 类全量 |
+| D6 | C5 解释（降频）：模板级 9 份 rule 结构化解释 + 3 份类级汇总 + 1 份全局结论（LLM 可选、失败降级 rule、同 run_id+输入哈希缓存、模板 id/数字可追溯） | ✅ | `reports/llm_explanation_{K}_{g}.json` 9 份 + `llm_explanation_class_{K}.json` 3 份 + `llm_explanation_global.json`（run_id=v23-20261110T043640，全部 faithful=True，模板引用 12/12/12/9） |
 | D7 | C6 模板兜底：结构化 RCA 报告模板 | ✅ | `report_template.py` 新建；9 份 JSON+文本 RCA 报告（Top1+传导路径+Top5 证据），作为 LLM 不可用时的 C6 兜底 |
 | D8 | Algorithm 3 补充：cf_validation 论文对应逻辑 | 🔵 | `cf_validation.py` 已在 v2.1 完整实现（`cf_validation/` 下 9 份 cf 结果已存在），无需重做 |
 | D9 | 数据偏离度功能 | ✅ | `deviation.py` 新建；d=min(|x−μ|/σ_robust, 10)，4 级着色；3 类×3 严重度共 9 份 `deviation_{k}_sev{s}.json`；已集成到因果图节点着色+排行榜列+分位弹窗+4 处"偏离度≠根因"提示 |
@@ -1780,7 +1868,7 @@ v2.3 的产物可直接作为 v3 P0/P1 的输入数据。
 1. ✅ C3a 信息门控：边数<5 的组标注"信息不足"水印
 2. ✅ C3b 跨严重度汇总图（3 类）
 3. ✅ C3c 差异分析报告（3 类）
-4. ✅ D6 LLM 解释扩展至 3 类 low/mid/high 组（9/9 faithful 通过）
+4. ✅ D6 解释降频落地：模板级 9 份 rule（凭证 9/9 faithful）+ 3 份类级汇总 + 1 份全局结论（LLM 不可用时降级 rule，全部 faithful）
 5. ❌ Q3 总效应合理性人工抽检
 6. ✅ E4 Z 病态不泄漏校验：baseline 仅 sev-1、变量选取仅 train 79 条、签名仅 train_template_severities，test 20 条全程未进入训练侧
 
@@ -1811,10 +1899,10 @@ v2.3 的产物可直接作为 v3 P0/P1 的输入数据。
 
 | 阶段 | 步骤 | 内容 | 状态 | 产物路径 |
 |------|------|------|:----:|---------|
-| **A** | A1 | variable_selector.py 四阶段漏斗 | ✅ | `Code/rca/v21/variable_selector.py` |
+| **A** | A1 | variable_selector.py 论文锚定 + 四阶段漏斗 | ✅ | `Code/rca/v21/variable_selector.py` + `paper_anchor.py` |
 | **A** | A2 | ENTITY_TABLE 扩至 96 变量 | ✅ | `knowledge.py`（96 变量，10 子系统） |
 | **A** | A3 | accident_config.py 12 类配置表 | ❌ | 未建（3 类配置内联于 variable_selector.py） |
-| **A** | A4 | 3 类 A/B 对照验证 | ✅ | `variable_selection/` + `ab_comparison/` |
+| **A** | A4 | 3 类 A/B 对照验证（一次性消融，产物已冻结） | ✅ | `variable_sets/` + `ablations/frozen_ab_variable_selection_v23-20261110T034433.json`（`frozen=true`，不在主链重算） |
 | **B** | B1–B6 | 12 类数据适配/审计/变点 | ❌ | 9 类数据未到位，跳过 |
 | **C** | C1 | 因果签名（100 bootstrap） | ⚠️ 3/12 类 | `v23_signatures/` 9 份 |
 | **C** | C2 | 根因溯源（**T=(I−B)⁻¹ 排序**） | ⚠️ 3/12 类 | `v23_tracing/root_candidates_*.json` 9 份 |
@@ -1828,7 +1916,7 @@ v2.3 的产物可直接作为 v3 P0/P1 的输入数据。
 | **D** | D3 | 外部知识接入 | ❌ | 未建 |
 | **D** | D4 | K2 数值约束 | ✅ | `physics_constraints.py` |
 | **D** | D5 | K3 机制模板 | ❌ | 未建 |
-| **D** | D6 | LLM 解释 + 忠实性 | ✅ | `v23_llm/` 9 份 |
+| **D** | D6 | 解释（模板 rule + 类级/全局汇总） | ✅ | `reports/llm_explanation_*.json` 13 份 |
 | **D** | D7 | 结构化 RCA 报告模板 | ✅ | `report_template.py` + 9 份报告 |
 | **D** | D8 | cf_validation | 🔵 v2.1 已有 | `cf_validation.py` |
 | **D** | D9 | 数据偏离度 | ✅ | `deviation.py` + 节点着色 |

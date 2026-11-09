@@ -741,4 +741,93 @@
 **收口计数（本轮）**：新增 8 条（CODE-023/024/025/026/027、DESIGN-015/016/017）全部 closed；累计 open=0。
 **保持登记**：V23-DATA-001、V23-DATA-003、RCA-010。
 
+---
+
+## 论文锚定 + A/B 一次性消融 + LLM 降频 + 全链重跑准入（2026-11-10）
+
+### V23-DESIGN-018：变量选取未锚定论文原文
+
+- **原方案怎么写**：§3.2 四阶段漏斗（硬过滤→评分→物理约束→VIF），强制集只含“触发变量 + 关键响应 + 子系统代表”；论文只作为背景引用，未进入选取规则。
+- **为什么改**：论文 p.4 写明 “eight key variables identified through XGBoost feature selection and **validated by domain experts**”，原漏斗会按数据驱动剔除专家认可变量（高 VIF 时尤其），与论文口径不一致。原文**未给 8 变量名单**，也未报告 XGBoost 超参/重要性阈值/VIF/降维/变量集敏感性分析；因此只能锚定“专家验证集必须进模型”，不能替论文补名单。
+- **改法**：新增阶段0「论文锚定」（`rca/v21/paper_anchor.py` 单一来源）。锚定集与 `forced ∪ subsystem_reps` 合并为强制保留集，阶段3 去重、阶段4 VIF 迭代不得剔除；代理集用 v2.1 `CLASS_VARIABLES`（LOCA 14 / SGATR 15 / FLB 14），**显式标注为工程假设**。冲突裁决：近常量/缺失>50%/零值 → 剔除并记录 `dropped_stage1`；Z 病态 → 保留并标记 `z_pathological`；VIF≥500 → 保留并标记实测值；数据集无该列 → 记 `missing_in_data` 不报错。新增 V0 校验。
+- **影响产物/验收**：`variable_sets/selection_report_{K}.json` 新增 `paper_anchor` 块（引文、代理来源、used/dropped/kept_pathological、conflict_policy）；§3.2/§3.3/§3.5/§7.1 加条款；A4 验收口径改为“锚定 + 自动补选”。
+- **证据**：run_id=`v23-20261110T043640`，锚定 14/14、14/15、14/14；SGATR `WLR` 因 `near_constant(sigma=0.00e+00,nunique=1)` 记录剔除；LOCA/SGATR/FLB 各保留 Z 病态/高 VIF 锚定变量 7/13/12 个（保留并标记）。
+- **结论**：closed（改代码+重跑）。
+
+### V23-CODE-028：锚定后 V3 空集误判与日志 None 崩溃
+
+- **现象**：SGATR 全部入模变量进入保护集后 `non_protected_vifs` 为空，原逻辑 `if non_protected_vifs else False` 把空集判为 V3 失败；同时 `max_vif=None` 时日志 `:.1f` 抛 TypeError。
+- **改法**：V3 改为空集视为通过（附 `v3_note` 说明“锚定/强制变量按冲突策略保留，VIF 见 final_vif 与 kept_pathological”）；日志 None 显示 `n/a`。
+- **验证**：受影响单测全过；全链 SGATR `V3_vif_lt_500=true`。未单独跑全链（按 §6.4 属“纯判定/日志修复”，随本轮里程碑合并验证）。
+- **结论**：closed。
+
+### V23-DESIGN-019：A/B 对照占用主链且每轮重算
+
+- **原方案怎么写**：§6.5 将“A/B 对照验证（auto vs v2.1）”作为主链第 9 步，每轮 9×2×100 bootstrap ≈770s。
+- **为什么改**：A/B 是一次性消融证据而非每轮必需；论文只需引用冻结结果；每轮重算拖慢推进（用户明确要求）。
+- **改法**：主链 10→9 步；`run_v23_all` 新增 `--with-ab`，**默认关闭**，仅在需要时插入 manifest 之前；现有结果冻结为 `ablations/frozen_ab_variable_selection_v23-20261110T034433.json`（`frozen=true`、`frozen_from_run_id`、`frozen_at`、`frozen_source_sha256`、`note`），sha256=`9db8bfb3dad0b610bab11854efb230e5243718d149b01c760ce51e91bbd69782`（源文件 `6b6fdeed...b912d0`）。旧直跑件保留仅作溯源，不再更新。
+- **影响产物/验收**：A4 验收改“一次性消融，产物已冻结”；方案 §附录C-A4、附录D-A4 与 STRUCTURE 同步；manifest lineage 中旧 run_id 文件 2 个（`ab_variable_selection.json` + 冻结件），属预期。
+- **结论**：closed。
+
+### V23-DESIGN-020：LLM 解释逐模板调用（9 次/轮）
+
+- **原方案怎么写**：§5 第三层 C5 对每个模板生成 LLM 解释，忠实性校验只看数字/变量名。
+- **为什么改**：9 次/轮调用成本高、结果非确定；模板级解释用 rule 已足够，跨模板结论才需要 LLM。
+- **改法**：模板级 9 份固定 rule；LLM 仅用于 3 份类级汇总 + 1 份全局结论（共 4 份）；带同 run_id + 输入 sha256 缓存（命中不重复调用）；无 key/失败自动降级 rule 并记 `degraded_reason`；汇总忠实性新增“模板 id 必须在 payload.template_ids 中”，与数字/变量名三查。
+- **影响产物/验收**：新增 `reports/llm_explanation_class_{K}.json` ×3 与 `llm_explanation_global.json`；D6 验收改为 9+3+1；`run_v23_llm_explanation --backend` 仅作用于汇总。
+- **证据**：run_id=`v23-20261110T043640`，13 份解释全部 `faithful=true`（类级模板引用 12/12/12，全局 9）；无 key，汇总 `degraded=false`（requested=rule）。
+- **结论**：closed。
+
+### V23-DESIGN-021：全链重跑缺少准入约束
+
+- **来源**：用户对推进效率的明确要求，**2026-11-10 生效**。
+- **改法**：方案新增 §6.4「全链重跑准入规定（强制）」：默认禁止；仅 E-R1 出对外数字 / E-R2 影响数值 / E-R3 影响产物结构或契约 / E-R4 跨阶段对不上 四类例外；明确禁止触发清单；每次全链必须记 `--rerun-reason` 并写入 `run_v23_all_summary.json`；给出替代验证最小集（受影响单测 + 单阶段重跑复用上游 run_id + 冻结产物 sha256/关键指标比对）。代码层 `--rerun-reason` 为空即拒绝执行（`--dry-run` 除外）。STRUCTURE §5 放指针。
+- **影响产物/验收**：所有全链命令；未声明原因的重跑不得作为验收证据。
+- **结论**：closed。
+
+### V23-DESIGN-022：锚定保留高 VIF 变量导致 LOCA_mid 稳定性门控降级
+
+- **现象**：run_id=`v23-20261110T043640` 中 LOCA_mid `stability.degraded=true`（clip_ratio=0.4516 > 0.35，cond_after_clip=816.8，n_clipped=14/31），其余 8 组 false；上一轮为 0/9。
+- **原因**：锚定强制保留 14 个专家变量，其中含强共线组（实测最高 VIF≈2.85e13），`B_CLIP=5` 截断边增多，触发降级门控。
+- **裁决**：按 §3.3 冲突裁决「保留并标记」，不回退锚定；报告如实写 `stability.degraded=true` 与“数值不稳定、结论降级”。
+- **影响**：LOCA_mid Top1=WECS 属降级结论，论文引用时必须标注；不得当作与其余 8 组同等级证据。
+- **结论**：closed（接受并标记；论文引用需注明）。
+
+---
+
+## v2.3 全链验收记录（论文锚定 + A/B 摘出 + LLM 降频，run_id=v23-20261110T043640）
+
+**命令**：`cd Code && PYTHONPATH=. python -m rca.v21.run_v23_all --n-bootstrap 100`
+**重跑原因（`rerun_reason`，方案 §6.4）**：E-R1 + E-R2 + E-R3 —— ① 论文锚定进入变量选取、变量集改变（数值）；② A/B 摘出主链、步骤 10→9、新增 `--with-ab`（产物结构与阶段契约）；③ 出对外数字并冻结（论文引用的变量集与 9 组 Top-1）。
+**结果**：9/9 步 `ok`、`failed=0`、总耗时 649.79s；单步 variable_sets 11.00 / audit 3.11 / tolerances 0.43 / end2end 635.09 / graphs 0.02 / aggregation 0.01 / deviation 0.04 / explanation_reports 0.07 / manifest 0.02（秒）；`pytest tests/ -q` → **125 passed**。
+
+| 项 | 结果 | 来源 |
+|---|---|---|
+| 产物 | 146 个文件；121 个 JSON `run_id=v23-20261110T043640`、2 个 A/B JSON 属 `v23-20261110T034433`（冻结件+旧直跑件）、23 个非 JSON | `manifest.json` |
+| 变量选取 | 20/20/21 变量；V0–V7 全 True；锚定 14/14、14/15、14/14；SGATR `WLR` 剔除并记录 | `variable_sets/` |
+| 稳定性门控 | 降级 1/9：LOCA_mid（clip_ratio 0.4516 > 0.35）；其余 0.107–0.309 | `signatures/` auxiliary.stability |
+| 解释 | 9 份模板 rule + 3 份类级 + 1 份全局，全部 `faithful=true`（模板引用 12/12/12/9） | `reports/llm_explanation_*` |
+| A/B | 冻结件 `frozen_ab_variable_selection_v23-20261110T034433.json`（frozen=true，sha256=9db8bfb3…d69782）；本轮未跑 | `ablations/` |
+
+**根因 Top-1（本轮）**：LOCA = RHMT / WECS / LVPZ；SGATR = NSGA / NSGA / RHBR；FLB = P / WCHG / P。
+
+**相对 `v23-20261110T034433` 的变化（论文锚定导致变量集扩大）**：
+
+| 模板 | 旧 Top1 | 新 Top1 | 变化 |
+|---|---|---|---|
+| LOCA_low | RHMT | RHMT | 不变 |
+| LOCA_mid | QMGB | WECS | **变**（门控降级） |
+| LOCA_high | QMGB | LVPZ | **变** |
+| SGATR_low | HTR | NSGA | **变** |
+| SGATR_mid | NSGA | NSGA | 不变 |
+| SGATR_high | NSGA | RHBR | **变** |
+| FLB_low | WCHG | P | **变** |
+| FLB_mid | PSGB | WCHG | **变** |
+| FLB_high | WHPI | P | **变** |
+
+变量集：由“各 15 变量”扩为 20/20/21，锚定变量全部纳入（其中含 Z 病态/高 VIF 被标记保留者 7/13/12 个），稳定性降级由 0/9 变为 1/9。**该变化不压制、不回退，如实记录**；A/B 对照仍引用冻结件，不因本轮变量集变化重算。
+
+**收口计数（本轮）**：新增 6 条（DESIGN-018/019/020/021/022、CODE-028）全部 closed；累计 open=0。
+**保持登记**：V23-DATA-001、V23-DATA-003、RCA-010。
+
 
