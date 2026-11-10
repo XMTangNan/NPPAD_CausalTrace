@@ -1105,6 +1105,29 @@
   属 legacy 工具，不在 v2.3 闭包内。
 - 状态：✅ 已解决。
 
+**V23-DESIGN-035（closed）· 第 10 步：留出集评测接入链路（D11）**
+
+- 问题：全链只产出「谁排第一」，没有任何可核对的**留出集量化指标**；v2.1 的
+  `baseline_metrics.json` 是分类准确率口径，无法回答「9 模板能不能被认出来、因果结构有没有增益」。
+- 解决：新增 `causalrca/reporting/evaluation.py`，插入 `run_v23_all` 第 10 步（reports 之后、
+  manifest 之前，manifest 顺延为第 11 步；`--with-ab` 时 12 步）：
+  - 留出集 = `registry/split_manifest.json.test_severities`（每类 20 条、按组 7/7/6、共 60 条）；
+    训练轨迹不进评测；只读本 run 的 `tracing/topology_*` 与 `registry/`，**不重算 bootstrap、不重新学图**。
+  - 逐轨迹偏移强度 d(v)=max|x−μ_pre|/max(1.4826·MAD_pre, σ_floor(v))（注入前 [0, t_inject−10]s，
+    σ_floor 取 `external_knowledge.sigma_floor_for`，与类别无关），再逐轨迹名次归一 r(v)∈[0,1]。
+    **踩坑留痕**：首版直接用 r 前的 d 做加权均值 → 步响应普遍超 10σ，若沿用 D9 展示截断（±10）
+    会大面积并列，9 模板分数挤在 7–9 之间且系统性偏向某类；改为「原始 d 排序 + 百分位归一」后
+    判别力恢复（因果通道全局 Hit@1 由 0.333 → 0.633）。
+  - 同表两通道：`causal`（topology `total_effect` 溯源权重）与 `deviation_equal_weight`
+    （同变量集等权 = 纯偏差基线，不使用 T=(I−B)⁻¹ 的边方向/强度）。
+  - 逐例 Hit@1/Hit@3/MRR/P@2/P@3/Recall@3/AP@3（cutoff=3）；相关项 = 真类别 3 个模板，
+    `exact_hit1` 单列不计分（两通道都不估 severity）。
+  - 落 `metrics/metrics_{K}_{g}.json` × 9 + `metrics/metrics_summary.json`（每类/全局 + Wilson 95%，
+    Wilson 公式与 v2.1 一致：20/20 下界 0.8389、60/60 下界 0.9398）。
+  - 守卫 `tests/test_v23_evaluation.py`（5 例）：Wilson 同式、检索指标手算、名次并列、
+    落盘契约（只写 metrics/、池=给定类×组、summary 与逐例一致）、缺 topology 必须报错。
+- 状态：✅ 已解决（pytest 152 passed / 0 failed）。
+
 **open 计数（本轮结束）**：累计 open = 0；待用户裁决 = 3（§9.3 第 1/2/4 项：其余 8 类数据、
-LOCAC 样本量、严重度分组是否数据驱动）；本轮新增 4 条（031/032/033/034）全部 closed。
-**待办（未在本轮执行，已按优先级后移）**：第 10 步评测接入、A/B 重新冻结（`034433` 已作废）。
+LOCAC 样本量、严重度分组是否数据驱动）；本轮新增 1 条（035）已 closed。
+**待办（未在本轮执行）**：A/B 重新冻结（`034433` 已作废），随下一次 §6.4 全链 `--with-ab` 一并重生成。

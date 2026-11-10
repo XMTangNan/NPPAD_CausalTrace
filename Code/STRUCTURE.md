@@ -96,9 +96,10 @@ Code/
 │   │   ├── graph_visualization.py# C3/C3a 分组 HTML + 信息门控
 │   │   ├── run_v23_graphs.py     # 分组/汇总 HTML 执行器
 │   │   ├── llm_explanation.py    # D6 模板 rule + 类级/全局汇总（LLM 可选）
-│   │   └── report_template.py    # D7 模板兜底
+│   │   ├── report_template.py    # D7 模板兜底
+│   │   └── evaluation.py         # D11 留出集评测（9 模板检索指标 + 纯偏差基线）
 │   └── cli/
-│       ├── run_v23_all.py        # 9 步全链编排（单一 run_id）
+│       ├── run_v23_all.py        # 10 步全链编排（单一 run_id）
 │       ├── run_v23_end2end.py    # 9 模板双循环（签名+溯源）
 │       ├── run_variable_selector.py
 │       ├── run_v23_tolerances.py
@@ -153,7 +154,8 @@ Code/
     │       ├── graphs/graph_{K}_{g}.html
     │       ├── graphs/graph_{K}_summary.html
     │       ├── graphs/graph_all_summary.html
-    │       ├── metrics/                        # 预留：第 10 步评测（metrics_{K}_{g}.json）
+    │       ├── metrics/metrics_{K}_{g}.json   # 第 10 步：留出集逐模板检索指标（含纯偏差基线）
+    │       ├── metrics/metrics_summary.json   # 每类/全局汇总 + Wilson 95% + 与 v2.1 口径差异
     │       ├── reports/summary_{K}.json
     │       ├── reports/diff_{K}.json
     │       ├── reports/deviation_{K}_{g}.json
@@ -264,12 +266,12 @@ Code/
 
 ```
 cd Code
-# 全链（验收/发布动作，9 步；需显式声明重跑原因，见下方“运行约定”）
+# 全链（验收/发布动作，10 步；需显式声明重跑原因，见下方“运行约定”）
 PYTHONPATH=. python -m causalrca.cli.run_v23_all --n-bootstrap 100 --rerun-reason "E-R1 出对外数字：论文表格定稿"
 PYTHONPATH=. python -m causalrca.cli.run_v23_all --classes LOCA SGATR FLB --n-bootstrap 100 --rerun-reason "E-R2 ..."
-PYTHONPATH=. python -m causalrca.cli.run_v23_all --dry-run          # 只打印 9 步计划（不校验 rerun_reason）
+PYTHONPATH=. python -m causalrca.cli.run_v23_all --dry-run          # 只打印 10 步计划（不校验 rerun_reason）
 PYTHONPATH=. python -m causalrca.cli.run_v23_all --skip-llm         # 解释后端固定 rule（默认即 rule）
-PYTHONPATH=. python -m causalrca.cli.run_v23_all --with-ab ...      # 追加一次性 A/B 消融（默认关闭，10 步）
+PYTHONPATH=. python -m causalrca.cli.run_v23_all --with-ab ...      # 追加一次性 A/B 消融（默认关闭，11 步）
 
 # 分步重跑（开发默认路径；仍必须传同一 --run-id，否则汇总/报告拒绝混源）
 PYTHONPATH=. python -m causalrca.cli.run_variable_selector           # A 阶段：变量选取 + 注册表快照
@@ -281,7 +283,7 @@ PYTHONPATH=. python -m causalrca.reporting.run_v23_graphs --run-id <id>
 PYTHONPATH=. python -m causalrca.causal.severity_aggregation --run-id <id>
 PYTHONPATH=. python -m causalrca.cli.run_v23_llm_explanation --run-id <id>   # 模板 rule + 类级/全局（--backend llm 可选）
 PYTHONPATH=. python -m causalrca.cli.run_v23_report --run-id <id>
-PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（147 例，全绿；含 tests/legacy 9 例）
+PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（152 例，全绿；含 tests/legacy 9 例）
 ```
 
 > 注：原先 4 例失败在 `tests/test_v23_report_llm.py`，根因是旧单层根 `tracing/` 与
@@ -307,8 +309,18 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
 
 `run_v23_all` 结束落盘：
 - `<run 根>/manifest.json`：`run_id`、各产物**相对本 run 根**的路径/大小/sha256（六类扩展名全覆盖）；
-- `<run 根>/reports/run_v23_all_summary.json`：9 步 `status: ok|skipped|failed`、耗时、产物计数、跳过类、`rerun_reason`、LLM 可用性；
+- `<run 根>/reports/run_v23_all_summary.json`：10 步 `status: ok|skipped|failed`、耗时、产物计数、跳过类、`rerun_reason`、LLM 可用性；
 - 任一步失败 → summary 记 `failed` 并非 0 退出，绝不静默跳过。
+
+**第 10 步评测契约（D11，`causalrca/reporting/evaluation.py`）**
+- 留出集只取 `registry/split_manifest.json` 的 `test_severities`（每类 20 条，按组 7/7/6）；
+  训练轨迹不进评测，只读本 run 的 `tracing/topology_*` 与 `registry/`，不重算 bootstrap、不重新学图。
+- 候选 = 9 个模板；两个通道同表对照：`causal`（T=(I−B)⁻¹ 溯源权重加权）与
+  `deviation_equal_weight`（同变量集等权，纯偏差基线，不用因果图）。
+- 逐例指标 Hit@1 / Hit@3 / MRR / P@2 / P@3 / Recall@3 / AP@3（cutoff=3），
+  相关项 = 真类别的 3 个模板；组内不区分，`exact_hit1` 仅作参考。
+- 落 `metrics/metrics_{K}_{g}.json`（逐例明细+模板汇总）与 `metrics/metrics_summary.json`
+  （每类/全局汇总 + Wilson 95%，仅对 Hit@1/Hit@3/exact_hit1 这类二项比例给区间）。
 
 **不再使用**：`output/archive/rca_v21_frozen/v23_*` 下的 `tracing_report_v23.txt` 等旧汇总（11-04 产物，已冻结只读）。验收结论以本 run 的 `reports/summary_{K}.json`、`reports/diff_{K}.json` 与 `manifest.json` 为准；权威 run 由 `output/latest` 与 manifest 的 `run_id` 一致确定。
 
@@ -342,3 +354,4 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
 | D | D8 Alg3 | `cf_validation.py` | 复用，不改口径 |
 | D | D9 偏离度 | `deviation.py` 接入图/榜单 | 9 份 deviation + 图内着色 |
 | D | D10 端到端 | `run_v23_all.py` | 全链一次重算，manifest 可核对 |
+| D | D11 留出集评测 | `evaluation.py` | 60 条留出 × 9 模板：AP@3/P@2/P@3/Recall@3/MRR/Hit@1/Hit@3 + 等权偏差基线同表 |

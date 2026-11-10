@@ -17,7 +17,7 @@ output/
 │       ├── signatures/           LiNGAM 签名（signature_{K}_{g}.json）
 │       ├── tracing/              溯源排序（root_candidates_{K}_{g}.json）
 │       ├── graphs/               传导图 HTML
-│       ├── metrics/              评测指标（预留：第 10 步评测落此）
+│       ├── metrics/              评测指标：metrics_{K}_{g}.json × 9 + metrics_summary.json（第 10 步 D11）
 │       ├── reports/              汇总/差异/报告/LLM 解释
 │       ├── knowledge/            外部知识/物理约束证据
 │       ├── ablations/            A/B 消融与冻结件

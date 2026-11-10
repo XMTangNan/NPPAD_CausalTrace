@@ -9,7 +9,8 @@
   6 aggregation   C3b/C3c 汇总 + 差异（run_id 强校验）
   7 deviation     D9 偏离度 4 级着色
   8 explanation_reports  D6 解释 + D7 报告（9 份，读上面的产物）
-  9 manifest      全量产物 sha256（manifest.json）
+  9 evaluation     D11 留出集评测（9 模板检索指标 + 纯偏差基线，只读签名/溯源）
+ 10 manifest      全量产物 sha256（manifest.json）
 最后写 reports/run_v23_all_summary.json：各步状态/耗时/产物计数/跳过类/失败项。
 
 A/B（auto vs v2.1 变量集）已从主链摘出（V23-DESIGN-019）：
@@ -62,6 +63,8 @@ STEPS: List[Dict[str, str]] = [
      "desc": "偏离度 4 级着色（deviation.run_all_deviations，同 run_id）"},
     {"name": "explanation_reports", "layer": "D6/D7",
      "desc": "根因解释（rule 离线）+ 9 份报告"},
+    {"name": "evaluation", "layer": "D11",
+     "desc": "留出集评测（9 模板检索指标 + 纯偏差基线；只读签名/溯源/公差）"},
     {"name": "manifest", "layer": "C7",
      "desc": "manifest.json 全量产物 sha256 + lineage"},
 ]
@@ -247,6 +250,15 @@ def step_explanation_reports(run_id: str, classes: List[str], groups: List[str],
             "n_reports": len(reports)}
 
 
+def step_evaluation(run_id: str, classes: List[str], groups: List[str]) -> Dict:
+    """D11：留出集评测（只读 split_manifest/topology/registry，不重算因果）。"""
+    from causalrca.reporting import evaluation as EV
+    res = EV.evaluate(run_id, classes=classes, groups=groups)
+    return {"n_traces": res["n_traces"], "n_files": len(res["files"]),
+            "causal_hit1": res["summary"]["global"]["causal"]["hit1"],
+            "baseline_hit1": res["summary"]["global"]["deviation_equal_weight"]["hit1"]}
+
+
 def step_ab_variable_selection(run_id: str):
     """A/B 对照：auto vs v2.1 变量集，依赖 A1 已落盘的变量集，同一 run_id。"""
     from causalrca.cli.run_ab_variable_selection import main as ab_main
@@ -260,7 +272,7 @@ def step_manifest(run_id: str):
 
 
 def _plan_steps(with_ab: bool) -> List[Dict]:
-    """主链 9 步；--with-ab 时在 manifest 前插入一次性 A/B 消融。"""
+    """主链 10 步；--with-ab 时在 manifest 前插入一次性 A/B 消融。"""
     steps = list(STEPS)
     if with_ab:
         steps.insert(len(steps) - 1, AB_STEP)
@@ -279,6 +291,7 @@ def _step_fns(run_id: str, classes: List[str], groups: List[str],
         "aggregation": lambda: step_aggregation(run_id, classes, groups),
         "deviation": lambda: step_deviation(run_id, classes, groups),
         "explanation_reports": lambda: step_explanation_reports(run_id, classes, groups, backend),
+        "evaluation": lambda: step_evaluation(run_id, classes, groups),
         "ab_variable_selection": lambda: step_ab_variable_selection(run_id),
         "manifest": lambda: step_manifest(run_id),
     }

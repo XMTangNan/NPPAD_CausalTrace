@@ -1607,6 +1607,32 @@ $$
 | 异常判定基准 | 仅 LOCA_1 | 每类独立 sev-1 基准（注入前 [0,100]s） | 基准覆盖率 |
 | Algorithm 3 完整度 | 已有实现 | 补充论文对应逻辑+降级声明 | 输出结构完整率 |
 
+### 5.12 留出集评测（第 10 步，D11）
+
+> 定位：把「模板能不能被认出来」变成可核对的数字，而不是只看 Top-1 榜单。
+> 与 V 系列门控无关（V0–V7 是变量选取阶段的质量门控编号，与版本号 v2.1/v3 无关）。
+
+**数据与无泄漏**
+- 留出集只取 `registry/split_manifest.json` 的 `test_severities`：每类 20 条（按组 7/7/6），三类共 60 条；`train_template_severities` 一律不进评测。
+- 打分只读本 run 已落盘产物：`tracing/topology_{K}_{g}.json`（T=(I−B)⁻¹ 溯源权重）+ `registry/`（t_inject / main_window）；**不重算 bootstrap、不重新学图、不训练模型**。
+- 轨迹自身只用于计算与类别无关的偏移强度 d(v)=max|x−μ_pre|/max(1.4826·MAD_pre, σ_floor(v))（μ_pre/MAD_pre 取注入前 [0, t_inject−10]s；σ_floor 取 `external_knowledge.sigma_floor_for`），再做逐轨迹名次归一 r(v)∈[0,1]；不使用标签、不引用真值类别。
+
+**两个同表通道**
+| 通道 | 定义 | 用途 |
+|------|------|------|
+| `causal` | score_t = Σ_{v∈V_t} w_t(v)·r(v) / Σ_{v∈V_t} w_t(v)，w_t=topology.nodes[v].total_effect | 主口径：模板驱动变量是否正是实测偏移最大的变量 |
+| `deviation_equal_weight` | 同 V_t 上等权平均 r（不用边方向/强度/溯源权重） | 纯偏差基线：隔离「因果结构是否带来增益」 |
+
+**判定与指标**（cutoff=3，候选 9 个模板）
+- 相关项 = 真类别的 3 个模板（同类不同组）；两通道都不估 severity，组内不做区分，`exact_hit1` 只作参考。
+- 逐例算 Hit@1 / Hit@3 / MRR / P@2 / P@3 / Recall@3 / AP@3；每类（n=20）与全局（n=60）汇总，二项比例给 Wilson 95% 区间。
+
+**落盘**：`metrics/metrics_{K}_{g}.json`（逐例明细 + 模板汇总）、`metrics/metrics_summary.json`（每类/全局 + Wilson + 口径差异说明），随 manifest 一并 sha256 校验。
+
+**与 v2.1 口径差异（不可直接比数值）**：v2.1 `baseline_metrics.json` 是 3 类**分类准确率**（B0 marker 规则 / B1 Pearson / B2 XGB，FULL 与 MASKED 两条件，60 条留出，accuracy+Wilson）；本步骤是**9 模板检索排序质量**（含同类组级模板）。两者只能比结论方向。
+
+**已知边界**：等权偏差基线在同一类内得分相同，天然倾向某类变量集（无判别力），这正是需要因果通道的对照证据；组级模板（low/mid/high）当前无法稳定区分，`exact_hit1` 偏低属预期，后续需独立的 severity 估计器。
+
 ---
 
 ## 6. 实现路径与代码模块
