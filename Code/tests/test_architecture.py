@@ -184,8 +184,13 @@ def test_run_root_is_derived_from_run_id_only():
 
 
 def test_output_has_single_run_root_contract():
-    """output/ 顶层只允许 runs/、archive/、latest、README.md（+历史日志）。"""
+    """output/ 顶层只允许 runs/、archive/、latest、README.md（+历史日志 error_log.jsonl）。
+
+    只读实验产物一律放 `Code/experiments/`（gitignore），不得写进 output/（V23-CODE-031）。
+    """
     allowed = {"runs", "archive", "latest", "README.md", "error_log.jsonl"}
     top = {p.name for p in (PROJECT_ROOT / "output").iterdir()}
-    assert top <= allowed, f"output/ 顶层出现非约定目录: {sorted(top - allowed)}"
+    assert top <= allowed, (
+        f"output/ 顶层出现非约定目录: {sorted(top - allowed)}；"
+        "只读实验产物请放 Code/experiments/（gitignore）")
 

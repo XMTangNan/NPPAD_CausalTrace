@@ -202,40 +202,55 @@ def test_tolerance_sigma_floor_per_variable():
 
 
 # ==================== D9：偏离度 ====================
-def test_deviation_clip_and_skip_pathological(monkeypatch):
+def test_deviation_clip_and_not_comparable(monkeypatch):
     tol = {
         "thresholds": {
-            "WLR": {"mu": 0.0, "sigma_robust": 1e-3,
+            "WLR": {"mu": 0.0, "sigma_robust": 1e-3, "sigma_mad": 1e-3,
+                    "sigma_floor_source": "physical",
                     "quantiles": {"p50": 0.0}, "z_pathology": False, "saturated": False},
-            "P": {"mu": 100.0, "sigma_robust": 1.0,
+            "P": {"mu": 100.0, "sigma_robust": 1.0, "sigma_mad": 1.0,
+                  "sigma_floor_source": "physical",
                   "quantiles": {"p50": 100.0}, "z_pathology": True, "saturated": False},
-            "TAVG": {"mu": 50.0, "sigma_robust": 0.5,
+            "TAVG": {"mu": 50.0, "sigma_robust": 0.5, "sigma_mad": 0.5,
+                     "sigma_floor_source": "physical",
                      "quantiles": {"p50": 50.0}, "z_pathology": False, "saturated": True},
-            "VOL": {"mu": 10.0, "sigma_robust": 1.0,
+            "VOL": {"mu": 10.0, "sigma_robust": 1.0, "sigma_mad": 1.0,
+                    "sigma_floor_source": "physical",
                     "quantiles": {"p50": 10.0}, "z_pathology": False, "saturated": False},
+            # V23-CODE-029：σ=0 且无物理下限 → 不可比，不得给巨大 d
+            "MBK": {"mu": 0.0, "sigma_robust": 0.0, "sigma_mad": 0.0,
+                    "sigma_floor_source": "fallback",
+                    "quantiles": {"p50": 0.0}, "z_pathology": False, "saturated": False},
         }
     }
     df = pd.DataFrame({"TIME": [0, 1, 2],
                        "WLR": [0.0, 0.0, 5.0],
                        "P": [100.0, 900.0, 100.0],
                        "TAVG": [50.0, 900.0, 50.0],
-                       "VOL": [10.0, 11.5, 10.0]})
+                       "VOL": [10.0, 11.5, 10.0],
+                       "MBK": [0.0, 0.0, 3.0]})
     monkeypatch.setattr(D, "load_trajectory", lambda k, s: df)
 
     dev = DEV.compute_deviation("LOCA", 100, tol)
     # V23-DESIGN-006：Z 病态变量不再跳过；仅手工饱和变量（TAVG）跳过
-    assert set(dev["deviations"]) == {"WLR", "P", "VOL"}
+    assert set(dev["deviations"]) == {"WLR", "P", "VOL", "MBK"}
     assert dev["deviations"]["WLR"]["d"] == 10.0      # 展示截断到 10
     assert dev["deviations"]["WLR"]["d_abs_level"] == "severe"
     assert dev["deviations"]["VOL"]["d"] == pytest.approx(1.5)
-    # V23-DESIGN-011：档位按模板内 d_raw 分位（3 个变量 → 33/67/100 名次）
+    # V23-DESIGN-011：档位按模板内 d_raw 分位（仅 3 个可比变量参与）
     assert dev["deviations"]["VOL"]["level"] == "normal"
     assert dev["deviations"]["P"]["level"] == "moderate"
     assert dev["deviations"]["WLR"]["level"] == "severe"
+    # V23-CODE-029：不可比变量落状态、不参与分位与排序
+    assert dev["deviations"]["MBK"]["d_raw"] is None
+    assert dev["deviations"]["MBK"]["d_status"] == "not_comparable"
+    assert dev["deviations"]["MBK"]["percentile_in_template"] is None
+    assert list(dev["deviations"])[-1] == "MBK"
+    assert dev["n_not_comparable"] == 1 and dev["not_comparable"] == ["MBK"]
     assert dev["level_counts"] == {"normal": 1, "moderate": 1, "large": 0, "severe": 1}
     assert dev["abs_level_counts"]["severe"] == 2     # 旧绝对档仅附注
     assert set(dev["percentiles"]) == {"p50", "p70", "p85", "p95"}
-    assert sum(dev["level_counts"].values()) == dev["n_variables"] == 3
+    assert sum(dev["level_counts"].values()) == 3
 
 
 # ==================== D2 执行器端到端（小样本）====================

@@ -1230,11 +1230,67 @@
   D9 `reports/deviation_*.json` 的极端档位不可作证据；受控实验 V3/V4/V5 同理。
 - 状态：🔴 open（未修）。**修前不得用偏差做任何排序或权重**（用户裁定）；修复需重跑 D9+D11 并重冻 metrics。
 
-**环境异常（非本轮产物）**：`pytest tests/test_architecture.py::test_output_has_single_run_root_contract`
-失败，原因 `Code/output/experiments/`（16:09 由另一路创建，内含 `protocol_align_v23-20261110T150726/`）
-违反"output/ 顶层只允许 runs/archive/latest/README.md"契约。本轮**不擅自删除**该路产物，
-待裁决移入 `output/archive/` 或由该路清理后即可恢复全绿。
-**open 计数（本轮结束）**：累计 open = 1（V23-CODE-029 偏差 σ 下限）；待用户裁决 = 3（§9.3 第 1/2/4 项）+
-`output/experiments/` 归属（可随 029 修复一并归档）；本轮新增 2 条（039 closed、029 open）。
-**待办**：① 修 V23-CODE-029（偏差列修前禁引用）；② 模板级检索主指标待重算；035 的模板检索指标
-（Hit@1 0.333→0.633 等）**作废，不得引用**；遮蔽口径已定稿为方案 B（§5.13），不再是待办。
+**V23-CODE-030（closed）· 029 修复：物理下限 + 不可比状态（下限保护）**
+
+- 配置：`tolerance_overrides.yaml` 增 13 个 `by_variable` 物理下限（RHBR/RHRD/RHMT = 1e-4 dk/k；
+  DNBR 0.05；MH2 0.1 kg；MBK 1.0 kg；STTB 0.01 GBq/s；RM1/RM2/RM3 1.0 CPM；TRB 0.5 degC；
+  RRCA 0.01；TKLV 0.1 m3），fallback `1%·|μ|` 仅在无登记时生效。
+- 新增 `external_knowledge.is_deviation_comparable(σ, source, mad)`：`σ≤0` → `sigma_zero`；
+  `source≠physical` 且 `mad≤0` → `no_physical_floor_and_constant_baseline`。
+- `deviation.compute_deviation`：不可比变量 `d_raw=None`、`d_status=not_comparable`、不参与分位与排序，
+  输出 `n_not_comparable`/`not_comparable`；`trace_deviation(..., return_status=True)` 把
+  `deviation_status` 落到逐例 traces，不再有 `/1e-12` 的巨大数。
+- 复核：实测名单（MBK/RHBR/RHRD/MH2/STTB/RM1-3/RHMT/DNBR）**全部**有可登记分辨率，另补 TRB/RRCA/TKLV；
+  60 条留出上 `not_comparable = 0`，机制保留给未登记量纲（单测 `test_deviation_comparability_requires_physical_floor`）。
+- 修复前后（60 条留出，纯偏差排序 Top-1）：
+
+  | 项 | 修复前 | 修复后 |
+  |---|---|---|
+  | LOCA | `RM1` 20/20 | `RHMT` 20/20 |
+  | SGATR | `RM2` 20/20 | `HTR` 14 + `RH` 6 |
+  | FLB | `DNBR` 20/20 | `DNBR` 20/20（真实大幅偏离，d 达 287） |
+  | `deviation_equal_weight` H1/H3/MRR | 0 / 0 / 0.1746 | 0 / 0.0167 / 0.1866 |
+  | 真值名次 | 4–10 | 3–11（仍不进 Top-1） |
+
+- 影响面：偏差两列与 `reports/deviation_*.json` 全部重算，manifest 重建（159 文件）；
+  "偏差基线不能定位始发变量"的结论不变，且不再由 σ 病态造成。
+- 状态：✅ 已解决（未改遮蔽、未改排序主链）。
+
+**V23-CODE-031（closed）· `output/experiments/` 违约 → 实验产物移出主产物根**
+
+- `Code/output/experiments/{ranking_diagnosis,protocol_align}_v23-*` → `Code/experiments/`（gitignore）。
+- 守卫不放宽：`test_architecture.py` 仍只允许 `runs/archive/latest/README.md/error_log.jsonl`，
+  文档串与失败信息显式要求"实验产物放 Code/experiments/"；`output/README.md` 增同条规则。
+- 状态：✅ 已解决；`pytest` 157 passed。
+
+**V23-DESIGN-040（closed）· 主指标定为模板级检索（相对 SEM 残差）**
+
+- 定义与结果见方案 §5.17；产物 `metrics/template_retrieval.json`，并并入 `metrics_summary.template_retrieval`。
+- 类别级 Hit@1 0.9000（54/60）、MRR 0.9417；模板级 Hit@1 0.3667、Hit@3 0.5500、MRR 0.5224。
+- 035 的 0.633 在新定义下不复现，**永久作废**；与老师数字不并排。
+- 已知局限：类内 low/mid/high 图结构同构 → 模板级（含严重度组）仅 0.3667；类别级 Hit@3 在 3 类下恒 1.0，不报。
+- 状态：✅ 已解决（首版定义；若后续改"幅值感知"打分，另开新编号）。
+
+**V23-DESIGN-041（closed）· bootstrap 次数分档（生产 100 / 测试 5）**
+
+- 口径（用户定调）：生产全链维持 100（`constants_v21.LINGAM_N_BOOTSTRAP` 冻结值不动，"不允许降配"
+  注释保留）；测试/评测环节固定 5，理由是 9 模板 × 100 次 LiNGAM 计算开销过大。
+- 实现：`constants_v23.py` 新增 `N_BOOTSTRAP_PROD`（直接引用 v2.1 冻结值，不复制数字）、
+  `N_BOOTSTRAP_TEST=5`、`run_mode_for()`；调用点全部改用常量——`run_v23_all --n-bootstrap`、
+  `run_v23_end2end --n-bootstrap` 默认取 `N_BOOTSTRAP_PROD`，`run_ab_variable_selection.AB_N_BOOTSTRAP`
+  同步；不再有散落的 `100`。
+- 标记与守卫：`manifest.json` 增 `n_bootstrap` / `run_mode` / `citable`（由 `signatures/*.json` 的
+  `n_bootstrap` 推断，推断不出记 `not_recorded`，不冒充生产档）；`metrics_summary.json` 与
+  `metrics_template_retrieval.json` 增 `bootstrap` 块（`n_bootstrap_values`/`run_mode`/`citable`）。
+  `build_manifest` 对 `run_mode=test` **不刷新 `output/latest`** 并告警（若 latest 已指向该测试档 run 再告警一次）。
+- 限制（写进方案 §6.4.6 / §7.7）：5 次的稳定边出现率分辨率仅 1/5，`STABLE_F=0.70` 含义弱化；
+  5 次产物不得用于 Top-1/MRR 比较，也不得与任何 100 次验收数字混用。
+- 文档：方案 §6.4.6（分档表 + 理由 + 限制 + 守卫）、§7.7（可引用性规则）；`STRUCTURE.md` 运行约定。
+- 状态：✅ 已解决；`pytest` 159 passed（新增 `test_bootstrap_tiers_and_test_mode_guard`）。
+
+**环境异常（已解决）**：`output/experiments/` 违约已由 V23-CODE-031 处理（迁至 `Code/experiments/`，
+gitignore），`pytest` 159 passed。
+**open 计数（本轮结束）**：累计 open = 0；待用户裁决 = 3（§9.3 第 1/2/4 项）；本轮新增 5 条
+（039/030/031/040/041，均 closed；029 已由 030 修复）。
+**待办**：① 模板级检索若要做"幅值感知"以改善类内分级，另开编号；② 12 类中其余 9 类无数据，
+检索候选仅 9 个模板；035 旧值永久作废。

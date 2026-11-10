@@ -22,6 +22,7 @@ from causalrca.config.constants_v21 import (
     STABLE_F, STABLE_DIR,
 )
 from causalrca.io import artifact as A
+from causalrca.config.constants_v23 import N_BOOTSTRAP_PROD
 from causalrca.data import loader as D
 from causalrca.evidence.knowledge import build_ontology, ALLOWED_RELATIONS
 from causalrca.causal.signatures import bootstrap_lingam_template, select_stable_edges, bfs_frontier
@@ -29,8 +30,8 @@ from causalrca.causal.source_tracing import compute_topology, select_root_candid
 from causalrca.io.logging import logger
 from causalrca.io.files import save_json
 
-# A/B 对照用 Bootstrap 次数：与生产一致（100 次），避免 20 次分辨率 0.05 无法下结论
-AB_N_BOOTSTRAP = 100
+# A/B 对照用 Bootstrap 次数：与生产档一致（N_BOOTSTRAP_PROD），避免低分辨率无法下结论
+AB_N_BOOTSTRAP = N_BOOTSTRAP_PROD
 # V23-DESIGN-009：12 类本体边合计 84 条，backbone_hit_ratio 的固定分母
 ONTOLOGY_TOTAL_EDGES = sum(len(v) for v in ALLOWED_RELATIONS.values())
 # 产物目录随 run 根变化：一律现取（不在模块导入时固化路径）

@@ -131,6 +131,7 @@ Code/
 │   └── tolerance_overrides.yaml
 ├── tests/                        # v2.3 测试（含 test_architecture.py 守卫）
 │   └── legacy/                   # v2.1 冻结测试（9 个，随 legacy 保留可跑）
+├── experiments/                  # 实验产物（受控诊断/因子实验），`.gitignore` 已忽略；不进 output/
 └── output/                       # 布局与保留策略见 output/README.md
     ├── runs/
     │   └── <run_id>/             # v2.3 唯一产物根（路径一律由 artifact 按 run_id 派生）
@@ -157,6 +158,7 @@ Code/
     │       ├── graphs/graph_all_summary.html
     │       ├── metrics/metrics_{K}_{g}.json   # 第 10 步：事故内变量级命中（三通道，含纯偏差基线）
     │       ├── metrics/metrics_summary.json   # 每类/全局汇总 + Wilson 95% + 真值表 + 与老师不可并排
+    │       ├── metrics/metrics_template_retrieval.json  # 主指标：模板级检索（类别级/模板级 Hit@1/Hit@3/MRR）
     │       ├── reports/summary_{K}.json
     │       ├── reports/diff_{K}.json
     │       ├── reports/deviation_{K}_{g}.json
@@ -284,7 +286,7 @@ PYTHONPATH=. python -m causalrca.reporting.run_v23_graphs --run-id <id>
 PYTHONPATH=. python -m causalrca.causal.severity_aggregation --run-id <id>
 PYTHONPATH=. python -m causalrca.cli.run_v23_llm_explanation --run-id <id>   # 模板 rule + 类级/全局（--backend llm 可选）
 PYTHONPATH=. python -m causalrca.cli.run_v23_report --run-id <id>
-PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（152 例，全绿；含 tests/legacy 9 例）
+PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（157 例，全绿；含 tests/legacy 9 例）
 ```
 
 > 注：原先 4 例失败在 `tests/test_v23_report_llm.py`，根因是旧单层根 `tracing/` 与
@@ -300,10 +302,16 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
   （`tests/test_architecture.py::test_no_module_hardcodes_legacy_output_root` 守卫）。
 - `output/` 顶层只允许 `runs/ archive/ latest README.md`（+历史 `error_log.jsonl`），
   由 `test_output_has_single_run_root_contract` 守卫。
+- **实验产物放 `Code/experiments/`（gitignore），不进 `output/`**：受控诊断、因子实验等非主链产物
+  一律写 `Code/experiments/<name>_<run_id>/`，守卫不放宽。
 - 权威结果判定：`output/latest` 的 run_id 与 `<该 run>/manifest.json.run_id` 一致。
 
 
 **运行约定（强制，方案 §6.4）**
+- **bootstrap 分档（V23-DESIGN-041）**：生产档 `constants_v23.N_BOOTSTRAP_PROD`（= v2.1 冻结值 100，
+  不允许降配）只此一档可出论文数字；测试/评测档 `N_BOOTSTRAP_TEST=5` 仅用于单测与评测回归，
+  代码里不得散落字面量 5/100。测试档 run 的 `manifest.json` 记 `run_mode="test"` / `n_bootstrap=5` /
+  `citable=false`，`build_manifest` **不刷新 `output/latest`** 并告警。
 - 默认**禁止**每次改代码就跑全链；先用「受影响单测 + 单阶段重跑（复用上游 run_id）+ 冻结产物比对」验证。
 - 仅 E-R1 出对外数字 / E-R2 影响数值 / E-R3 产物结构或契约 / E-R4 跨阶段对不上 四类例外允许全链，且必须传 `--rerun-reason` 并写入 `run_v23_all_summary.json`；未声明原因的重跑不得引用。
 - 每轮全链留痕：run_id、rerun_reason、耗时、步数、相对上一轮的变量集/9 组 Top-1/稳定边变化。
@@ -340,9 +348,19 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
 - **口径定稿为方案 B（V23-DESIGN-039）**：生产口径**维持遮蔽**（`trace_roots` 的 marker 跳过分支不动），
   `causal` 列 0 是候选集定义使然、不是排序失败；去遮蔽列与 `clip_sensitivity` 降级为**可辨识性诊断**，
   不进主表、不作准确率主张；**主指标为模板级检索**（事故类 × 严重度组）。受控实验另存
-  `output/experiments/ranking_diagnosis_v23-20261110T150726/`（非主链产物）：7 种排序量下 Hit@1 上限
+  `Code/experiments/ranking_diagnosis_v23-20261110T150726/`（非主链产物，`.gitignore` 已忽略）：7 种排序量下 Hit@1 上限
   0.1000，Hit@3 0.3167→0.7000 全来自 `RESPONSE_VARS` 0.30 人工先验，孤立节点殿后使 V2c 0.7000→0.3167。
-  **偏差基线两列暂停引用**（V23-CODE-029：`sigma_robust` 下限失效，`d` 爆到 1e4–1e5）。
+  **偏差基线两列已修复、可引用（V23-CODE-029 → 030）**：`sigma_robust<=0` 或低于该变量量纲可分辨
+  下限时不再产出巨大 `d`，而是标 `d_status=not_comparable` 并退出排序（`tolerance_overrides.yaml`
+  补 13 个物理下限 `by_variable`；实测 60 条留出 `n_not_comparable=0`）。修复后 `deviation_equal_weight`
+  仍为 Hit@1 0 / Hit@3 0.0167 / MRR 0.1866（修复前 0 / 0 / 0.1746）——**"偏差基线不能定位始发变量"
+  的结论不变，且不再由 σ 病态造成**。
+- **主指标为模板级检索（V23-DESIGN-040）**：`metrics/metrics_template_retrieval.json`。对每条留出轨迹，
+  用该模板 `stable_edges` 的相对 SEM 残差给 9 个模板打分（`r_t = mean_v[ mean|z_v−Σ_u w_uv z_u| / mean|z_v| ]`，
+  z 按注入前基线标准化、窗口固定 `[300,1500]`），类别榜取该类三组最小 r。实测：类别级 Hit@1 0.9000
+  （54/60，Wilson [0.7985,0.9534]）/ MRR 0.9417；模板级 Hit@1 0.3667（22/60，[0.2562,0.4932]）/
+  Hit@3 0.5500 / MRR 0.5224。**类别级 Hit@3≡1.0 在 3 类下恒真、无信息量，不报**；类内三组严重度同构
+  → 模板级天然难分（逐类 0.30/0.50/0.30）；n=60 未做显著性检验；候选仅 9 个模板。
 - 落 `metrics/metrics_{K}_{g}.json`（逐例四通道明细 + 模板汇总 + `clip_sensitivity` 四列 + 遮蔽披露）与
   `metrics/metrics_summary.json`（三层汇总 + 真值表 + `clip_sensitivity`/`flips` + `comparability_with_teacher`）。
 - **与老师数字不并排**：同任务（事故内变量级 Top-k 命中）但不同协议——我们无人工先验降权、
@@ -380,4 +398,4 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
 | D | D8 Alg3 | `cf_validation.py` | 复用，不改口径 |
 | D | D9 偏离度 | `deviation.py` 接入图/榜单 | 9 份 deviation + 图内着色 |
 | D | D10 端到端 | `run_v23_all.py` | 全链一次重算，manifest 可核对 |
-| D | D11 变量级评测 | `evaluation.py` | 60 条留出 × 9 模板：变量级 Hit@1/Hit@3/MRR/P@2/P@3/Recall@3/AP@3，四通道（生产/去遮蔽/两条偏差基线）同表、`B_CLIP` 四列并列（diagnostic）；口径定稿方案 B，偏差两列因 V23-CODE-029 暂停引用；与老师 0.4368/0.5800 不并排 |
+| D | D11 变量级评测 | `evaluation.py` | 60 条留出 × 9 模板：变量级 Hit@1/Hit@3/MRR/P@2/P@3/Recall@3/AP@3，四通道（生产/去遮蔽/两条偏差基线）同表、`B_CLIP` 四列并列（diagnostic）；口径定稿方案 B，偏差两列已修复（V23-CODE-030）；主指标另落 `metrics/metrics_template_retrieval.json`（V23-DESIGN-040）；与老师 0.4368/0.5800 不并排 |

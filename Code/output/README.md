@@ -33,6 +33,12 @@ output/
 
 `error_log.jsonl` 是历史运行日志，保留在顶层，不参与产物契约。
 
+**实验产物不进 `output/`**：只读实验/受控对照的产物放 `Code/experiments/<name>_<run_id>/`
+（`.gitignore` 已忽略，不入库、不进 manifest），例如 `ranking_diagnosis_v23-*`、
+`protocol_align_v23-*`。`output/` 顶层只允许 `runs/`、`archive/`、`latest`、`README.md`
+（+ 历史 `error_log.jsonl`），由 `tests/test_architecture.py::test_output_has_single_run_root_contract`
+守卫（V23-CODE-031）。
+
 ## 保留策略
 
 | 类别 | 保留 | 清理 |

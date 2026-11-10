@@ -7,8 +7,9 @@ V23-DESIGN-011（2026-11-10 决策）口径定稿为“模板内相对分位”�
   ≤p50 正常、p50–p70 中等、p70–p85 较大、>p85 严重；>p95 另标“极端”附注。
 - 旧 3/5/7σ 绝对档保留为 `d_abs_level`（附注），不再用于着色：
   绝对 σ 倍数对 NPPAD 阶跃不适用（8/9 模板 severe 占比 72%–88%）。
-- 病态变量（低方差通道）不再跳过，统一走稳健 σ + ±10 截断
-  （V23-DESIGN-006）；仅手工标记的饱和变量仍不展示。
+- 病态变量（低方差通道）走稳健 σ + ±10 截断（V23-DESIGN-006）；**σ 不可比者不再给巨大数**
+  （V23-CODE-029）：`σ_robust ≤ 0`，或无物理下限且本底零变异 → `d_status=not_comparable`、
+  `d_raw=None`，不参与分位与排序。仅手工标记的饱和变量仍不展示。
 - 图例统一为“通道偏移强度（模板内相对）”。
 
 收敛（V23-DESIGN-002/003）：公差由调用方传入（内存 dict）或从
@@ -26,11 +27,14 @@ import numpy as np
 from causalrca.config.constants_v21 import GROUP_ORDER, SEVERITY_BANDS
 from causalrca.io import artifact
 from causalrca.data import loader as D
+from causalrca.evidence import external_knowledge as EK
 from causalrca.evidence.tolerance import compute_tolerance
 from causalrca.io.logging import logger
 
 TOP_N_DEVIATIONS = 10           # 落盘/挂载只保留 Top-N，完整级别表见 levels
 D_TRUNCATION = 10.0             # d 展示截断（V23-DESIGN-011 保留）
+D_STATUS_OK = "ok"
+D_STATUS_NOT_COMPARABLE = "not_comparable"   # V23-CODE-029：不可比，d 不参与排序
 PERCENTILE_CUTS = (50.0, 70.0, 85.0, 95.0)
 
 # 相对分位档（V23-DESIGN-011）：切点来自本模板 d_raw 分布
@@ -111,8 +115,22 @@ def compute_deviation(accident_type: str, severity: int,
             continue
         vals = df[var].to_numpy(dtype=float)
         mu = th["mu"]
-        sigma = th["sigma_robust"]
-        abs_dev = np.abs(vals - mu) / (sigma + 1e-12)
+        sigma = float(th["sigma_robust"])
+        sigma_mad = float(th.get("sigma_mad") or 0.0)
+        floor_src = str(th.get("sigma_floor_source") or "unknown")
+        ok, why = EK.is_deviation_comparable(sigma, floor_src, sigma_mad)
+        if not ok:
+            raw[var] = {
+                "d_raw": None, "d": None,
+                "d_status": D_STATUS_NOT_COMPARABLE, "d_status_reason": why,
+                "value_at_max": None, "mu": round(mu, 4),
+                "sigma_robust": round(sigma, 6), "sigma_floor_source": floor_src,
+                "quantile_at_max": None, "time_idx_max": None,
+                "z_pathology": bool(th.get("z_pathology")),
+                "constant_pre_inject": bool(th.get("constant_pre_inject")),
+            }
+            continue
+        abs_dev = np.abs(vals - mu) / sigma
         d_raw = float(abs_dev.max())
         max_idx = int(np.argmax(abs_dev))
         q = th["quantiles"]
@@ -126,6 +144,7 @@ def compute_deviation(accident_type: str, severity: int,
         raw[var] = {
             "d_raw": d_raw,
             "d": round(min(d_raw, D_TRUNCATION), 3),
+            "d_status": D_STATUS_OK,
             "value_at_max": round(val_at_max, 4),
             "mu": round(mu, 4),
             "sigma_robust": round(sigma, 4),
@@ -136,7 +155,8 @@ def compute_deviation(accident_type: str, severity: int,
         }
 
     # 模板内分位切点（基于未截断 d_raw，避免截断并列导致整体 severe）
-    d_values = np.array([r["d_raw"] for r in raw.values()], dtype=float)
+    d_values = np.array([r["d_raw"] for r in raw.values() if r["d_raw"] is not None],
+                        dtype=float)
     if d_values.size >= 2:
         pcts = {f"p{int(q)}": float(np.percentile(d_values, q)) for q in PERCENTILE_CUTS}
     else:
@@ -145,6 +165,11 @@ def compute_deviation(accident_type: str, severity: int,
 
     deviations = {}
     for var, r in raw.items():
+        if r["d_raw"] is None:
+            deviations[var] = {**r, "percentile_in_template": None,
+                               "level": D_STATUS_NOT_COMPARABLE, "color": "#95a5a6",
+                               "above_p95": False, "d_abs_level": None}
+            continue
         pct = _percentile_rank(r["d_raw"], d_values)
         lvl = relative_level_of(pct)
         deviations[var] = {
@@ -157,11 +182,17 @@ def compute_deviation(accident_type: str, severity: int,
         }
 
     # 排序：原始强度降序
-    sorted_dev = dict(sorted(deviations.items(), key=lambda x: -x[1]["d_raw"]))
+    sorted_dev = dict(sorted(
+        deviations.items(),
+        key=lambda x: -(x[1]["d_raw"] if x[1]["d_raw"] is not None else -1.0)))
 
     level_counts = {name: 0 for name in LEVEL_NAMES}
     abs_level_counts = {name: 0 for _, name in ABS_LEVELS}
+    n_not_comparable = 0
     for v in sorted_dev.values():
+        if v["d_raw"] is None:
+            n_not_comparable += 1
+            continue
         level_counts[v["level"]] += 1
         abs_level_counts[v["d_abs_level"]] += 1
 
@@ -169,6 +200,8 @@ def compute_deviation(accident_type: str, severity: int,
         "accident_type": accident_type,
         "severity": severity,
         "n_variables": len(sorted_dev),
+        "n_not_comparable": n_not_comparable,
+        "not_comparable": [v for v, d in sorted_dev.items() if d["d_raw"] is None],
         "level_counts": level_counts,
         "abs_level_counts": abs_level_counts,
         "percentiles": pcts,
@@ -177,7 +210,8 @@ def compute_deviation(accident_type: str, severity: int,
                  "p50/p70/p85 切分，p95 以上另标“极端”；档位是模板内排序，"
                  "跨模板不可比绝对偏移量（不同模板档位计数相同是分位分档的必然结果，"
                  "不代表物理强度一致）；d=min(d_raw,10) 与 "
-                 "d_abs_level（旧 3/5/7σ 绝对档）仅作附注；偏离度 ≠ 根因"),
+                 "d_abs_level（旧 3/5/7σ 绝对档）仅作附注；偏离度 ≠ 根因；"
+                 "d_status=not_comparable 表示该变量无可用 σ 下限，不参与分位与排序（V23-CODE-029）"),
     }
 
 

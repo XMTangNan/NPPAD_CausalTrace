@@ -10,6 +10,9 @@ v2.1 的冻结常量仍只放 `causalrca.config.constants_v21`（论文口径，
 仍保留同名模块级名称，通过 `from causalrca.config.constants_v23 import ...` 显式取得，
 因此 `monkeypatch.setattr(模块, "名称", ...)` 与旧的 `from 模块 import 名称` 均照旧可用。
 """
+from typing import Optional
+
+from causalrca.config.constants_v21 import LINGAM_N_BOOTSTRAP
 
 # ==================== 溯源 / 传导（方案 §5.2、V23-ALGO-001）====================
 TOP_K_ROOT = 5                    # 根变量默认输出 Top-K
@@ -32,3 +35,18 @@ RRF_K = 60
 LLM_FLOAT_TOL = 1e-3              # 解释文本数值抽取的浮点比较容差
 LLM_FAITHFUL_DECIMALS = 2         # 数值对拍：保留 2 位小数后相等
 LLM_TIMEOUT_S = 30                # 标准库 urllib 硬超时（测试可 monkeypatch）
+
+# ==================== bootstrap 次数分档（方案 §6.4 / §7，V23-DESIGN-041）====================
+# 生产档：验收/论文数字只许用这一档；数值直接引用 v2.1 冻结值，禁止降配。
+N_BOOTSTRAP_PROD = LINGAM_N_BOOTSTRAP          # = 100
+# 测试/评测档：只用于单测与评测回归（计算开销），产物带 run_mode="test"，不得引用为论文数字。
+N_BOOTSTRAP_TEST = 5
+RUN_MODE_PROD = "prod"
+RUN_MODE_TEST = "test"
+
+
+def run_mode_for(n_bootstrap: Optional[int]) -> str:
+    """按 bootstrap 次数判定产物档位；未记录时返回 "not_recorded"（不冒充生产档）。"""
+    if n_bootstrap is None:
+        return "not_recorded"
+    return RUN_MODE_TEST if int(n_bootstrap) < N_BOOTSTRAP_PROD else RUN_MODE_PROD

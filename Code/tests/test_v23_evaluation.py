@@ -134,7 +134,8 @@ def test_evaluate_writes_metrics_only(monkeypatch, tmp_path):
 
     root = artifact.run_path(run_id)
     assert sorted(p.name for p in (root / "metrics").iterdir()) == [
-        "metrics_LOCA_low.json", "metrics_LOCA_mid.json", "metrics_summary.json"]
+        "metrics_LOCA_low.json", "metrics_LOCA_mid.json", "metrics_summary.json",
+        "metrics_template_retrieval.json"]
     assert not (root / "reports").exists()
 
     tpl = json.loads((root / "metrics" / "metrics_LOCA_low.json").read_text(encoding="utf-8"))
@@ -190,8 +191,70 @@ def test_clip_sensitivity_is_first_class():
     assert "LOCA_high" in summary["clip_sensitivity"]["flips"]["templates"]
 
 
+def test_deviation_comparability_requires_physical_floor():
+    """V23-CODE-029：σ 不可比必须落状态，不得给巨大 d。"""
+    from causalrca.evidence import external_knowledge as EK
+
+    ok, why = EK.is_deviation_comparable(0.0, "fallback", 0.0)
+    assert not ok and why == "sigma_zero"
+    ok2, why2 = EK.is_deviation_comparable(1e-5, "fallback", 0.0)
+    assert not ok2 and why2 == "no_physical_floor_and_constant_baseline"
+    ok3, why3 = EK.is_deviation_comparable(1.0, "physical", 0.0)
+    assert ok3 and why3 == "ok"
+    # 近零量纲已登记物理下限（不再回退 1%·|μ|）
+    floor, src = EK.sigma_floor_for("MBK", 0.0)
+    assert src == "physical" and floor > 0
+    floor2, src2 = EK.sigma_floor_for("RM1", 0.0011)
+    assert src2 == "physical" and floor2 >= 1.0
+
+
+def test_template_retrieval_is_main_metric():
+    """V23-DESIGN-040：模板级检索是主指标，产物必须自洽。"""
+    latest = _latest_run()
+    p = EV.artifact.run_path(latest) / "metrics" / "metrics_template_retrieval.json"
+    d = json.loads(p.read_text(encoding="utf-8"))
+    assert d["n_traces"] == 60 and d["n_templates"] == 9
+    for lvl in ("template_level", "class_level"):
+        blk = d[lvl]
+        assert blk["n"] == 60
+        assert 0.0 <= blk["hit1"] <= blk["hit3"] <= 1.0
+        assert {"mrr", "hit1_wilson95", "hit3_wilson95"} <= set(blk)
+    assert len(d["rows"]) == 60
+    for r in d["rows"]:
+        assert r["template_top1"].rsplit("_", 1)[0] in ("LOCA", "SGATR", "FLB")
+        assert 1 <= r["template_rank"] <= 9 and 1 <= r["class_rank"] <= 3
+    summary = json.loads((EV.artifact.run_path(latest) / "metrics" / "metrics_summary.json")
+                         .read_text(encoding="utf-8"))
+    assert summary["template_retrieval"]["template_level"]["n"] == 60
+
+
 def test_evaluate_rejects_missing_topology(monkeypatch, tmp_path):
     run_id = _tmp_run(monkeypatch, tmp_path)
     (tmp_path / run_id / "tracing" / "topology_LOCA_low.json").unlink()
     with pytest.raises(FileNotFoundError):
         EV.evaluate(run_id, classes=["LOCA"], groups=["low"])
+
+
+def test_bootstrap_tiers_and_test_mode_guard(monkeypatch, tmp_path):
+    """V23-DESIGN-041：bootstrap 分档常量唯一来源；测试档产物不得刷新 output/latest。"""
+    from causalrca.config.constants_v21 import LINGAM_N_BOOTSTRAP
+    from causalrca.config.constants_v23 import (
+        N_BOOTSTRAP_PROD, N_BOOTSTRAP_TEST, run_mode_for,
+    )
+    assert N_BOOTSTRAP_PROD == LINGAM_N_BOOTSTRAP == 100   # 生产档=冻结值，不降配
+    assert N_BOOTSTRAP_TEST == 5
+    assert run_mode_for(N_BOOTSTRAP_PROD) == "prod"
+    assert run_mode_for(N_BOOTSTRAP_TEST) == "test"
+    assert run_mode_for(None) == "not_recorded"
+
+    monkeypatch.setattr(artifact, "V23_RUNS", tmp_path / "runs")
+    monkeypatch.setattr(artifact, "V23_LATEST", tmp_path / "latest")
+    run_id = "v23-testmode"
+    artifact.bind_run(run_id)
+    artifact.write_artifact("signature_LOCA_low", {"n_bootstrap": N_BOOTSTRAP_TEST},
+                            "signatures", run_id=run_id)
+    doc = json.loads(artifact.build_manifest(run_id).read_text(encoding="utf-8"))
+    assert doc["n_bootstrap"] == N_BOOTSTRAP_TEST
+    assert doc["run_mode"] == "test" and doc["citable"] is False
+    assert doc["latest_updated"] is False
+    assert not (tmp_path / "latest").exists()

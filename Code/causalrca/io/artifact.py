@@ -23,6 +23,7 @@ from typing import Any, Dict, Iterable, Optional
 from causalrca.config.constants_v21 import (
     V21_OUTPUT, V23_LATEST, V23_RUNS, V23_SUBDIR_NAMES,
 )
+from causalrca.config.constants_v23 import RUN_MODE_TEST, run_mode_for
 from causalrca.config.paths import PROJECT_ROOT
 from causalrca.io.logging import logger
 
@@ -182,6 +183,33 @@ def _probe_lineage(path: Path):
     return head.get("run_id"), head.get("schema")
 
 
+def _probe_n_bootstrap(root: Path) -> Optional[int]:
+    """从本 run 已落盘产物推断 bootstrap 次数（signatures → 全链 summary）。
+
+    只读已有 JSON，不重算；推断不出返回 None（记为 not_recorded，不冒充生产档）。
+    """
+    sig_dir = root / "signatures"
+    if sig_dir.exists():
+        for p in sorted(sig_dir.glob("*.json")):
+            try:
+                with open(p, encoding="utf-8") as f:
+                    n = json.load(f).get("n_bootstrap")
+            except Exception:  # noqa: BLE001 — 推断失败不影响 manifest 生成
+                continue
+            if isinstance(n, int):
+                return n
+    s = root / "reports" / "run_v23_all_summary.json"
+    if s.exists():
+        try:
+            with open(s, encoding="utf-8") as f:
+                n = (json.load(f).get("parameters") or {}).get("n_bootstrap")
+        except Exception:  # noqa: BLE001
+            n = None
+        if isinstance(n, int):
+            return n
+    return None
+
+
 def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.png", "*.html", "*.md", "*.txt"),
                    skip: Iterable[str] = ("manifest.json",)) -> Path:
     """扫描本 run 根下全量产物，写 <run 根>/manifest.json（path/size/sha256/lineage）。
@@ -214,6 +242,8 @@ def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.
             n_json_no_run += 1
         else:
             n_non_json += 1
+    n_bootstrap = _probe_n_bootstrap(root)
+    run_mode = run_mode_for(n_bootstrap)
     doc = {
         "schema": SCHEMA,
         "artifact": "manifest",
@@ -221,6 +251,9 @@ def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "root": root.as_posix(),
         "n_files": len(entries),
+        "n_bootstrap": n_bootstrap,
+        "run_mode": run_mode,
+        "citable": run_mode != RUN_MODE_TEST,
         "lineage": {
             "run_id_of_manifest": run_id,
             "runs": runs,
@@ -232,8 +265,19 @@ def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.
         "files": entries,
     }
     path = root / "manifest.json"
+    if run_mode == RUN_MODE_TEST:
+        # 测试/评测档（n_bootstrap < N_BOOTSTRAP_PROD）：不得成为权威 run
+        doc["latest_updated"] = False
+        doc["latest_note"] = ("run_mode=test 的产物不得引用为论文数字，故不刷新 output/latest；"
+                              "需要对外数字请用生产档（N_BOOTSTRAP_PROD）重跑")
+        logger.warning(f"[v23] run_mode=test（n_bootstrap={n_bootstrap}）：跳过 output/latest 刷新，"
+                       f"该 run 产物不可用于论文数字")
+        if latest_run() == run_id:
+            logger.warning(f"[v23] output/latest 当前指向测试档 run {run_id}，请改用生产档重跑后覆盖")
+    else:
+        doc["latest_updated"] = True
+        set_latest(run_id)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False, indent=2)
-    set_latest(run_id)
-    logger.info(f"[v23] manifest -> {path} ({len(entries)} files)")
+    logger.info(f"[v23] manifest -> {path} ({len(entries)} files, run_mode={run_mode})")
     return path

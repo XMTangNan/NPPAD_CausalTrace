@@ -31,3 +31,6 @@ Thumbs.db
 .aerca_model.py
 .aerca_senn.py
 
+
+# 只读实验产物（不在主链内，不入库）
+Code/experiments/

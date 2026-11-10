@@ -51,7 +51,7 @@ import numpy as np
 from causalrca.causal import source_tracing as ST
 from causalrca.config import injection_truth as IT
 from causalrca.config.constants_v21 import GROUP_ORDER, SEVERITY_BANDS
-from causalrca.config.constants_v23 import B_CLIP
+from causalrca.config.constants_v23 import B_CLIP, RUN_MODE_TEST, run_mode_for
 from causalrca.data import loader as D
 from causalrca.evidence import external_knowledge as EK
 from causalrca.io import artifact
@@ -136,6 +136,7 @@ def load_template(k: str, g: str, run_id: Optional[str] = None) -> Dict:
             "variables": list(sig.get("variables") or topo.get("variables") or []),
             "stable_edges": sig.get("stable_edges") or [],
             "marker_info": rc.get("marker_info") or {},
+            "n_bootstrap": sig.get("n_bootstrap"),
             "method_note": rc.get("method_note")}
 
 
@@ -186,8 +187,13 @@ def causal_ranking_unmasked(tpl: Dict, clip: Optional[float] = B_CLIP) -> List[s
     return _production_order(tpl, unmasked_total_effect(tpl, clip=clip))
 
 
-def trace_deviation(df, cfg: Dict, variables: Sequence[str]) -> Dict[str, float]:
-    """逐轨迹偏移强度 d(v)=max|x−μ_pre|/max(1.4826·MAD_pre, σ_floor(v))（与类别无关）。"""
+def trace_deviation(df, cfg: Dict, variables: Sequence[str],
+                    return_status: bool = False):
+    """逐轨迹偏移强度 d(v)=max|x−μ_pre|/max(1.4826·MAD_pre, σ_floor(v))（与类别无关）。
+
+    σ 不可比（≤0，或无物理下限且本底零变异）的变量不给 d，只落 `d_status=not_comparable`
+    （V23-CODE-029）；`return_status=True` 时返回 `(d, status)`。
+    """
     t_inject = float(cfg.get("t_inject", 0.0))
     win = cfg.get("main_window") or [300.0, 1500.0]
     pre = df[df["TIME"] <= t_inject - BASELINE_LEAD_SEC + 1e-9]
@@ -197,20 +203,26 @@ def trace_deviation(df, cfg: Dict, variables: Sequence[str]) -> Dict[str, float]
     if len(pre) < 2 or len(post) < 1:
         raise ValueError("轨迹窗口点数不足（基线段或主窗口）")
     d: Dict[str, float] = {}
+    status: Dict[str, Dict] = {}
     for v in variables:
         if v not in df.columns:
             continue
         base = pre[v].to_numpy(dtype=float)
         mu = float(np.mean(base))
         sigma_mad = 1.4826 * float(np.median(np.abs(base - mu)))
-        floor, _src = EK.sigma_floor_for(v, mu)
+        floor, src = EK.sigma_floor_for(v, mu)
         sigma = max(sigma_mad, float(floor))
-        if not np.isfinite(sigma) or sigma <= 0:
+        ok, why = EK.is_deviation_comparable(sigma, src, sigma_mad)
+        if not ok:
+            status[v] = {"d_status": "not_comparable", "reason": why,
+                         "sigma_robust": float(sigma), "sigma_floor_source": src}
             continue
         vals = post[v].to_numpy(dtype=float)
         if vals.size == 0:
             continue
         d[v] = float(np.max(np.abs(vals - mu) / sigma))
+    if return_status:
+        return d, status
     return d
 
 
@@ -302,6 +314,143 @@ def _clip_flip_note(per_tpl_clips: Dict[str, Dict[str, Dict]]) -> Dict[str, obje
     }
 
 
+# ==================== 模板级检索（主指标，V23-DESIGN-040）====================
+RETRIEVAL_WINDOW = (300.0, 1500.0)
+
+
+def _wilson(k: int, n: int, z: float = 1.959964) -> List[float]:
+    if n <= 0:
+        return [0.0, 0.0]
+    p = k / n
+    d = 1.0 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return [round(max(0.0, c - h), 4), round(min(1.0, c + h), 4)]
+
+
+def _baseline_scales(df, cfg: Dict, variables: Sequence[str]) -> Dict[str, tuple]:
+    """逐变量基线 μ/σ（σ 不可比则记 None）；只用注入前基线，与事故类型无关。"""
+    t_inject = float(cfg.get("t_inject", 110.0))
+    pre = df[df["TIME"] <= t_inject - BASELINE_LEAD_SEC + 1e-9]
+    if len(pre) < 3:
+        pre = df[df["TIME"] <= t_inject]
+    out: Dict[str, tuple] = {}
+    for v in variables:
+        if v not in df.columns:
+            continue
+        base = pre[v].to_numpy(dtype=float)
+        mu = float(np.mean(base))
+        mad = 1.4826 * float(np.median(np.abs(base - mu)))
+        floor, src = EK.sigma_floor_for(v, mu)
+        sigma = max(mad, float(floor))
+        ok, _why = EK.is_deviation_comparable(sigma, src, mad)
+        out[v] = (mu, sigma if ok else None)
+    return out
+
+
+def template_fit_score(df, tpl: Dict, cfg: Dict,
+                       window: Sequence[float] = RETRIEVAL_WINDOW) -> float:
+    """候选模板的 SEM 残差：mean_{v 有父节点} |z_v − Σ_u w_uv·z_u|（越小越拟合）。
+
+    只用轨迹数值 + 候选模板已落盘 `stable_edges`；不读文件名/严重度标签，无泄漏。
+    """
+    scales = _baseline_scales(df, cfg, tpl["variables"])
+    seg = df[(df["TIME"] >= float(window[0]) - 1e-9)
+             & (df["TIME"] <= float(window[1]) + 1e-9)]
+    if seg.empty:
+        return float("inf")
+    z: Dict[str, "np.ndarray"] = {}
+    for v, (mu, sigma) in scales.items():
+        if sigma is None or sigma <= 0:
+            continue
+        z[v] = (seg[v].to_numpy(dtype=float) - mu) / sigma
+    parents: Dict[str, List[tuple]] = {}
+    for e in tpl["stable_edges"]:
+        parents.setdefault(e["to"], []).append((e["from"], float(e["weight_median"])))
+    res: List[float] = []
+    for v, pars in parents.items():
+        if v not in z:
+            continue
+        pred = np.zeros_like(z[v])
+        used = 0
+        for u, w in pars:
+            if u in z and len(z[u]) == len(z[v]):
+                pred = pred + w * z[u]
+                used += 1
+        if not used:
+            continue
+        # 相对残差：除以该变量自身的偏离幅度，消除"权重越平残差越小"的模型选择偏置
+        denom = float(np.mean(np.abs(z[v]))) + 1e-9
+        res.append(float(np.mean(np.abs(z[v] - pred))) / denom)
+    return float(np.mean(res)) if res else float("inf")
+
+
+def template_ranking(df, templates: Dict[str, Dict], cfg: Dict) -> List[str]:
+    """按 SEM 残差升序给模板榜（并列按名次字典序，保证确定性）。"""
+    scores = {name: template_fit_score(df, tpl, cfg) for name, tpl in templates.items()}
+    return [n for n, _s in sorted(scores.items(), key=lambda x: (x[1], x[0]))]
+
+
+def evaluate_template_retrieval(traces: Sequence[Dict], templates: Dict[str, Dict],
+                                registry: Dict[str, Dict]) -> Dict:
+    """模板级（9 个）与事故类级（3 个）检索：Hit@1/Hit@3/MRR + 逐类 + 混淆 Top-1。"""
+    rows = []
+    for tr in traces:
+        k, sev = tr["accident_type"], tr["severity"]
+        df = D.load_trajectory(k, sev)
+        cfg = registry.get(k) or {}
+        order = template_ranking(df, templates, cfg)
+        t_rank = order.index(tr["template"]) + 1
+        cls_scores: Dict[str, float] = {}
+        for name in order:
+            kk = name.rsplit("_", 1)[0]
+            cls_scores[kk] = min(cls_scores.get(kk, float("inf")),
+                                 template_fit_score(df, templates[name], cfg))
+        cls_order = [c for c, _s in sorted(cls_scores.items(), key=lambda x: (x[1], x[0]))]
+        rows.append({"template": tr["template"], "accident_type": k, "severity": sev,
+                     "template_rank": t_rank, "class_rank": cls_order.index(k) + 1,
+                     "template_top1": order[0], "class_top1": cls_order[0],
+                     "template_top3": order[:3], "class_top3": cls_order[:3]})
+
+    def _agg(sub: Sequence[Dict], key: str) -> Dict:
+        n = len(sub)
+        if n == 0:
+            return {"n": 0}
+        ranks = [r[key] for r in sub]
+        h1 = sum(1 for x in ranks if x == 1)
+        h3 = sum(1 for x in ranks if x <= 3)
+        return {"n": n, "hit1": round(h1 / n, 4), "hit3": round(h3 / n, 4),
+                "mrr": round(sum(1.0 / x for x in ranks) / n, 4),
+                "hit1_n": h1, "hit1_wilson95": _wilson(h1, n),
+                "hit3_n": h3, "hit3_wilson95": _wilson(h3, n)}
+
+    classes = []
+    for r in rows:
+        if r["accident_type"] not in classes:
+            classes.append(r["accident_type"])
+    top1 = {}
+    for r in rows:
+        top1[r["template_top1"]] = top1.get(r["template_top1"], 0) + 1
+    return {
+        "definition": ("给定一条无标签测试轨迹，对本次有产物的每个模板（K×严重度组）算相对 SEM 残差 "
+                       "mean_v [mean|z_v−Σ_u w_uv z_u| / mean|z_v|]（v 取该模板有父节点的变量），"
+                       "升序为模板榜；类别榜 = 该类的组内最小残差。窗口固定 [300,1500]，B_CLIP 不影响该分数；"
+                       "类别级 Hit@3 在 3 类下恒为 1.0、无信息量，只读类别级 Hit@1 与 MRR"),
+        "n_traces": len(rows),
+        "n_templates": len(templates),
+        "template_level": _agg(rows, "template_rank"),
+        "class_level": _agg(rows, "class_rank"),
+        "per_class": {c: {"template_level": _agg([r for r in rows if r["accident_type"] == c],
+                                                 "template_rank"),
+                          "class_level": _agg([r for r in rows if r["accident_type"] == c],
+                                              "class_rank")} for c in classes},
+        "template_top1_distribution": dict(sorted(top1.items(), key=lambda x: -x[1])),
+        "rows": rows,
+        "leakage_note": ("打分只读轨迹数值与已落盘 stable_edges；标签（类/严重度组）仅用于算名次；"
+                         "未使用文件名、未重新学图、未读 root_candidates"),
+    }
+
+
 # ==================== 主流程 ====================
 def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
              groups: Optional[Sequence[str]] = None) -> Dict:
@@ -340,7 +489,7 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
         gt = [v for v in gt_effective[k] if v in df.columns]      # 只剔除数据里没有的列
         if not gt:
             continue
-        d = trace_deviation(df, cfg, list(tpl["nodes"]))
+        d, d_status = trace_deviation(df, cfg, list(tpl["nodes"]), return_status=True)
         if not d:
             raise ValueError(f"{k}/{sev}: 偏移强度为空，无法评测")
         rank_c = causal_ranking(tpl)
@@ -368,6 +517,10 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
                                     "deviation_equal_weight": [v for v in gt if v in rank_d],
                                     "deviation_production_set": [v for v in gt if v in rank_d_prod]},
             "d_top5": [[v, round(d[v], 3)] for v in sorted(d, key=lambda x: -d[x])[:5]],
+            "deviation_status": {
+                "n_candidates": len(tpl["nodes"]), "n_comparable": len(d),
+                "not_comparable": {v: s["reason"] for v, s in d_status.items()},
+            },
             "top5": {"causal": rank_c[:5], "causal_unmasked_for_eval": rank_u[:5],
                      "deviation_equal_weight": rank_d[:5],
                      "deviation_production_set": rank_d_prod[:5]},
@@ -442,11 +595,28 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
     per_class = {k: _summarize([r for r in rows if r["accident_type"] == k]) for k in classes
                  if any(r["accident_type"] == k for r in rows)}
     global_summary = _summarize(rows)
+    boots = sorted({int(t["n_bootstrap"]) for t in templates.values()
+                    if t.get("n_bootstrap") is not None})
+    run_mode = run_mode_for(boots[0] if boots else None)
+    bootstrap = {
+        "n_bootstrap_values": boots,
+        "run_mode": run_mode,
+        "citable": run_mode != RUN_MODE_TEST,
+        "note": ("生产档 N_BOOTSTRAP_PROD=100 只此一档可进论文；"
+                 "测试/评测档 N_BOOTSTRAP_TEST=5 仅用于单测与评测回归，"
+                 "其 Hit/MRR 不得与已有验收数字混用"),
+    }
+    retrieval = evaluate_template_retrieval(traces, templates, registry)
+    written.append(Path(artifact.write_artifact(
+        "metrics_template_retrieval", {"run_id": run_id, "bootstrap": bootstrap, **retrieval},
+        "metrics", run_id=run_id, source="signatures/ + tracing/")).name)
     summary = {
         "n_traces": len(rows),
         "n_templates": len(by_template),
-        "task": ("事故内变量级根因溯源：候选=模板节点排序；指标=始发（注入）变量是否被排到 "
-                 "Top-1/Top-3；不做事故类型匹配、不用关键响应当判据"),
+        "bootstrap": bootstrap,
+        "task": ("主指标=模板级检索（事故类×严重度组，见 template_retrieval）；"
+                 "变量级=可辨识性诊断（候选=模板节点，看始发变量能否进 Top-1/Top-3），"
+                 "按方案 B 只作诊断、不作准确率主张"),
         "ground_truth": {
             "definition": "该事故类型的始发（注入）事件变量集",
             "source": "causalrca/config/injection_truth.py::INJECTION_TRUTH",
@@ -488,6 +658,7 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
             "flips": _clip_flip_note(by_template_clips),
         },
         "per_class": per_class,
+        "template_retrieval": retrieval,
         "per_template": {name: {ch: {kk: s[ch][kk] for kk in
                                      ("hit1", "hit3", "mrr", "p2", "p3", "recall3", "ap3", "n")}
                                 for ch in CHANNELS}

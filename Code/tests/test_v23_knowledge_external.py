@@ -153,7 +153,8 @@ def test_sigma_floor_for_units():
     assert src == "fallback" and abs(floor - 0.01 * abs(mu)) < 1e-12
     # unit=None 时按 ENTITY_TABLE 反查量纲
     assert EK.sigma_floor_for("PSGB", 70.0, None) == (0.5, "physical")
-    assert EK.sigma_floor_for("RM2", 1000.0, None)[1] == "fallback"
+    assert EK.sigma_floor_for("__unknown__", 1000.0, None) == (10.0, "fallback")
+    assert EK.sigma_floor_for("RM2", 1000.0, None)[1] == "physical"   # V23-CODE-029 登记 CPM 分辨率
 
 
 # ==================== 5. merge_into_ontology ====================

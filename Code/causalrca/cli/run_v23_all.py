@@ -43,6 +43,7 @@ from causalrca.io import artifact
 from causalrca.reporting import llm_explanation as LE
 from causalrca.reporting import report_template as RT
 from causalrca.config.accident_config import READY_CODES, PARTIAL_CODES, REGISTRY
+from causalrca.config.constants_v23 import N_BOOTSTRAP_PROD, RUN_MODE_TEST, run_mode_for
 
 GROUPS: List[str] = ["low", "mid", "high"]
 
@@ -316,8 +317,9 @@ def _print_plan(steps: List[Dict], classes: List[str], groups: List[str],
 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="v2.3 全链编排（单一 run_id）")
-    ap.add_argument("--n-bootstrap", type=int, default=100,
-                    help="LiNGAM bootstrap 次数，默认 100")
+    ap.add_argument("--n-bootstrap", type=int, default=N_BOOTSTRAP_PROD,
+                    help=f"LiNGAM bootstrap 次数；生产档固定 {N_BOOTSTRAP_PROD}（方案 §6.4），"
+                         f"测试/评测档用 N_BOOTSTRAP_TEST=5 且产物标 run_mode=test")
     ap.add_argument("--classes", nargs="+", default=None,
                     help=f"事故类型，默认 READY_CODES={READY_CODES}")
     ap.add_argument("--groups", nargs="+", default=None,
@@ -355,8 +357,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             "E-R4 跨阶段对不上，并写清具体项。未声明原因的重跑视为违规，产物不得引用。")
 
     run_id = artifact.new_run_id("v23")
+    run_mode = run_mode_for(args.n_bootstrap)
+    if run_mode == RUN_MODE_TEST:
+        logger.warning(f"[D10] run_mode=test（n_bootstrap={args.n_bootstrap} < {N_BOOTSTRAP_PROD}）："
+                       f"本 run 产物仅用于测试/评测回归，不得引用为论文数字")
     logger.info(f"[D10] run_id={run_id} classes={classes} groups={groups} "
-                f"n_bootstrap={args.n_bootstrap} backend={backend} "
+                f"n_bootstrap={args.n_bootstrap} run_mode={run_mode} backend={backend} "
                 f"with_ab={args.with_ab}")
 
     steps = _plan_steps(args.with_ab)
@@ -373,6 +379,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         "run_id": run_id,
         "parameters": {"classes": classes, "groups": groups,
                        "n_bootstrap": args.n_bootstrap,
+                       "run_mode": run_mode,
+                       "citable": run_mode != RUN_MODE_TEST,
                        "explanation_backend": backend,
                        "note": llm_note},
         "steps": results,

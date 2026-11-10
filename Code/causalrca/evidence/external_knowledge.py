@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -193,6 +194,20 @@ def sigma_floor_for(variable: str, mu: float, unit: Optional[str] = None) -> Tup
 
 
 BACKWARD_DIRECTIONS = ("backward", "reverse", "reversed", -1, "-1", "back")
+
+
+def is_deviation_comparable(sigma_robust: float, floor_source: str,
+                            sigma_mad: float) -> Tuple[bool, str]:
+    """判断 d 是否可比（V23-CODE-029）。
+
+    不可比两种情形：① σ_robust ≤ 0（分母无意义）；② 无物理下限（来源为 fallback）且本底
+    无变异（σ 仅由 1%·|μ| 撑起，|μ|→0 时 σ→0）。不可比变量不得进入任何排序，只落状态。
+    """
+    if not math.isfinite(float(sigma_robust)) or float(sigma_robust) <= 0.0:
+        return False, "sigma_zero"
+    if floor_source != "physical" and float(sigma_mad) <= 0.0:
+        return False, "no_physical_floor_and_constant_baseline"
+    return True, "ok"
 
 
 def _normalize_edge(edge: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:

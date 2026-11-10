@@ -15,7 +15,8 @@
 - μ 取本类注入前基线均值；σ = max(1.4826·MAD, σ_floor(v))。
 - Normal/1.csv 只作“正常波动量级”对照（`normal_reference`），不并入 μ/σ。
 - 常量通道不再跳过（V23-DESIGN-006“病态变量全部走稳健 σ + ±10 截断”），
-  逐变量标 `constant_pre_inject`，σ 取 σ_floor（为 0 时下游按 1e-12 保护）。
+  逐变量标 `constant_pre_inject`，σ 取 σ_floor；**σ 仍不可比时不参与排序**（V23-CODE-029，
+  见 `external_knowledge.is_deviation_comparable`）。
 
 σ 兜底（V23-DESIGN-008 / §4.4.1）：σ_floor 优先逐变量/逐量纲物理下限
 （external_knowledge.sigma_floor_for），无配置时回退 1%·|μ|，并在 thresholds 里
