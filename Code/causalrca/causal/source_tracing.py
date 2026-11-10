@@ -265,11 +265,16 @@ def trace_roots(
     variables: Sequence[str],
     top_k: int = TOP_K_ROOT,
     clip: float = B_CLIP,
+    role_prior: Optional[bool] = None,
 ) -> Dict:
     """溯源主实现：返回根因榜 + 全变量总效应 + B 截断证据（单次求逆口径）。
 
+    `role_prior`（B1，默认关闭）：命中外部响应变量名单者，**排序键**乘 0.30；
+    不改 `B`、不改 `T`，`total_effect` 字段仍存原始值，另记 `ranking_score`。
     返回 {"root_candidates": [...], "total_effect": {v: score}, "diagnostics": {...}}
     """
+    from causalrca.config import role_prior as RP
+    prior_on = RP.resolve(role_prior)
     # 1. 计算总因果效应矩阵 T（含截断前后条件数与被截断边清单）
     T, idx, diag = build_total_effect_matrix(stable_edges, variables,
                                              clip=clip, return_diag=True)
@@ -290,6 +295,7 @@ def trace_roots(
         j = idx[v]
         total_effect = float(np.sum(np.abs(T[effect_idx, j]))) if effect_idx else 0.0
         tracing_score = round(total_effect, 6)
+        ranking_score = total_effect * RP.multiplier(v, prior_on)
         ent = ENTITY_TABLE.get(v, {})
         candidates.append({
             "variable": v,
@@ -302,13 +308,14 @@ def trace_roots(
             "consensus_rate": info["consensus_rate"],
             "total_effect": tracing_score,
             "tracing_score": tracing_score,
+            "_ranking_score": ranking_score,
             "role": classify_role(info["in_degree"], info["out_degree"]),
             "is_marker": False,
         })
 
-    # 主排序：总因果效应 DESC；次级：拓扑指标
+    # 主排序：总因果效应 DESC（开启先验时用乘子后的排序键；total_effect 字段不变）
     candidates.sort(key=lambda c: (
-        -c["total_effect"],
+        -c["_ranking_score"],
         c["in_degree"],
         -c["weighted_reach"],
         -c["reach_size"],
@@ -323,10 +330,16 @@ def trace_roots(
 
     for i, c in enumerate(selected, 1):
         c["rank"] = i
-
+        c.pop("_ranking_score", None)   # 临时排序键不外泄（保持默认产物字段不变）
+    if prior_on:
+        # 开启先验时显式标注作用范围（仅乘子），便于两版对照
+        for c in selected:
+            c["role_prior_applied"] = bool(RP.is_prior(c["variable"]))
     total_effect_all = {c["variable"]: c["total_effect"] for c in ordered}
     return {"root_candidates": selected, "total_effect": total_effect_all,
-            "diagnostics": diag}
+            "diagnostics": diag, "role_prior": {
+                "enabled": prior_on, "weight": RP.ROLE_PRIOR_WEIGHT,
+                "source": RP.ROLE_PRIOR_SOURCE, "scope": "仅排序乘子（不改 B、不改 T）"}}
 
 
 # V23-ALGO-001 弃权门控：任一触发即“数值不稳定、结论降级”

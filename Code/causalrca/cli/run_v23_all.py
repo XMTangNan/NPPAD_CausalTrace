@@ -43,7 +43,9 @@ from causalrca.io import artifact
 from causalrca.reporting import llm_explanation as LE
 from causalrca.reporting import report_template as RT
 from causalrca.config.accident_config import READY_CODES, PARTIAL_CODES, REGISTRY
-from causalrca.config.constants_v23 import N_BOOTSTRAP_PROD, RUN_MODE_TEST, run_mode_for
+from causalrca.config.constants_v23 import (
+    N_BOOTSTRAP_DEFAULT, N_BOOTSTRAP_SPEC, run_mode_for, stability_claims_allowed,
+)
 
 GROUPS: List[str] = ["low", "mid", "high"]
 
@@ -254,7 +256,8 @@ def step_explanation_reports(run_id: str, classes: List[str], groups: List[str],
 def step_evaluation(run_id: str, classes: List[str], groups: List[str]) -> Dict:
     """D11：留出集变量级评测（只读 split_manifest/topology/signature，不重算因果）。"""
     from causalrca.reporting import evaluation as EV
-    res = EV.evaluate(run_id, classes=classes, groups=groups)
+    res = EV.evaluate(run_id, classes=classes, groups=groups,
+                      role_prior=getattr(args, "role_prior", None))
     g = res["summary"]["global"]
     return {"n_traces": res["n_traces"], "n_files": len(res["files"]),
             "granularity": "variable_level_in_accident",
@@ -317,9 +320,9 @@ def _print_plan(steps: List[Dict], classes: List[str], groups: List[str],
 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="v2.3 全链编排（单一 run_id）")
-    ap.add_argument("--n-bootstrap", type=int, default=N_BOOTSTRAP_PROD,
-                    help=f"LiNGAM bootstrap 次数；生产档固定 {N_BOOTSTRAP_PROD}（方案 §6.4），"
-                         f"测试/评测档用 N_BOOTSTRAP_TEST=5 且产物标 run_mode=test")
+    ap.add_argument("--n-bootstrap", type=int, default=N_BOOTSTRAP_DEFAULT,
+                    help=f"LiNGAM bootstrap 次数；执行默认 {N_BOOTSTRAP_DEFAULT}（V23-DESIGN-044）；"
+                         f"正式口径 {N_BOOTSTRAP_SPEC} 需显式指定，且只有该档可声称边稳定性")
     ap.add_argument("--classes", nargs="+", default=None,
                     help=f"事故类型，默认 READY_CODES={READY_CODES}")
     ap.add_argument("--groups", nargs="+", default=None,
@@ -329,6 +332,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="只打印步骤计划，不写盘")
     ap.add_argument("--with-ab", action="store_true",
                     help="追加一次性 A/B 消融（auto vs v2.1 变量集）；默认不跑")
+    ap.add_argument("--role-prior", action="store_true", default=None,
+                    help="B1 角色先验开关（默认关闭）；开启时评测并列有/无先验两版排序与两套指标")
     ap.add_argument("--rerun-reason", default=None,
                     help="全链重跑原因（方案 §6.4 强制）：必须命中 E-R1/E-R2/E-R3/E-R4 并写清具体项")
     args = ap.parse_args(argv)
@@ -358,9 +363,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     run_id = artifact.new_run_id("v23")
     run_mode = run_mode_for(args.n_bootstrap)
-    if run_mode == RUN_MODE_TEST:
-        logger.warning(f"[D10] run_mode=test（n_bootstrap={args.n_bootstrap} < {N_BOOTSTRAP_PROD}）："
-                       f"本 run 产物仅用于测试/评测回归，不得引用为论文数字")
+    if not stability_claims_allowed(args.n_bootstrap):
+        logger.warning(f"[D10] n_bootstrap={args.n_bootstrap}（正式口径 {N_BOOTSTRAP_SPEC}）："
+                       f"run_mode={run_mode}；报告中必须打印实际次数，"
+                       f"不得声称边稳定性、不得引用 consistency_rate 作结论")
     logger.info(f"[D10] run_id={run_id} classes={classes} groups={groups} "
                 f"n_bootstrap={args.n_bootstrap} run_mode={run_mode} backend={backend} "
                 f"with_ab={args.with_ab}")
@@ -377,10 +383,16 @@ def main(argv: Optional[List[str]] = None) -> int:
               if e["status"] == "failed"]
     summary = {
         "run_id": run_id,
+        "report_header": (f"n_bootstrap={args.n_bootstrap}（正式口径 {N_BOOTSTRAP_SPEC}；"
+                          f"run_mode={run_mode}）"
+                          + ("" if stability_claims_allowed(args.n_bootstrap) else
+                             " —— 本次为缩减次数执行：不得声称边稳定性、不得引用 consistency_rate 作结论")),
         "parameters": {"classes": classes, "groups": groups,
                        "n_bootstrap": args.n_bootstrap,
                        "run_mode": run_mode,
-                       "citable": run_mode != RUN_MODE_TEST,
+                       "stability_claims_allowed": stability_claims_allowed(args.n_bootstrap),
+                       "citable": None,
+                       "role_prior": bool(getattr(args, "role_prior", None)),
                        "explanation_backend": backend,
                        "note": llm_note},
         "steps": results,

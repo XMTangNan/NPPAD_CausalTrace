@@ -35,7 +35,7 @@ from causalrca.config.constants_v21 import (
 from causalrca.config.accident_config import (
     READY_CODES, PARTIAL_CODES, MISSING_CODES, get_accident,
 )
-from causalrca.config.constants_v23 import N_BOOTSTRAP_PROD
+from causalrca.config.constants_v23 import N_BOOTSTRAP_DEFAULT
 from causalrca.data import loader as D
 from causalrca.io import artifact
 from causalrca.causal import source_tracing as ST
@@ -442,7 +442,7 @@ def main(argv: Optional[Sequence[str]] = None) -> str:
     ap.add_argument("--classes", default=",".join(ALL_ACCIDENT_TYPES),
                     help="逗号分隔，默认全部 12 类（按注册表状态分流）")
     ap.add_argument("--groups", default=",".join(GROUP_ORDER))
-    ap.add_argument("--n-bootstrap", type=int, default=N_BOOTSTRAP_PROD)
+    ap.add_argument("--n-bootstrap", type=int, default=N_BOOTSTRAP_DEFAULT)
     ap.add_argument("--with-gam-consensus", action="store_true",
                     help="接入 v2.1 遗留 GAM 共识文件（默认单引擎，共识字段为 null）")
     ap.add_argument("--no-partial-smoke", action="store_true")

@@ -272,8 +272,10 @@ cd Code
 # 全链（验收/发布动作，10 步；需显式声明重跑原因，见下方“运行约定”）
 PYTHONPATH=. python -m causalrca.cli.run_v23_all --n-bootstrap 100 --rerun-reason "E-R1 出对外数字：论文表格定稿"
 PYTHONPATH=. python -m causalrca.cli.run_v23_all --classes LOCA SGATR FLB --n-bootstrap 100 --rerun-reason "E-R2 ..."
+PYTHONPATH=. python -m causalrca.cli.run_v23_all --rerun-reason "E-R3 ..."   # 不传 --n-bootstrap 即默认 5（不得据此声称边稳定性）
 PYTHONPATH=. python -m causalrca.cli.run_v23_all --dry-run          # 只打印 10 步计划（不校验 rerun_reason）
 PYTHONPATH=. python -m causalrca.cli.run_v23_all --skip-llm         # 解释后端固定 rule（默认即 rule）
+PYTHONPATH=. python -m causalrca.cli.run_v23_all --role-prior ...   # 角色先验成对输出（默认关闭，见下 B1）
 PYTHONPATH=. python -m causalrca.cli.run_v23_all --with-ab ...      # 追加一次性 A/B 消融（默认关闭，11 步）
 
 # 分步重跑（开发默认路径；仍必须传同一 --run-id，否则汇总/报告拒绝混源）
@@ -286,7 +288,7 @@ PYTHONPATH=. python -m causalrca.reporting.run_v23_graphs --run-id <id>
 PYTHONPATH=. python -m causalrca.causal.severity_aggregation --run-id <id>
 PYTHONPATH=. python -m causalrca.cli.run_v23_llm_explanation --run-id <id>   # 模板 rule + 类级/全局（--backend llm 可选）
 PYTHONPATH=. python -m causalrca.cli.run_v23_report --run-id <id>
-PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（157 例，全绿；含 tests/legacy 9 例）
+PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（161 例，全绿；含 tests/legacy 9 例）
 ```
 
 > 注：原先 4 例失败在 `tests/test_v23_report_llm.py`，根因是旧单层根 `tracing/` 与
@@ -308,10 +310,18 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
 
 
 **运行约定（强制，方案 §6.4）**
-- **bootstrap 分档（V23-DESIGN-041）**：生产档 `constants_v23.N_BOOTSTRAP_PROD`（= v2.1 冻结值 100，
-  不允许降配）只此一档可出论文数字；测试/评测档 `N_BOOTSTRAP_TEST=5` 仅用于单测与评测回归，
-  代码里不得散落字面量 5/100。测试档 run 的 `manifest.json` 记 `run_mode="test"` / `n_bootstrap=5` /
-  `citable=false`，`build_manifest` **不刷新 `output/latest`** 并告警。
+- **bootstrap 执行策略：正式口径 100 / 执行默认 5（V23-DESIGN-044，取代 DESIGN-041）**：
+  `constants_v23.N_BOOTSTRAP_SPEC=100` 仅为方案正式口径声明（默认不执行）；
+  `N_BOOTSTRAP_DEFAULT=5` 是所有执行路径的默认值（`run_v23_all`/`run_v23_end2end`/
+  `run_ab_variable_selection`/experiments 脚本），代码里不得散落字面量 5/100。
+  100 只能由显式 `--n-bootstrap 100`（或等价显式参数）开启。
+  `manifest.json` / `metrics` 继续记 `n_bootstrap`；报告头部必须打印实际次数。
+  `run_mode` 字段保留（`spec` ≥100 / `reduced` 否则 / 无记录 `not_recorded`）但**不再承担
+  "是否刷新 latest" 的职责**：`build_manifest` 一律正常刷新 `output/latest`（否则工程链不可用）；
+  `citable` 不再由次数自动决定，一律显式为 `null`（由引用者逐处标注）。
+  `stability_claims_allowed` 仅 ≥100 为 true；未达 100 时：不得声称边稳定性、不得引用
+  `consistency_rate` 类指标作结论。兼容别名 `N_BOOTSTRAP_PROD`/`N_BOOTSTRAP_TEST`/
+  `RUN_MODE_PROD`/`RUN_MODE_TEST` 保留可用（V23-CODE-032）。
 - 默认**禁止**每次改代码就跑全链；先用「受影响单测 + 单阶段重跑（复用上游 run_id）+ 冻结产物比对」验证。
 - 仅 E-R1 出对外数字 / E-R2 影响数值 / E-R3 产物结构或契约 / E-R4 跨阶段对不上 四类例外允许全链，且必须传 `--rerun-reason` 并写入 `run_v23_all_summary.json`；未声明原因的重跑不得引用。
 - 每轮全链留痕：run_id、rerun_reason、耗时、步数、相对上一轮的变量集/9 组 Top-1/稳定边变化。
@@ -365,6 +375,19 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
   `metrics/metrics_summary.json`（三层汇总 + 真值表 + `clip_sensitivity`/`flips` + `comparability_with_teacher`）。
 - **与老师数字不并排**：同任务（事故内变量级 Top-k 命中）但不同协议——我们无人工先验降权、
   切分严格互斥、每 (类,组) 单独建图、另有遮蔽/去遮蔽两列；只能作脚注引用。
+- **真值可达性审计（V23-DESIGN-043，B2；只留痕不干预选择）**：`audit/truth_reachability_<CLASS>.json`
+  与汇总 `audit/truth_reachability.json`。只读 `variable_sets/selection_report_<CLASS>.json`，逐变量登记
+  最终去向七类：`selected` / `stage1_rejected` / `dedup_merged` / `vif_dropped` / `anchor_dropped` /
+  `score_rejected` / `not_in_candidates`，回答「门控是否把真值变量挡在门外」。首份结果（现有 3 类）：
+  `gate_blocks_truth=false`；LOCA 的 `WBK`/`MBK` 属 `score_rejected`（选股评分淘汰，非 V0–V7 门控）。
+- **名次分布标准化（V23-DESIGN-045，B3）**：`metrics_summary.evidence_rank_distribution`
+  （逐通道 + global + per_class）给 `n/n_ranked/n_miss/rank_hist/mean_first_rank/median_first_rank/
+  mean_normalized_rank/gt_coverage_mean`，避免只看 Hit@1。生产遮蔽通道 `gt_coverage_mean=0.0`
+  （注入点不进候选所致），属口径而非排序失败。
+- **角色先验（V23-DESIGN-046，B1；默认关闭）**：唯一配置点 `causalrca/config/role_prior.py`
+  （名单 41 项、权重 `0.30`、作用范围仅排序乘子——不改 B、不改 T），`--role-prior` 显式开启。
+  开启时**必须并列**输出 `causal` 与 `causal_role_prior` 两条通道（`pair_complete=true`），
+  任一单独出现即视为不合规；名单缺失时 `resolve` 直接抛错，禁止回退猜测。
 
 **不再使用**：`output/archive/rca_v21_frozen/v23_*` 下的 `tracing_report_v23.txt` 等旧汇总（11-04 产物，已冻结只读）。验收结论以本 run 的 `reports/summary_{K}.json`、`reports/diff_{K}.json` 与 `manifest.json` 为准；权威 run 由 `output/latest` 与 manifest 的 `run_id` 一致确定。
 

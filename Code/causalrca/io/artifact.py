@@ -23,7 +23,9 @@ from typing import Any, Dict, Iterable, Optional
 from causalrca.config.constants_v21 import (
     V21_OUTPUT, V23_LATEST, V23_RUNS, V23_SUBDIR_NAMES,
 )
-from causalrca.config.constants_v23 import RUN_MODE_TEST, run_mode_for
+from causalrca.config.constants_v23 import (
+    N_BOOTSTRAP_SPEC, run_mode_for, stability_claims_allowed,
+)
 from causalrca.config.paths import PROJECT_ROOT
 from causalrca.io.logging import logger
 
@@ -253,7 +255,10 @@ def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.
         "n_files": len(entries),
         "n_bootstrap": n_bootstrap,
         "run_mode": run_mode,
-        "citable": run_mode != RUN_MODE_TEST,
+        # citable 不再由 bootstrap 次数自动推导（V23-DESIGN-044）：需人工显式声明；
+        # 默认 null = 未声明。是否可声称边稳定性由 stability_claims_allowed 单独判定。
+        "citable": None,
+        "stability_claims_allowed": stability_claims_allowed(n_bootstrap),
         "lineage": {
             "run_id_of_manifest": run_id,
             "runs": runs,
@@ -265,19 +270,14 @@ def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.
         "files": entries,
     }
     path = root / "manifest.json"
-    if run_mode == RUN_MODE_TEST:
-        # 测试/评测档（n_bootstrap < N_BOOTSTRAP_PROD）：不得成为权威 run
-        doc["latest_updated"] = False
-        doc["latest_note"] = ("run_mode=test 的产物不得引用为论文数字，故不刷新 output/latest；"
-                              "需要对外数字请用生产档（N_BOOTSTRAP_PROD）重跑")
-        logger.warning(f"[v23] run_mode=test（n_bootstrap={n_bootstrap}）：跳过 output/latest 刷新，"
-                       f"该 run 产物不可用于论文数字")
-        if latest_run() == run_id:
-            logger.warning(f"[v23] output/latest 当前指向测试档 run {run_id}，请改用生产档重跑后覆盖")
-    else:
-        doc["latest_updated"] = True
-        set_latest(run_id)
+    if not doc["stability_claims_allowed"]:
+        logger.warning(f"[v23] n_bootstrap={n_bootstrap}（未达正式口径 {N_BOOTSTRAP_SPEC}）："
+                       f"报告中必须打印实际次数，不得声称边稳定性、不得引用 consistency_rate 作结论")
+    # latest 正常刷新：默认即 5 次，若按旧规则拒刷会让工程链不可用（V23-DESIGN-044）
+    doc["latest_updated"] = True
+    set_latest(run_id)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False, indent=2)
-    logger.info(f"[v23] manifest -> {path} ({len(entries)} files, run_mode={run_mode})")
+    logger.info(f"[v23] manifest -> {path} ({len(entries)} files, run_mode={run_mode}, "
+                f"n_bootstrap={n_bootstrap})")
     return path

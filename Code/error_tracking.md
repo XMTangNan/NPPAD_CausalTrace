@@ -1301,20 +1301,92 @@
 - A2：拆对方的偏差通道（分母 / 截断 / 作用范围），逐项判定可迁移性；未解释其 0.25 之前，
   **不用对方偏差口径替换本方案口径**。
 - 状态：⏳ 待 A1/A2 跑数；结论出来后另开编号登记吸收或否决。
+  → **A1 已回，判定见 V23-DESIGN-046（名单携带信息，按 N1 不进主排序，做独立开关）**。
 
-**V23-DESIGN-043（open）· 真值可达性审计（A3）**
+**V23-DESIGN-043（closed）· 真值可达性审计（B2 / A3）**
 
 - 前置：偏差分母修复（V23-CODE-030）已落地，可重算 C57 偏差。
-- A3 内容：在 030 之后重算 C57 偏差，检查"**恒压一名**"（固定第一名）是否仍存在、恒压变量是谁；
-  若仍恒定，说明真值在该通道上不可达，需把"真值可达性审计"作为独立前置步骤（吸收项之一）。
-- 关联待定项（**标"待 A 组结果确认"，本轮不写结论**）：角色先验独立开关、真值可达性审计、
-  名次分布标准化。
-- 状态：⏳ 待 A3 跑数；方案 §9.4.3 已登记为待定项。
+- 实现（只读、不干预选择）：`causalrca/reporting/truth_reachability.py` 读 `variable_sets/selection_report_<CLASS>.json`，
+  逐变量登记最终去向（入选 / 评分淘汰 / VIF 剔除 / 去重合并 / 锚定剔除 / 阶段1 门控剔除 / 候选并集缺失），
+  产出 `audit/truth_reachability_<CLASS>.json` 与 `audit/truth_reachability.json`；评测时自动生成，
+  并写入 `metrics_summary.truth_reachability`。**排序与选择结果零改动**。
+- 首份结果（现有 3 类）：LOCA 真值 `WLR` 入选、`WBK`/`MBK` 为 **评分淘汰**（`score_rejected`，
+  不在最终变量集 → 评测候选内不可达）；SGATR `WTRA`、FLB `WFLB` 均入选。三类均**无门控剔除**
+  （`gate_blocks_truth=false`），即"挡在门外"的是选股评分而非 V0–V7 门控。
+- A3 附带发现（另立 V23-DESIGN-047）：030 后并列消失，但偏差峰值仍 1.7e5–5.6e5。
+- 状态：✅ 已实现并跑出首份审计；`pytest` 161 passed。
+
+**V23-CODE-032（closed）· bootstrap 改档引入的 ImportError 回归**
+
+- 现象：`causalrca.config.constants_v23` 缺 `RUN_MODE_TEST`，`import causalrca.reporting.evaluation` 报 ImportError。
+- 根因：改档时把 `RUN_MODE_PROD/TEST`、`N_BOOTSTRAP_PROD/TEST` 直接改名，未留兼容别名。
+- 修复：恢复旧符号为兼容别名（`N_BOOTSTRAP_PROD = N_BOOTSTRAP_SPEC`、`N_BOOTSTRAP_TEST = N_BOOTSTRAP_DEFAULT`、
+  `RUN_MODE_PROD = RUN_MODE_SPEC`、`RUN_MODE_TEST = RUN_MODE_REDUCED`）；全仓（含 `Code/experiments`）
+  搜过一遍改名/删除符号，无其他引用点；新增 `import_all` 遍历导入检查（46 个模块全通过）。
+- 影响面：仅符号可用性，无行为变更；`pytest` 161 passed。
+- 状态：✅ 已解决。
+
+**V23-DESIGN-044（closed）· bootstrap 执行默认改为 5（正式口径仍 100）**
+
+- 决定（用户 2026-11-10 指令原文要点）："除非我显式强调 bootstrap 100 次，统一执行 5 次。"
+- 实现：`N_BOOTSTRAP_SPEC=100`（**仅口径声明，默认不执行**）、`N_BOOTSTRAP_DEFAULT=5`（所有执行路径默认值）；
+  `run_v23_all` / `run_v23_end2end` / `AB_N_BOOTSTRAP` 全部走默认常量，100 只能显式 `--n-bootstrap 100` 开启。
+- **旧规则冲突的处理（理由）**：原 `run_mode=test` 不刷新 `output/latest`；默认即 5 后若沿用，等于所有运行都
+  不刷新 latest，工程链直接不可用。故：`latest` **正常刷新**；`citable` **不再由次数自动推导**（落 `null`，
+  需显式声明）；新增 `stability_claims_allowed`（仅 100 次为 true）；`run_mode` 保留为 `spec`/`reduced`/`not_recorded`
+  标注，不再承担守卫职责；manifest 与 metrics 继续记 `n_bootstrap`，`report_header` 打印实际次数。
+- 结论边界：5 次不得声称边稳定性、不得引用 `consistency_rate` 作结论（方案 §6.4.6 / §7.7）。
+- 影响面：仅有默认值与守卫语义；**本批未重跑全链**，存量 run（`v23-20261110T150726`，`n_bootstrap=100`）
+  数字不受影响。
+- 状态：✅ 已实现；`pytest` 161 passed。
+
+**V23-DESIGN-045（closed）· 名次分布标准化（B3）**
+
+- 实现：`evaluation.rank_distribution()`，输出每通道 `rank_hist`、`mean/median_first_rank`、
+  `mean_normalized_rank=(rank-1)/(n_candidates-1)`、`gt_coverage_mean`、`n_miss`。
+- 落点：`metrics_summary.evidence_rank_distribution.{global,per_class}`，作为报告标准字段（不只看 Hit@1）。
+- 影响面：只加指标，不改排序；**不改变任何已有数字**。
+- 状态：✅ 已实现；`pytest` 161 passed。
+
+**V23-DESIGN-046（closed）· 角色先验吸收（B1，独立开关，默认关闭）**
+
+- 判定依据（A1 三臂，预注册规则）：① 外部名单 ×0.30 在四个指标上全部越过 ② 随机 10 变量 ×0.30（20 次）
+  的上限，z=4.0–5.3；换本方案 `T` 构造重跑判定不变 → 判为"**名单携带信息**"，据此**吸收**。
+- 吸收边界（N1 不变）：**不进主排序公式**；实现为独立开关 `--role-prior`，默认关闭。
+  开启时只作用于排序乘子（命中者效应 ×0.30），**不改图、不改 T**；同时产出"有先验/无先验"两版排序与
+  两套指标，`metrics_summary.role_prior.pair_complete` 必须为 true，任一单独出现即视为不合规。
+- 配置单点：`causalrca/config/role_prior.py`（名单 41 项、权重 0.30、作用范围"仅乘子"）；名单为空且开启时
+  **直接抛错**，不回退猜测。
+- 限制：先验名单与三类真值**零交集**，其作用机制是"排除非真值"而非提供因果顺序；不构成因果证据。
+- 实测（现有 run，显式开启以产出成对结果）：`causal` 与 `causal_role_prior` 均 Hit@1/3 = 0.0、MRR 0.0
+  （生产口径遮蔽后真值=注入点，本就不可命中）；`causal_unmasked_for_eval` 0.1/0.1/0.2049。
+  → 本次开启**未改变任何主指标**，成对字段与 `pair_complete=true` 已落盘。
+- 状态：✅ 已实现，默认关闭；`pytest` 161 passed。
+
+**V23-DESIGN-047（open，只立案不改口径）· 偏差单变量量级放大（峰值的聚合敏感性）**
+
+- 现象（A3）：030 修完后并列消失，但偏差峰值仍 **1.7e5–5.6e5**；C57 上 LOCA 19/20 卡第 2、
+  FLB 20/20 前一位恒为 `WBK`，固定压制者为 `RH`/`RHRD`（不在 `trigger_vars`/`key_responses`/`RESPONSE_VARS` 内）；
+  样例 `d(RH)=137622` vs `d(WLR)=13.3`。
+- 与 030 的区别：030 是 **σ 除零**（分母不可比 → 已标 `not_comparable` 并退出排序）；
+  本条是 **聚合方式 `max` 对单变量尖峰的敏感性**（分母正常、但单个变量偏离极大时把该变量的 `d` 抬到 1e5 量级）。
+- 处理：**暂不改偏差口径**（不动 `d` 的定义与排序用法），等"聚合敏感性"数据回来再决定（候选：分位聚合/`log` 变换/
+  winsorize，均需预注册）。修前仍不得用偏差做排序或权重。
+- 状态：⏳ 待聚合敏感性数据。
+
+**V23-DESIGN-048（closed）· C57 × 对方排序量的"无先验"格作废**
+
+- 决定：C57 交叉表里"对方排序量、无先验"这一格**作废，不留估计值**。
+- 理由：① 对方 `learned_edges.csv` **无类别列**；② 单张全局图与其"每类一图"的口径不符；
+  ③ 数据同源、无法独立验证。宁缺不假。
+- 影响面：仅该格置空并在表中注明原因；不影响本方案任何指标与主结论。
+- 状态：✅ 已执行（表格置空 + 脚注）。
 
 **环境异常（已解决）**：`output/experiments/` 违约已由 V23-CODE-031 处理（迁至 `Code/experiments/`，
-gitignore），`pytest` 159 passed。
-**open 计数（本轮结束）**：累计 open = 2（V23-DESIGN-042/043，均为**预注册待跑数**，不阻塞现行验收）；
-待用户裁决 = 3（§9.3 第 1/2/4 项）；前一轮新增 5 条（039/030/031/040/041，均 closed；029 已由 030 修复）；
-本批新增 2 条（042/043，仅文档登记，未动代码）。
+gitignore），`pytest` 161 passed。
+**open 计数（本轮结束）**：累计 open = 1（V23-DESIGN-047，待聚合敏感性数据）；V23-DESIGN-042 已被 046 判定收口；
+待用户裁决 = 3（§9.3 第 1/2/4 项）。
+**本批新增**：V23-CODE-032（修崩溃）、V23-DESIGN-044（bootstrap 默认 5）、045（B3 名次分布）、
+046（B1 角色先验吸收）、047（偏差量级放大立案）、048（C57 无先验格作废）；043 由 open 转 closed（B2 实现）。
 **待办**：① 模板级检索若要做"幅值感知"以改善类内分级，另开编号；② 12 类中其余 9 类无数据，
 检索候选仅 9 个模板；035 旧值永久作废。

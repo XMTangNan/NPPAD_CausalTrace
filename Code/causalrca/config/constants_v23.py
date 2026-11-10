@@ -36,17 +36,33 @@ LLM_FLOAT_TOL = 1e-3              # 解释文本数值抽取的浮点比较容�
 LLM_FAITHFUL_DECIMALS = 2         # 数值对拍：保留 2 位小数后相等
 LLM_TIMEOUT_S = 30                # 标准库 urllib 硬超时（测试可 monkeypatch）
 
-# ==================== bootstrap 次数分档（方案 §6.4 / §7，V23-DESIGN-041）====================
-# 生产档：验收/论文数字只许用这一档；数值直接引用 v2.1 冻结值，禁止降配。
-N_BOOTSTRAP_PROD = LINGAM_N_BOOTSTRAP          # = 100
-# 测试/评测档：只用于单测与评测回归（计算开销），产物带 run_mode="test"，不得引用为论文数字。
-N_BOOTSTRAP_TEST = 5
-RUN_MODE_PROD = "prod"
-RUN_MODE_TEST = "test"
+# ==================== bootstrap 次数（方案 §6.4.6 / §7.7，V23-DESIGN-041/044）====================
+# 正式口径（spec）：方案里描述的方法学口径，值 = v2.1 冻结值 100。
+# **仅为口径声明，默认不执行**；只有显式 `--n-bootstrap 100`（或环境变量）才开启。
+N_BOOTSTRAP_SPEC = LINGAM_N_BOOTSTRAP          # = 100
+# 执行默认：所有执行路径（全链/端到端/A-B/实验脚本）默认取 5（用户 2026-11-10 指令，算力开销）。
+N_BOOTSTRAP_DEFAULT = 5
+RUN_MODE_SPEC = "spec"
+RUN_MODE_REDUCED = "reduced"
 
 
 def run_mode_for(n_bootstrap: Optional[int]) -> str:
-    """按 bootstrap 次数判定产物档位；未记录时返回 "not_recorded"（不冒充生产档）。"""
+    """按实际 bootstrap 次数标注 run 档位；未记录返回 "not_recorded"。
+
+    仅作**标注**用途：不决定是否刷新 `output/latest`，也不自动决定 `citable`。
+    """
     if n_bootstrap is None:
         return "not_recorded"
-    return RUN_MODE_TEST if int(n_bootstrap) < N_BOOTSTRAP_PROD else RUN_MODE_PROD
+    return RUN_MODE_SPEC if int(n_bootstrap) >= N_BOOTSTRAP_SPEC else RUN_MODE_REDUCED
+
+
+def stability_claims_allowed(n_bootstrap: Optional[int]) -> bool:
+    """仅当实际次数达到正式口径（100）时，才允许声称边稳定性/引用 consistency_rate。"""
+    return n_bootstrap is not None and int(n_bootstrap) >= N_BOOTSTRAP_SPEC
+
+
+# ---- 兼容别名（V23-CODE-032）：改档时被改名的旧符号继续可用，避免外部入口 ImportError ----
+N_BOOTSTRAP_PROD = N_BOOTSTRAP_SPEC   # 旧名：生产档
+N_BOOTSTRAP_TEST = N_BOOTSTRAP_DEFAULT  # 旧名：测试档
+RUN_MODE_PROD = RUN_MODE_SPEC
+RUN_MODE_TEST = RUN_MODE_REDUCED

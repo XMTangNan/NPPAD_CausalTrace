@@ -235,26 +235,90 @@ def test_evaluate_rejects_missing_topology(monkeypatch, tmp_path):
         EV.evaluate(run_id, classes=["LOCA"], groups=["low"])
 
 
-def test_bootstrap_tiers_and_test_mode_guard(monkeypatch, tmp_path):
-    """V23-DESIGN-041：bootstrap 分档常量唯一来源；测试档产物不得刷新 output/latest。"""
+def test_bootstrap_default_is_reduced_and_latest_still_refreshed(monkeypatch, tmp_path):
+    """V23-DESIGN-044：正式口径 100 / 执行默认 5；latest 正常刷新；citable 不再自动推导。"""
     from causalrca.config.constants_v21 import LINGAM_N_BOOTSTRAP
     from causalrca.config.constants_v23 import (
-        N_BOOTSTRAP_PROD, N_BOOTSTRAP_TEST, run_mode_for,
+        N_BOOTSTRAP_DEFAULT, N_BOOTSTRAP_SPEC, run_mode_for, stability_claims_allowed,
     )
-    assert N_BOOTSTRAP_PROD == LINGAM_N_BOOTSTRAP == 100   # 生产档=冻结值，不降配
-    assert N_BOOTSTRAP_TEST == 5
-    assert run_mode_for(N_BOOTSTRAP_PROD) == "prod"
-    assert run_mode_for(N_BOOTSTRAP_TEST) == "test"
+    assert N_BOOTSTRAP_SPEC == LINGAM_N_BOOTSTRAP == 100   # 口径声明，默认不执行
+    assert N_BOOTSTRAP_DEFAULT == 5                        # 所有执行路径默认值
+    assert run_mode_for(N_BOOTSTRAP_SPEC) == "spec"
+    assert run_mode_for(N_BOOTSTRAP_DEFAULT) == "reduced"
     assert run_mode_for(None) == "not_recorded"
+    assert stability_claims_allowed(N_BOOTSTRAP_SPEC) is True
+    assert stability_claims_allowed(N_BOOTSTRAP_DEFAULT) is False
 
     monkeypatch.setattr(artifact, "V23_RUNS", tmp_path / "runs")
     monkeypatch.setattr(artifact, "V23_LATEST", tmp_path / "latest")
-    run_id = "v23-testmode"
+    run_id = "v23-default5"
     artifact.bind_run(run_id)
-    artifact.write_artifact("signature_LOCA_low", {"n_bootstrap": N_BOOTSTRAP_TEST},
+    artifact.write_artifact("signature_LOCA_low", {"n_bootstrap": N_BOOTSTRAP_DEFAULT},
                             "signatures", run_id=run_id)
     doc = json.loads(artifact.build_manifest(run_id).read_text(encoding="utf-8"))
-    assert doc["n_bootstrap"] == N_BOOTSTRAP_TEST
-    assert doc["run_mode"] == "test" and doc["citable"] is False
-    assert doc["latest_updated"] is False
-    assert not (tmp_path / "latest").exists()
+    assert doc["n_bootstrap"] == N_BOOTSTRAP_DEFAULT
+    assert doc["run_mode"] == "reduced"
+    assert doc["citable"] is None                          # 显式声明，不再由次数推导
+    assert doc["stability_claims_allowed"] is False
+    assert doc["latest_updated"] is True                    # 链不可用问题已消除
+    assert (tmp_path / "latest").read_text(encoding="utf-8").strip() == run_id
+
+
+def test_role_prior_is_multiplier_only_and_off_by_default():
+    """B1（V23-DESIGN-046）：先验只作排序乘子，默认关闭，不改 total_effect。"""
+    from causalrca.config import role_prior as RP
+    assert RP.resolve(None) is False and RP.resolve(False) is False
+    assert RP.multiplier("P", False) == 1.0
+    assert RP.multiplier("P", True) == RP.ROLE_PRIOR_WEIGHT
+    assert RP.multiplier("WLR", True) == 1.0        # 不在名单 → 不降权
+
+    tpl = {"marker": None, "variables": ["P", "WLR"],
+           "nodes": {"P": {"total_effect": 1.0, "in_degree": 0, "out_degree": 2,
+                           "weighted_reach": 1.0, "reach_size": 2, "consensus_rate": 1.0},
+                     "WLR": {"total_effect": 0.5, "in_degree": 0, "out_degree": 2,
+                             "weighted_reach": 1.0, "reach_size": 2, "consensus_rate": 1.0}}}
+    eff = {v: nd["total_effect"] for v, nd in tpl["nodes"].items()}
+    assert EV._production_order(tpl, eff) == ["P", "WLR"]
+    assert EV._production_order(tpl, eff, role_prior=True) == ["WLR", "P"]
+    assert eff["P"] == 1.0                          # 效应值本身不被改写
+
+    with pytest.raises(ValueError):
+        # 名单为空 + 开启 → 拒绝（不回退猜测）
+        monkeypatch_empty = RP.ROLE_PRIOR_VARS
+        try:
+            RP.ROLE_PRIOR_VARS = frozenset()
+            RP.resolve(True)
+        finally:
+            RP.ROLE_PRIOR_VARS = monkeypatch_empty
+
+
+def test_truth_reachability_and_rank_distribution(monkeypatch, tmp_path):
+    """B2/B3：真值可达性逐变量留痕；名次分布作为标准字段（不改排序结果）。"""
+    from causalrca.reporting import truth_reachability as TR
+
+    report = {
+        "accident_type": "LOCA", "group": "low", "n_candidates_stage1": 4, "n_selected": 1,
+        "selected": ["WLR"], "scores": {"WLR": 0.4, "WBK": 0.2, "MBK": 0.1},
+        "stage1_excluded": [{"var": "WBK", "reason": "near_constant(sigma=0.00e+00,nunique=1)"}],
+        "vif_log": [{"var": "MBK", "vif": 1.0e3, "n_vars_before": 3}],
+        "dropped_key_response": [], "paper_anchor": {"dropped_anchor": []},
+    }
+    out = TR.audit_class(report, ["WLR", "WBK", "MBK"])
+    disp = {r["var"]: r["disposition"] for r in out["rows"]}
+    assert disp == {"WLR": "selected", "WBK": "stage1_rejected", "MBK": "vif_dropped"}
+    assert out["summary"]["blocked_by_gate"] == ["WBK", "MBK"]
+    assert out["summary"]["gate_blocks_truth"] is True
+
+    rows = [
+        {"metrics": {"causal": {"first_rank": 1, "n_gt": 1, "n_gt_in_ranking": 1}},
+         "deviation_status": {"n_candidates": 15}},
+        {"metrics": {"causal": {"first_rank": 4, "n_gt": 1, "n_gt_in_ranking": 1}},
+         "deviation_status": {"n_candidates": 15}},
+        {"metrics": {"causal": {"first_rank": None, "n_gt": 1, "n_gt_in_ranking": 0}},
+         "deviation_status": {"n_candidates": 15}},
+    ]
+    dist = EV.rank_distribution(rows)["causal"]
+    assert dist["n_ranked"] == 2 and dist["n_miss"] == 1
+    assert dist["rank_hist"] == {"1": 1, "2": 0, "3": 0, "4": 1}
+    assert dist["mean_normalized_rank"] == pytest.approx(round((0 + 3 / 14) / 2, 4))
+    assert dist["gt_coverage_mean"] == pytest.approx(round(2 / 3, 4))

@@ -51,11 +51,21 @@ import numpy as np
 from causalrca.causal import source_tracing as ST
 from causalrca.config import injection_truth as IT
 from causalrca.config.constants_v21 import GROUP_ORDER, SEVERITY_BANDS
-from causalrca.config.constants_v23 import B_CLIP, RUN_MODE_TEST, run_mode_for
+from causalrca.config.constants_v23 import (
+    B_CLIP, N_BOOTSTRAP_SPEC, run_mode_for, stability_claims_allowed,
+)
 from causalrca.data import loader as D
 from causalrca.evidence import external_knowledge as EK
 from causalrca.io import artifact
 from causalrca.io.logging import logger
+from causalrca.reporting import truth_reachability as TR
+from causalrca.config import role_prior as RP
+ROLE_PRIOR_CHANNEL = "causal_role_prior"
+
+
+def _all_channels() -> tuple:
+    """通道全集：基础四通道 + 角色先验通道（B1；成对出现才算合规）。"""
+    return tuple(CHANNELS) + (ROLE_PRIOR_CHANNEL,)
 
 CUTOFF = 3                       # 指标截断 @3（与老师 metrics_for_ranking 的 k=3 一致）
 BASELINE_LEAD_SEC = 10.0         # 注入前窗口末端留 10s 余量（[0, t_inject−10]）
@@ -142,11 +152,14 @@ def load_template(k: str, g: str, run_id: Optional[str] = None) -> Dict:
 
 # ==================== 排序 ====================
 def _production_order(tpl: Dict, total_effect: Dict[str, float],
-                      exclude: Sequence[str] = ()) -> List[str]:
-    """生产口径排序：效应 DESC → 次级拓扑键；有传导能力者优先，孤立节点殿后。"""
+                      exclude: Sequence[str] = (), role_prior: bool = False) -> List[str]:
+    """生产口径排序：效应 DESC → 次级拓扑键；有传导能力者优先，孤立节点殿后。
+
+    `role_prior=True`（B1）：命中外部响应变量名单者，**排序键**乘 0.30（仅乘子）。
+    """
     def key(v):
         nd = tpl["nodes"][v]
-        return (-float(total_effect.get(v) or 0.0),
+        return (-(float(total_effect.get(v) or 0.0) * RP.multiplier(v, role_prior)),
                 int(nd.get("in_degree") or 0),
                 -float(nd.get("weighted_reach") or 0.0),
                 -float(nd.get("reach_size") or 0),
@@ -159,10 +172,11 @@ def _production_order(tpl: Dict, total_effect: Dict[str, float],
     return conductive + isolated
 
 
-def causal_ranking(tpl: Dict) -> List[str]:
+def causal_ranking(tpl: Dict, role_prior: bool = False) -> List[str]:
     """生产口径：marker 遮蔽（不进候选），效应取 topology 节点已落盘 total_effect。"""
     eff = {v: (nd.get("total_effect") or 0.0) for v, nd in tpl["nodes"].items()}
-    return _production_order(tpl, eff, exclude=[tpl["marker"]] if tpl["marker"] else [])
+    return _production_order(tpl, eff, exclude=[tpl["marker"]] if tpl["marker"] else [],
+                             role_prior=role_prior)
 
 
 def unmasked_total_effect(tpl: Dict, clip: Optional[float] = B_CLIP) -> Dict[str, float]:
@@ -259,9 +273,50 @@ def ranking_metrics(ranking: Sequence[str], truth: Sequence[str]) -> Dict[str, f
     }
 
 
-def _summarize(rows: Sequence[Dict]) -> Dict:
+def rank_distribution(rows: Sequence[Dict]) -> Dict:
+    """B3（V23-DESIGN-045）：真值名次分布标准化，避免只看 Hit@1。
+
+    - `rank_hist`：首个真值变量名次直方图（1..max），未命中计入 `n_miss`
+    - `mean_normalized_rank`：`(rank-1)/(n_candidates-1)` 的均值，消除候选集大小差异
+    - `gt_coverage_mean`：真值集落在候选集内的比例均值（真值可达性的评测侧镜像）
+    """
     out: Dict[str, Dict] = {}
     for ch in CHANNELS:
+        if not any(ch in r["metrics"] for r in rows):
+            continue
+        ranks: List[int] = []
+        norm: List[float] = []
+        cover: List[float] = []
+        miss = 0
+        for r in rows:
+            m = r["metrics"][ch]
+            n_cand = int((r.get("deviation_status") or {}).get("n_candidates") or 0)
+            fr = m.get("first_rank")
+            if fr:
+                ranks.append(int(fr))
+                norm.append((int(fr) - 1) / max(1, n_cand - 1))
+            else:
+                miss += 1
+            n_gt = int(m.get("n_gt") or 0)
+            cover.append((int(m.get("n_gt_in_ranking") or 0) / n_gt) if n_gt else 0.0)
+        top = max(ranks) if ranks else 0
+        out[ch] = {
+            "n": len(rows),
+            "n_ranked": len(ranks),
+            "n_miss": miss,
+            "rank_hist": {str(i): ranks.count(i) for i in range(1, top + 1)},
+            "mean_first_rank": round(float(np.mean(ranks)), 4) if ranks else None,
+            "median_first_rank": float(np.median(ranks)) if ranks else None,
+            "mean_normalized_rank": round(float(np.mean(norm)), 4) if norm else None,
+            "gt_coverage_mean": round(float(np.mean(cover)), 4) if cover else None,
+        }
+    return out
+
+
+def _summarize(rows: Sequence[Dict]) -> Dict:
+    out: Dict[str, Dict] = {}
+    channels = [c for c in _all_channels() if all(c in r["metrics"] for r in rows)]
+    for ch in channels:
         mets = [r["metrics"][ch] for r in rows]
         n = len(mets)
         agg: Dict[str, object] = {"n": n}
@@ -453,8 +508,14 @@ def evaluate_template_retrieval(traces: Sequence[Dict], templates: Dict[str, Dic
 
 # ==================== 主流程 ====================
 def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
-             groups: Optional[Sequence[str]] = None) -> Dict:
-    """跑变量级留出评测并落 metrics/；返回 {files, n_traces, summary}。"""
+             groups: Optional[Sequence[str]] = None,
+             role_prior: Optional[bool] = None) -> Dict:
+    """跑变量级留出评测并落 metrics/；返回 {files, n_traces, summary}。
+
+    `role_prior`（B1，默认关闭）：开启时**同时**产出"有先验/无先验"两版排序与两套指标，
+    报告并列；任一单独出现即 `role_prior.pair_complete=False`（视为不合规）。
+    """
+    prior_on = RP.resolve(role_prior)
     from causalrca.config.accident_config import READY_CODES
     classes = list(classes) if classes else [k for k in READY_CODES]
     groups = list(groups) if groups else list(GROUP_ORDER)
@@ -494,6 +555,7 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
             raise ValueError(f"{k}/{sev}: 偏移强度为空，无法评测")
         rank_c = causal_ranking(tpl)
         rank_u = causal_ranking_unmasked(tpl)
+        rank_p = causal_ranking(tpl, role_prior=True) if prior_on else None
         rank_d = deviation_ranking(list(tpl["nodes"]), d)
         # 偏差基线第二列：与生产通道**同变量集**（不含被遮蔽的注入点）
         rank_d_prod = deviation_ranking(
@@ -530,8 +592,12 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
                         "deviation_production_set": ranking_metrics(rank_d_prod, gt)},
             "clip_sensitivity": clip_rows,
         }
+        if prior_on:
+            row["metrics"][ROLE_PRIOR_CHANNEL] = ranking_metrics(rank_p, gt)
+            row["top5"][ROLE_PRIOR_CHANNEL] = rank_p[:5]
+            row["gt_in_candidate_set"][ROLE_PRIOR_CHANNEL] = [v for v in gt if v in rank_p]
         row["metrics"] = {ch: {kk: (round(vv, 4) if isinstance(vv, float) else vv)
-                               for kk, vv in row["metrics"][ch].items()} for ch in CHANNELS}
+                               for kk, vv in row["metrics"][ch].items()} for ch in row["metrics"]}
         rows.append(row)
 
     written: List[str] = []
@@ -601,12 +667,15 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
     bootstrap = {
         "n_bootstrap_values": boots,
         "run_mode": run_mode,
-        "citable": run_mode != RUN_MODE_TEST,
-        "note": ("生产档 N_BOOTSTRAP_PROD=100 只此一档可进论文；"
-                 "测试/评测档 N_BOOTSTRAP_TEST=5 仅用于单测与评测回归，"
-                 "其 Hit/MRR 不得与已有验收数字混用"),
+        "stability_claims_allowed": stability_claims_allowed(boots[0] if boots else None),
+        "note": (f"正式口径 N_BOOTSTRAP_SPEC={N_BOOTSTRAP_SPEC}，但执行默认 5（V23-DESIGN-044）；"
+                 "本次实际次数见 n_bootstrap_values，报告中必须原样打印。"
+                 "次数未达正式口径时不得声称边稳定性、不得引用 consistency_rate 作结论；"
+                 "citable 不再由次数自动推导，需人工显式声明"),
     }
     retrieval = evaluate_template_retrieval(traces, templates, registry)
+    truth_reach = TR.audit_run(run_id, [k for k in classes
+                                        if any(r["accident_type"] == k for r in rows)])
     written.append(Path(artifact.write_artifact(
         "metrics_template_retrieval", {"run_id": run_id, "bootstrap": bootstrap, **retrieval},
         "metrics", run_id=run_id, source="signatures/ + tracing/")).name)
@@ -614,6 +683,33 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
         "n_traces": len(rows),
         "n_templates": len(by_template),
         "bootstrap": bootstrap,
+        "report_header": (f"n_bootstrap={boots}（正式口径 {N_BOOTSTRAP_SPEC}；run_mode={run_mode}）"
+                          + ("" if bootstrap["stability_claims_allowed"] else
+                             " —— 缩减次数执行：不得声称边稳定性、不得引用 consistency_rate 作结论")),
+        "evidence_rank_distribution": {
+            "definition": "真值名次分布（B3/V23-DESIGN-045）：rank_hist + 中位/均值名次 + 归一化名次 + 真值覆盖率",
+            "why": "Hit@1 只反映头部；名次分布可区分'差一点'与'完全不可达'，且归一化名次消除候选集大小差异",
+            "global": rank_distribution(rows),
+            "per_class": {k: rank_distribution([r for r in rows if r["accident_type"] == k])
+                          for k in classes if any(r["accident_type"] == k for r in rows)},
+        },
+        "truth_reachability": {
+            "definition": "真值可达性审计（B2/V23-DESIGN-043）：真值变量在变量选择各阶段的最终去向",
+            "artifact": "audit/truth_reachability.json（只读审计，不改变选择结果）",
+            "summary": truth_reach["summary"],
+        },
+        "role_prior": {
+            "definition": "角色先验（B1/V23-DESIGN-046）：外部响应变量名单作排序乘子，不进主排序公式",
+            "enabled": prior_on,
+            "weight": RP.ROLE_PRIOR_WEIGHT,
+            "n_vars_in_list": len(RP.ROLE_PRIOR_VARS),
+            "source": RP.ROLE_PRIOR_SOURCE,
+            "scope": "仅排序乘子（不改 B、不改 T）",
+            "pair_complete": (ROLE_PRIOR_CHANNEL in global_summary) == prior_on
+                             and "causal" in global_summary,
+            "note": ("开启时必须同时报告'有先验/无先验'两版排序与两套指标；"
+                     "只有一版出现即视为不合规"),
+        },
         "task": ("主指标=模板级检索（事故类×严重度组，见 template_retrieval）；"
                  "变量级=可辨识性诊断（候选=模板节点，看始发变量能否进 Top-1/Top-3），"
                  "按方案 B 只作诊断、不作准确率主张"),
