@@ -1156,7 +1156,22 @@
   `deviation_equal_weight` 0.0（MRR 0.1746）。
 - 状态：✅ 已解决（pytest 155 passed / 0 failed）。
 
-**open 计数（本轮结束）**：累计 open = 0；待用户裁决 = 3（§9.3 第 1/2/4 项：其余 8 类数据、
-LOCAC 样本量、严重度分组是否数据驱动）；本轮新增 1 条（036）已 closed。
-**待办（未在本轮执行）**：A/B 重新冻结（`034433` 已作废），随下一次 §6.4 全链 `--with-ab` 一并重生成；
-035 的模板检索指标（Hit@1 0.333→0.633 等）**作废，不得引用**。
+**V23-DESIGN-037（closed）· A/B 重跑后重新冻结（取代 `034433`）**
+
+- 动因：`034433` 冻结件基于旧数据根/混源批次（见 034/036），与当前 `v23-20261110T150726` 不可并置。
+- 做法：不重跑消融（避免再花 756s 且口径未变），直接把本 run 的 `ablations/ab_variable_selection.json`
+  按既有冻结契约重新封装为 `ablations/frozen_ab_variable_selection_v23-20261110T150726.json`：
+  `frozen=true`、`frozen_from_run_id`、`frozen_at`、`frozen_source_sha256`、`frozen_self_sha256`
+  （约定：该字段置 null 后按 `sort_keys=True/ensure_ascii=False/separators=(',',':')` 序列化取 sha256，
+  文件自身 sha256 另记于 manifest 与方案 A/B 段）、`supersedes=…_034433.json`；同 run 内旧冻结件已删除。
+- 数值：源件 sha256=`9e0c39c5d007ecd0bdf0f2c72e0bebb42699a13589bd0433a764c4201740f571`；
+  `frozen_self_sha256`=`6c8b09c4d00ae26e03156090a0bd0b5830020516a6bb4aa214f9eb6ec8e65304`；
+  文件 sha256=`c2c3339f15ab7667669d1133b7cd9be0dc7e240f8739c100bff3a46f825f9652`；manifest 158 文件。
+- 结论（单独报告，不混入评测）：变量集 Jaccard 三类均 0.2963；稳定边 auto/v2.1 =
+  LOCA 58.3/60.3、SGATR 47.7/83.3、FLB 56.0/54.7；frontier 0.0–4.0 / 3.3–10.0；**Top-1 一致 0/9**
+  → 两套变量集各有胜负，无一致优劣。
+- 状态：✅ 已解决。
+
+**open 计数（本轮结束）**：累计 open = 0；待用户裁决 = 4（§9.3 第 1/2/4 项 + 遮蔽口径 A/B/C 三案）；
+本轮新增 2 条（036/037）均已 closed。
+**待办**：遮蔽口径待裁决（三案预判见方案 §5.13）；035 的模板检索指标（Hit@1 0.333→0.633 等）**作废，不得引用**。

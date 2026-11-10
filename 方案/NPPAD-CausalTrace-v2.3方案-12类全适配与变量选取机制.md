@@ -1707,6 +1707,83 @@ causaltrace_lingam Hit@1 0.4368 / Hit@3 0.5800（deviation 0.2322 / 0.5178，101
 不得与其并排放进同一张表（`metrics_summary.json.comparability_with_teacher` 固化为
 `same_task=true / comparable_numbers=false`）；要同表必须同一协议复算并说明取舍。
 
+### 5.13 遮蔽口径三案预判（待用户裁决，**尚未实施**）
+
+**背景事实**（run `v23-20261110T150726`）：`trace_roots` 对注入点执行 `if v == marker: continue`，
+故 `nodes[marker].total_effect=null`、`root_candidates.marker_info.rank=null`；变量级生产口径 Hit@1
+结构性为 0，同变量集偏差基线也为 0。
+
+#### 方案 A：去遮蔽升为正式口径
+
+- **改动面**：`source_tracing.trace_roots` 去掉 marker 跳过分支；`end2end` 落 `nodes[marker].total_effect`。
+- **指标（可精确给出，`causal_unmasked_for_eval` 列已等价实现）**：全局 Hit@1=0.10 / Hit@3=0.10 /
+  MRR=0.205（LOCA 0.30、SGATR 0、FLB 0），Wilson Hit@1 [0.0466, 0.2015]。
+- **9 组 Top-1：仅 1 组变化**（LOCA_high `WECS→WLR`）；其余 8 组不变——WLR 在 `LOCA_low/mid`
+  总效应恰为 1.000（无出边，孤立节点殿后，名次 15），`WFLB` 在 low/mid/high = 1.095/6.000/4.160
+  （名次 15/4/5），`WTRA` 恒 1.000（名次 15）。
+- **稳定边 / 图结构：不变**。仍是同一批 `stable_edges`；marker 出边数早已计入 A/B 的
+  `n_marker_out_edges` 与 `frontier_reach`（LOCA_high 12 条），故 A/B 表、`stability`、`b_clip` 全部不动；
+  变的只是 `role`（故障指示器 → upstream_driver/terminal）与 `total_effect` 由 null 变数值。
+- **报告文本连锁**：所有"注入点被遮蔽/不参与排名"句必须删；`marker_info.rank` 落数字；
+  "根因候选不含注入点"的立论需改为"候选含注入点，且其效应与图一致"。
+- **自证风险评估（量化）**：marker 的效应来自**同一张 B**，不含新估计，所以与被遮蔽前的图**完全一致**；
+  但它是"标签本身"且对 `B_CLIP` 高度敏感——**去截断（clip=1e9）后 LOCA_high 的 WLR 由第 1 降为第 3
+  （48.86 vs WHPI 213.5 / LVPZ 55.4）**，FLB_high 的 WFLB 由第 5 升到第 3。即"命中"可被一个超参翻转，
+  不足以支撑"定位到注入变量"的强表述。
+
+#### 方案 B：维持遮蔽（当前交付口径）
+
+- **不改代码**；生产列为 0/0/0，去遮蔽列只作可辨识性诊断。
+- **可写**：v2.3 排序定位的是**注入点之外的内部根因源**（传导链关键节点），注入点是外生边界条件、
+  不参与候选；变量级"命中注入变量"结构性为 0，只作诊断披露。
+- **代价**：与老师项目 accuracy 无法同任务对齐（他的答案是注入变量本身）；0 易被误读为方法失败，
+  需在每处解释遮蔽；图仍以注入点为根（`n_marker_out_edges`/frontier 计入），须说明"图用注入点、
+  排名不用注入点"。
+- **能否声称"做变量级根因溯源"**：能，但限于**"事故内、注入点之外的内部根因源排序"**；
+  不能声称"变量级命中注入变量"。
+
+#### 方案 C：折中（学图不用 marker，溯源候选允许参与并标注效应来源）
+
+- **技术实现**：签名阶段用 14 变量拟合 LiNGAM（marker 不入模）→ 同一学图窗内对每个 X 做
+  `X ~ marker` 单变量回归 → 把 marker 作为外生父节点挂回（边权=回归系数，标
+  `effect_source="univariate_regression"`）→ 溯源排序允许 marker 参与，`root_candidates` 增字段
+  `effect_source`。`T=(I−B)⁻¹` 仍可算，但 B 不再纯是 LiNGAM 输出。
+- **与既定设计的冲突**：与"遮蔽"的本意（外生故障过程不被症状反向解释）**不冲突**（C 里 marker
+  仍无父节点）；冲突在**权重来源不统一**——其余节点来自 LiNGAM，marker 来自 OLS，`B_CLIP` 只对
+  LiNGAM 边有意义，两类数值不可同尺度排序。
+- **结果预期（介于 A 与 B，更靠近 A 的上沿）**：5 个"marker 出边=0"的模板（LOCA_low/mid、SGATR 三组）
+  会由"结构性不可达"变为"可达"；预判全局 Hit@1 从 0.10 升到 **0.5–0.8**（9 模板中预计 5–7 个能进 Top-3），
+  但**自证风险最高**：用被注入变量去解释系统，回归必然显著。
+
+**每案"结论句"预写（供裁决后直接替换论文表述）**
+
+- A：「v2.3 的候选集包含注入点，事故内变量级 Hit@1=0.10（仅 LOCA_high 成立），且该命中对 B_CLIP 敏感
+  （去截断后降为第 3），仅作可辨识性证据。」
+- B：「v2.3 做的是注入点之外的内部根因源排序；变量级命中注入变量结构性为 0，不作为准确率主张。」
+- C：「v2.3 可将注入点候选化并标注其效应来源（单变量回归），但与环境内候选人的权重不同源，
+  仅作可解释性补充，不同权重比较。」
+
+### 5.14 两个结构性事实的定位（`WTRA` 出度 0、`WFLB` 第 5）
+
+**WTRA 出度为 0（SGATR 三组均然）——已定位到"因果次序不可辨识"，非数据缺失/窗口/截断**
+- 学图窗 `[60,1500]` 含注入点 `t_inject=110`；`WTRA` 窗内 std=0.44/7.46/14.03（low/mid/high），
+  min=0、max=2.39/41.1/79.9 → **不是常量、不是没激励**。
+- 本体规则只禁 `X→marker`（R3），`WTRA→X` 不在 `removed_forbidden_rates` 里 → **不是本体删边**。
+- 100 次 bootstrap 中 `WTRA→X` 全部 `weight=0.0000、f_e=0%、dir_e=0%、count=0` → **不是 B_CLIP 截断**
+  （截断只作用于 |w|>5）。
+- 反证方向：每次 bootstrap 都估出 `X→WTRA`（rate=1.0）并被 R3 删除 → 估计器把 `WTRA` 排在因果序**末尾**
+  （sink），出边因此恒为 0。严重度梯度一致：`LOCA` 的 `WLR` 在 low/mid（std 16.2/209）同样 0 条出边，
+  high（std 321）才有 12 条 → 注入信噪比抬升才翻转次序。
+- **未定位项**：无法量化"注入幅度 vs 噪声"的比值（注入前 `std=0`、`MAD_pre=0`，只能给 d 值），
+  故"幅度太小"只能算与梯度一致的推断，未定位到具体阈值。
+
+**WFLB 排第 5（FLB_high）——一半真实偏弱，一半截断天花板**
+- 稳定出边 4 条、权重小（+0.743/−0.469/−0.110/+0.020）；`|T|` 行和 4.160。
+- 同模板前四名 `WRCA 5.705 / WCHG 5.121 / WUP 5.001 / PSGA 4.997` 几乎卡在 `B_CLIP=5` 的天花板，
+  `WFLB` 恰在其下 → 名次含截断伪影。
+- 去截断（clip=1e9）复算：`WRCA 16542 / WCHG 11495 / WFLB 5063` → **升到第 3**；`LOCA_high` 反向变化见 §5.13-A。
+  故"第 5"是"真实效应弱于 WRCA/WCHG"+"B_CLIP 天花板"的叠加，不能只归因其一。
+
 ---
 
 ## 6. 实现路径与代码模块
@@ -2120,7 +2197,7 @@ v2.3 的产物可直接作为 v3 P0/P1 的输入数据。
 | A1 | 新建 `variable_selector.py`：论文锚定 + 四阶段漏斗 | ✅ | `Code/rca/v21/variable_selector.py` + `paper_anchor.py`；阶段0 锚定（候选优先 + 评分加权，不作保护集；剔除落 `dropped_anchor`）→硬过滤→评分(CV0.25+非高斯0.20+MI0.30+区分度0.25)→强制变量+子系统覆盖+去冗余→VIF迭代(N=15–25)；V3 三态 |
 | A2 | 扩展 `ENTITY_TABLE`：12 类子系统映射 | ✅ | `knowledge.py` 现覆盖 NPPAD README Table 2 全部 96 变量（排除 TIME），10 个子系统分类；选中变量 0 未登记 |
 | A3 | 新建 `accident_config.py`：12 类配置表 | ⚠️ | 12 类全量配置表待数据到位后建；当前 3 类关键响应已按 §4.3 内联于 `variable_selector.py`（LOCA: P/TAVG/VOL/WECS/WHPI；SGATR: PSGA/PSGB/LSGA/LSGB/RM2；FLB: WFWA/WFWB/TAVG/PWNT/PSGA/PSGB） |
-| A4 | 3 类事故验证：论文锚定（候选加权、可剔除留痕）+ 自动补选 | ✅ | 2026-11-10 返工全链 `run_id=v23-20261110T050332`（9/9 ok，291.0s，125 tests passed）：LOCA/SGATR/FLB 各 **15** 变量；`max_vif_all`=2.162e3/4.288e5/7.757e9（非保护 max 490.0/249.9/49.6）；V0/V1/V2/V4/V5/V6/V7 全通过，**V3 三类均 fail**——offenders 全为保护变量（§4.3 关键响应含近完全共线测点对，见台账 V23-DESIGN-023）；锚定 14/8/6、15/7/8、14/6/8（声明/保留/剔除，剔除均含 VIF 与剔除前后 `max_vif_all`）；稳定性 **0/9 降级**（LOCA_mid clip_ratio 0.4516→0.1507）。A/B 对照仍为**一次性消融**冻结件 `ablations/frozen_ab_variable_selection_v23-20261110T034433.json`（`frozen=true`），不随主链重算 |
+| A4 | 3 类事故验证：论文锚定（候选加权、可剔除留痕）+ 自动补选 | ✅ | 2026-11-10 返工全链 `run_id=v23-20261110T050332`（9/9 ok，291.0s，125 tests passed）：LOCA/SGATR/FLB 各 **15** 变量；`max_vif_all`=2.162e3/4.288e5/7.757e9（非保护 max 490.0/249.9/49.6）；V0/V1/V2/V4/V5/V6/V7 全通过，**V3 三类均 fail**——offenders 全为保护变量（§4.3 关键响应含近完全共线测点对，见台账 V23-DESIGN-023）；锚定 14/8/6、15/7/8、14/6/8（声明/保留/剔除，剔除均含 VIF 与剔除前后 `max_vif_all`）；稳定性 **0/9 降级**（LOCA_mid clip_ratio 0.4516→0.1507）。A/B 对照为**一次性消融**冻结件 `ablations/frozen_ab_variable_selection_v23-20261110T150726.json`（`frozen=true`，`frozen_at`=2026-11-10 16:00，源件 sha256=`9e0c39c5d007ecd0…0f571`，冻结件文件 sha256=`c2c3339f15ab7667…5f9652`），不随主链重算；旧 `…_v23-20261110T034433.json` **作废**（其结论基于旧数据根/混源批次，见 V23-DESIGN-034/036） |
 
 > **VIF 阈值决策留痕（评审 P0-1）**：方案 §3.5 原定 VIF<10，实测核电数据物理强耦合不可行——v2.1 硬编码 20 变量集自身 max VIF=9.45e10（16/20>10）；逐轨迹 VIF 更差（WHPI/WECS 达 1e15）。故放宽至 VIF_MAX=500；**V3 判定只看非保护变量（非 forced、非子系统代表）的 `max_vif<500`，保护变量逐项写入 `v3_exempt[]` 披露、不参与判定**，`v3_status` 四值 `pass / pass_with_exemption / fail / n/a`；同时报告 `max_vif_all` 透明披露含保护变量的真实最大 VIF。**豁免不等于通过**，缺口靠逐项披露而非放宽阈值（不采用"阈值放宽到 5000"的替代口径，避免与阶段3 去重形成双重放松）。指标名已对齐为 `V3_vif_lt_500`。
 >
@@ -2214,7 +2291,7 @@ v2.3 的产物可直接作为 v3 P0/P1 的输入数据。
 | **A** | A1 | variable_selector.py 论文锚定 + 四阶段漏斗 | ✅ | `Code/rca/v21/variable_selector.py` + `paper_anchor.py` |
 | **A** | A2 | ENTITY_TABLE 扩至 96 变量 | ✅ | `knowledge.py`（96 变量，10 子系统） |
 | **A** | A3 | accident_config.py 12 类配置表 | ❌ | 未建（3 类配置内联于 variable_selector.py） |
-| **A** | A4 | 3 类 A/B 对照验证（一次性消融，产物已冻结） | ✅ | `variable_sets/` + `ablations/frozen_ab_variable_selection_v23-20261110T034433.json`（`frozen=true`，不在主链重算） |
+| **A** | A4 | 3 类 A/B 对照验证（一次性消融，产物已冻结） | ✅ | `variable_sets/` + `ablations/frozen_ab_variable_selection_v23-20261110T150726.json`（`frozen=true`，文件 sha256=`c2c3339f…5f9652`，源件 sha256=`9e0c39c5…0f571`，不在主链重算）；`034433` 版作废 |
 | **B** | B1–B6 | 12 类数据适配/审计/变点 | ❌ | 9 类数据未到位，跳过 |
 | **C** | C1 | 因果签名（100 bootstrap） | ⚠️ 3/12 类 | `v23_signatures/` 9 份 |
 | **C** | C2 | 根因溯源（**T=(I−B)⁻¹ 排序**） | ⚠️ 3/12 类 | `v23_tracing/root_candidates_*.json` 9 份 |
