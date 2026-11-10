@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple
 
-from config import (
+from causalrca.config.paths import (
     WINDOW_START, WINDOW_END, TIME_STEP, WINDOW_POINTS,
     TRAIN_RATIO, RANDOM_SEED,
 )

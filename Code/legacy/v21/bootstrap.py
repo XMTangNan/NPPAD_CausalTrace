@@ -8,10 +8,10 @@ Phase 2 / Algorithm 1：轨迹级 Bootstrap 四指标稳定性。
 import numpy as np
 from typing import Dict, List, Tuple
 
-from config import BOOTSTRAP_N, F_E_THRESHOLD, S_E_THRESHOLD, RANDOM_SEED
+from causalrca.config.paths import BOOTSTRAP_N, F_E_THRESHOLD, S_E_THRESHOLD, RANDOM_SEED
 from causalrca.io.logging import logger
-from core.data_utils import build_matrix, standardize
-from core.lingam_baseline import fit_lingam
+from legacy.v21.data_utils import build_matrix, standardize
+from legacy.v21.lingam_baseline import fit_lingam
 
 
 def run_bootstrap(trajectories: Dict, train_sev: List[int], variables: List[str],

@@ -1,9 +1,10 @@
-"""架构守卫测试：新包分层、旧路径 shim、依赖方向、落盘唯一入口。
+"""架构守卫测试：分层、依赖方向、产物写盘唯一入口、代际边界。
 
-约定（2026-11-10 批 A）：
-- `causalrca/{config,io,data,features,causal,evidence,reporting,cli}` 是 v2.3 正式实现；
-- `rca/v21/*.py` 是**过渡期显式 shim**（批 C 删除），只做 re-export，不得含逻辑；
-- 依赖方向单向：`causalrca` 不得 import `rca` / `core` / `accidents` / `legacy` / 顶层 `config`。
+最终结构（2026-11-10 批 A–C 之后）：
+- `causalrca/{config,io,data,features,causal,evidence,reporting,cli}` = v2.3 正式实现；
+- `legacy/v21/` = 冻结的 v2.1（只读，`FROZEN.md`）；
+- `rca/` 只剩一个说明性 README，**不得有任何 .py**。
+依赖方向单向：`causalrca` ↛ `legacy`/`rca`/`core`/`accidents`；`legacy` ↛ `rca`。
 """
 import ast
 import importlib
@@ -11,96 +12,71 @@ import pathlib
 
 import pytest
 
-# 旧路径 -> 新路径（过渡期 shim 必须解析到同一对象）
-SHIM_PAIRS = [
-    ("rca.v21.data", "causalrca.data.loader"),
-    ("rca.v21.data_audit", "causalrca.data.audit"),
-    ("rca.v21.variable_selector", "causalrca.features.variable_selector"),
-    ("rca.v21.paper_anchor", "causalrca.features.paper_anchor"),
-    ("rca.v21.signatures", "causalrca.causal.signatures"),
-    ("rca.v21.source_tracing", "causalrca.causal.source_tracing"),
-    ("rca.v21.severity_aggregation", "causalrca.causal.severity_aggregation"),
-    ("rca.v21.tolerance", "causalrca.evidence.tolerance"),
-    ("rca.v21.deviation", "causalrca.evidence.deviation"),
-    ("rca.v21.knowledge", "causalrca.evidence.knowledge"),
-    ("rca.v21.external_knowledge", "causalrca.evidence.external_knowledge"),
-    ("rca.v21.physics_constraints", "causalrca.evidence.physics_constraints"),
-    ("rca.v21.llm_explanation", "causalrca.reporting.llm_explanation"),
-    ("rca.v21.report_template", "causalrca.reporting.report_template"),
-    ("rca.v21.run_v23_all", "causalrca.cli.run_v23_all"),
-    ("rca.v21.accident_config", "causalrca.config.accident_config"),
-]
+LAYERS = {"config", "io", "data", "features", "causal", "evidence", "reporting", "cli"}
 
 
-def test_legacy_shims_resolve_to_same_objects():
-    """旧路径可用，且暴露的是新包**同一个对象**（不是复制）。"""
-    for old, new in SHIM_PAIRS:
-        legacy = importlib.import_module(old)
-        impl = importlib.import_module(new)
-        public = [n for n in getattr(impl, "__all__", dir(impl)) if not n.startswith("_")]
-        assert public, f"{new} 没有任何公开符号"
-        for name in public:
-            if getattr(impl, name, None) is None:
+def _pkg_root(name: str) -> pathlib.Path:
+    return pathlib.Path(importlib.import_module(name).__file__).parent
+
+
+def test_causalrca_layers_exist():
+    root = _pkg_root("causalrca")
+    for layer in LAYERS:
+        assert (root / layer / "__init__.py").is_file(), f"缺少分层 causalrca/{layer}"
+
+
+def test_causalrca_never_imports_legacy_paths():
+    """v2.3 只允许依赖标准库/第三方/自身，禁止反向 import 旧代际。"""
+    root = _pkg_root("causalrca")
+    forbidden = {"rca", "core", "accidents", "legacy", "config", "plan1"}
+    files = sorted(root.rglob("*.py"))
+    assert files
+    for p in files:
+        tree = ast.parse(p.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                roots = [a.name.split(".")[0] for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                roots = [node.module.split(".")[0]]
+            else:
                 continue
-            assert getattr(legacy, name) is getattr(impl, name), f"{old}.{name} 与 {new} 不是同一对象"
+            for r in roots:
+                assert r not in forbidden, f"{p.relative_to(root)} 反向依赖了禁用根 `{r}`"
 
 
-def test_legacy_config_and_paths_still_import():
-    """旧常量/路径入口仍可用。"""
-    from causalrca.config import constants_v21 as rca_config_v21  # noqa: F401
-    import config  # noqa: F401
-    import core.utils as legacy_utils  # noqa: F401
-
-    from causalrca.config import constants_v21 as new_consts
-    from causalrca.io import logging as new_logging
-    from causalrca.io.files import save_json as new_save_json
-
-    assert rca_config_v21.V23_OUTPUT == new_consts.V23_OUTPUT
-    assert legacy_utils.logger is new_logging.logger
-    assert legacy_utils.save_json is new_save_json
-
-
-def test_shim_assignment_reaches_implementation(monkeypatch, tmp_path):
-    """向 shim 属性赋值必须落到实现模块（monkeypatch 报告链依赖此行为）。"""
-    from causalrca.io import artifact as legacy_artifact
-    from causalrca.io import artifact as new_artifact
-
-    subs = {"reports": tmp_path}
-    monkeypatch.setattr(legacy_artifact, "V23_SUBDIRS", subs)
-    assert new_artifact.V23_SUBDIRS is subs
-    assert legacy_artifact.V23_SUBDIRS is subs
-
-    monkeypatch.setattr(legacy_artifact, "new_run_id", lambda prefix="v23": "fixed")
-    assert new_artifact.new_run_id("v23") == "fixed"
+def test_legacy_never_imports_removed_rca_package():
+    """v2.1 冻结代码不得再引用已删除的 rca/ 包。"""
+    root = _pkg_root("legacy")
+    for p in sorted(root.rglob("*.py")):
+        tree = ast.parse(p.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            mods = []
+            if isinstance(node, ast.Import):
+                mods = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                mods = [node.module]
+            for m in mods:
+                assert not m.startswith("rca"), f"{p.relative_to(root)} 仍 import `{m}`"
 
 
-def test_unknown_attribute_still_raises():
-    """白名单外不得静默返回实现模块的私有成员。"""
-    from causalrca.io import artifact as legacy_artifact
+def test_rca_directory_has_no_python_modules():
+    """rca/ 只允许 README.md（过渡说明），不得再有可导入模块。"""
+    code = pathlib.Path(__file__).resolve().parents[1]
+    rca = code / "rca"
+    if not rca.exists():
+        return
+    assert not list(rca.rglob("*.py")), "rca/ 下仍有 .py 模块"
 
-    with pytest.raises(AttributeError):
-        getattr(legacy_artifact, "not_a_real_symbol")
 
-
-def test_path_anchors_point_to_repo():
-    """锚点搬迁后仍指向正确目录（同名不同义必须分开断言）。"""
-    from causalrca.config import paths, constants_v21, registry
-
-    repo_root = paths.PROJECT_ROOT
-    assert (repo_root / "Code" / "causalrca").is_dir()
-    assert paths.CODE_ROOT == repo_root / "Code"
-    assert paths.REPO_DATA == repo_root / "nppad_repo" / "Operation_csv_data"
-
-    # constants_v21 沿用旧契约：PROJECT_ROOT = Code/
-    assert constants_v21.PROJECT_ROOT == paths.CODE_ROOT
-    assert constants_v21.V23_OUTPUT == paths.CODE_ROOT / "output" / "rca_v23"
-
-    assert registry.CAUSALTRACE_ROOT == repo_root
-    assert registry.REPO_DATA == paths.REPO_DATA
+def test_causalrca_has_no_generation_named_directories():
+    """v2.3 新包不得再出现 `v21/`、`v23/` 这类代际目录（代际只在 legacy/ 里）。"""
+    root = _pkg_root("causalrca")
+    bad = [p.name for p in root.rglob("*") if p.is_dir() and ("v21" in p.name or "v23" in p.name)]
+    assert not bad, f"causalrca 下仍有代际目录：{bad}"
 
 
 def test_v23_thresholds_are_centralized_and_unchanged():
-    """S3：v2.3 阈值只在 causalrca.config.constants_v23 定义，各模块取值不变。"""
+    """阈值只在 causalrca.config.constants_v23 定义，各模块取值不变（搬迁不许改口径）。"""
     from causalrca.config import constants_v23 as C23
     from causalrca.causal import severity_aggregation as SA
     from causalrca.causal import source_tracing as ST
@@ -138,7 +114,6 @@ _WRITE_FUNCS = {"open", "write_text", "write_bytes", "mkdir", "to_csv", "savefig
 
 
 def _direct_writes(src: str):
-    """返回模块里绕过 artifact 的直接写盘调用（行号, 形式）。"""
     hits = []
     for node in ast.walk(ast.parse(src)):
         if not isinstance(node, ast.Call):
@@ -162,7 +137,6 @@ def _direct_writes(src: str):
 
 
 def test_v23_closure_writes_only_via_artifact():
-    """S4：v2.3 闭包禁止直接 mkdir/open(w)/to_csv 写产物，且不得触碰 V21_OUTPUT。"""
     for modname in V23_CLOSURE:
         mod = importlib.import_module(modname)
         src = open(mod.__file__, encoding="utf-8").read()
@@ -172,45 +146,7 @@ def test_v23_closure_writes_only_via_artifact():
 
 
 def test_v21_legacy_writers_are_outside_v23_closure():
-    """v2.1 写盘模块不得被误当成 v2.3 闭包成员。"""
-    legacy = {"rca.v21.pipeline", "rca.v21.signatures", "rca.v21.run_r0", "rca.v21.run_r3",
-              "rca.v21.run_baselines", "rca.v21.run_chains", "rca.v21.run_source_tracing"}
+    legacy = {"legacy.v21.pipeline", "legacy.v21.signatures", "legacy.v21.run_r0",
+              "legacy.v21.run_r3", "legacy.v21.run_baselines", "legacy.v21.run_chains",
+              "legacy.v21.run_source_tracing"}
     assert not (legacy & set(V23_CLOSURE))
-
-
-# 禁止的依赖根：v2.3 新包不允许反向依赖旧包/冻结代码
-FORBIDDEN_ROOTS = {"rca", "core", "accidents", "legacy", "config", "plan1"}
-
-
-def test_causalrca_never_imports_legacy_paths():
-    """依赖方向：`causalrca.*` 只能依赖标准库/第三方/自身，禁止反向 import 旧路径。"""
-    root = pathlib.Path(importlib.import_module("causalrca").__file__).parent
-    files = sorted(root.rglob("*.py"))
-    assert files, "未找到 causalrca 包"
-    for p in files:
-        tree = ast.parse(p.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                roots = [a.name.split(".")[0] for a in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                roots = [node.module.split(".")[0]]
-            else:
-                continue
-            for r in roots:
-                assert r not in FORBIDDEN_ROOTS, \
-                    f"{p.relative_to(root)} 反向依赖了禁用根 `{r}`"
-
-
-def test_no_dynamic_globals_injection():
-    """shim 禁止 globals().update(vars(...)) 式动态注入（会破坏 AST/IDE/类型检查）。"""
-    for modname in ("rca.v21.artifact", "rca.rca_config_v21", "rca.v21.accident_config",
-                    "config", "core.utils"):
-        mod = importlib.import_module(modname)
-        tree = ast.parse(open(mod.__file__, encoding="utf-8").read())
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            func = node.func
-            assert not (isinstance(func, ast.Attribute) and func.attr == "update"
-                        and isinstance(func.value, ast.Call)
-                        and getattr(func.value.func, "id", None) == "globals"), modname

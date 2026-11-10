@@ -15,13 +15,13 @@ import numpy as np
 import pandas as pd
 from typing import Dict, List
 
-from config import RANDOM_SEED
+from causalrca.config.paths import RANDOM_SEED
 from causalrca.io.logging import logger
 from causalrca.io.files import save_json
-from core.data_utils import build_matrix, standardize
-from core.bootstrap import run_bootstrap, select_stable_edges
+from legacy.v21.data_utils import build_matrix, standardize
+from legacy.v21.bootstrap import run_bootstrap, select_stable_edges
 from core.total_effect import compute_total_effects
-from core.lingam_baseline import fit_lingam
+from legacy.v21.lingam_baseline import fit_lingam
 
 
 def pearson_ranking(train_mat: np.ndarray, variables: List[str], target: str) -> List[Dict]:

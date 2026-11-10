@@ -11,13 +11,13 @@ Phase 5 / Algorithm 3：一致性比较（探索性）。
 import numpy as np
 from typing import Dict, List
 
-from config import RANDOM_SEED
+from causalrca.config.paths import RANDOM_SEED
 from causalrca.io.logging import logger
 from causalrca.io.files import save_json
-from core.data_utils import (
+from legacy.v21.data_utils import (
     build_matrix, standardize, fit_standardizer, split_trajectories,
 )
-from core.bootstrap import run_bootstrap
+from legacy.v21.bootstrap import run_bootstrap
 from core.total_effect import compute_total_effects
 
 # 探索性检查使用的分位数邻域半宽（标准化尺度）

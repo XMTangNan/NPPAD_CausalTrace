@@ -21,7 +21,7 @@ from typing import Dict, Generator, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from core.nonlinear_baseline import anm_pair_direction
+from legacy.v21.nonlinear_baseline import anm_pair_direction
 from causalrca.config.constants_v21 import GAM_CONSENSUS_MIN
 from causalrca.io.logging import logger
 

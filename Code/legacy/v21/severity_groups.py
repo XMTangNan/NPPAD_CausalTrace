@@ -11,11 +11,11 @@ Phase 2 稳健性检查：严重度分组学图。
 import numpy as np
 from typing import Dict, List, Tuple
 
-from config import SEVERITY_GROUPS
+from causalrca.config.paths import SEVERITY_GROUPS
 from causalrca.io.logging import logger
 from causalrca.io.files import save_json
-from core.data_utils import build_matrix, standardize, split_trajectories
-from core.lingam_baseline import fit_lingam, adjacency_to_edges
+from legacy.v21.data_utils import build_matrix, standardize, split_trajectories
+from legacy.v21.lingam_baseline import fit_lingam, adjacency_to_edges
 
 
 # "无法估计"阈值：双向边权绝对值均低于此值视为该组无法判定方向
