@@ -14,8 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from causalrca.config.constants_v21 import (
     ACCIDENT_TYPES, GROUP_ORDER, MARKER_COLS, ANOMALY_K,
 )
-from rca.v21.inversion import assert_no_marker_columns
-from rca.v21 import baselines as B
+from legacy.v21.inversion import assert_no_marker_columns
+from legacy.v21 import baselines as B
 
 
 # ==================== B0 ====================
@@ -187,7 +187,7 @@ def test_b2_coverage_curve_points_and_ceil_monotonic():
 
 # ==================== Wilson CI 只读复用 ====================
 def test_wilson_ci_importable():
-    from rca.v21.pipeline import wilson_ci
+    from legacy.v21.pipeline import wilson_ci
     ci = wilson_ci(8, 10)
     assert ci is not None
     lo, hi = ci

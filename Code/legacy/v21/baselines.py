@@ -27,7 +27,7 @@ from causalrca.config.constants_v21 import (
     MAIN_WINDOW_START, MAIN_WINDOW_END, ANOMALY_K, XGB_PARAMS, GLOBAL_SEED,
 )
 from causalrca.data import loader as D
-from rca.v21.inversion import (
+from legacy.v21.inversion import (
     pearson_corr, signed_median_z, assert_no_marker_columns,
 )
 from causalrca.io.logging import logger

@@ -20,7 +20,7 @@ import pytest
 
 from causalrca.config import accident_config as AC
 from causalrca.evidence.knowledge import ENTITY_TABLE
-from rca import rca_config_v21 as CFG
+from causalrca.config import constants_v21 as CFG
 from causalrca.features import variable_selector as VS
 
 EXPECTED_ORDER = [

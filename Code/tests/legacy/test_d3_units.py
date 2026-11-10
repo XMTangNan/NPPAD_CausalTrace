@@ -12,14 +12,14 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from causalrca.config.constants_v21 import ACCIDENT_TYPES, GROUP_ORDER, PILOT_MARKER_COLS
-from rca.v21.pipeline import (
+from legacy.v21.pipeline import (
     fit_minmax, apply_minmax, fuse_scores, e1_vector, wilson_ci,
     score_trajectory,
 )
-from rca.v21.calibration import (
+from legacy.v21.calibration import (
     utility_grid, select_thresholds, TAU_GRID, DELTA_GRID,
 )
-from rca.v21.inversion import should_abstain, MarkerAccessError
+from legacy.v21.inversion import should_abstain, MarkerAccessError
 
 
 # ==================== 1. min-max 归一 ====================

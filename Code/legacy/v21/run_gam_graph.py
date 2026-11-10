@@ -38,11 +38,11 @@ from causalrca.config.constants_v21 import (
     LEARN_WINDOW_START, LEARN_WINDOW_END,
 )
 from causalrca.data import loader as D
-from rca.v21.run_r1 import _load_template_inputs
+from legacy.v21.run_r1 import _load_template_inputs
 from causalrca.causal.signatures import (
     load_signature, compute_graph_only_scale, transform_graph_block,
 )
-from rca.v21.gam_graph import bootstrap_pair_counts, consensus_classify
+from legacy.v21.gam_graph import bootstrap_pair_counts, consensus_classify
 from causalrca.io.logging import logger
 
 PLAN_PAIR_SECONDS = 0.49     # 方案 13.5.4 估计：0.49s/对

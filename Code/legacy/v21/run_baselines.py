@@ -23,9 +23,9 @@ from causalrca.config.constants_v21 import (
     MAIN_WINDOW_START, MAIN_WINDOW_END, V21_OUTPUT,
 )
 from causalrca.data import loader as D
-from rca.v21.pipeline import wilson_ci  # 只读复用，不改 pipeline
-from rca.v21.inversion import assert_no_marker_columns
-from rca.v21 import baselines as B
+from legacy.v21.pipeline import wilson_ci  # 只读复用，不改 pipeline
+from legacy.v21.inversion import assert_no_marker_columns
+from legacy.v21 import baselines as B
 from causalrca.io.logging import logger
 
 

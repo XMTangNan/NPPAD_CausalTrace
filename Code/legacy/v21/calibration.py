@@ -29,11 +29,11 @@ from causalrca.config.constants_v21 import (
 from causalrca.data import loader as D
 from causalrca.evidence.knowledge import build_ontology
 from causalrca.causal.signatures import fit_single_template
-from rca.v21.marker_effects import trajectory_steady_pairs, marker_ca_column
-from rca.v21.inversion import (
+from legacy.v21.marker_effects import trajectory_steady_pairs, marker_ca_column
+from legacy.v21.inversion import (
     signed_median_z, overlimit_rates, activation_set, build_group_pattern,
 )
-from rca.v21.pipeline import (
+from legacy.v21.pipeline import (
     PROTOCOL_D3, TEMPLATE_KEYS, load_cf_gate, observe_main_window,
     score_template_raw, _nanmax_or_zero, fit_minmax, apply_minmax, fuse_scores,
 )

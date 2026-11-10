@@ -19,8 +19,8 @@ from causalrca.config.constants_v21 import (
     ACCIDENT_TYPES, GROUP_ORDER, MARKERS, MARKER_COLS, PILOT_MARKER_COLS,
     W_FULL, W_MASKED, ANOMALY_K, ACTIVATION_FRAC,
 )
-from rca.v21.marker_effects import effective_marker_map
-from rca.v21.inversion import (
+from legacy.v21.marker_effects import effective_marker_map
+from legacy.v21.inversion import (
     assert_no_marker_columns, signed_median_z, overlimit_rates,
     activation_set, e2_score, e3_base_channel, e3_path_channel,
     should_abstain,

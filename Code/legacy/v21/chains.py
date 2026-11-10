@@ -34,8 +34,8 @@ from causalrca.config.constants_v21 import (
 from causalrca.evidence.knowledge import ENTITY_TABLE, COMPETITIVE_PAIRS
 from causalrca.config.accident_config import ALL_CODES, get_accident
 from causalrca.causal.signatures import bfs_frontier
-from rca.v21.marker_effects import effective_marker_map
-from rca.v21.pipeline import apply_minmax
+from legacy.v21.marker_effects import effective_marker_map
+from legacy.v21.pipeline import apply_minmax
 from causalrca.io.logging import logger
 
 # 13.10 冻结值 60：RRF 倒数排名融合常数 k_RRF（方案 §5 R5 / §13.10）；

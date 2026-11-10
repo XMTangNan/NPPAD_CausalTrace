@@ -31,11 +31,11 @@ from causalrca.config.constants_v21 import (
 )
 from causalrca.data import loader as D
 from causalrca.causal.signatures import load_signature, save_signature
-from rca.v21.inversion import assert_no_marker_columns
-from rca.v21.pipeline import (
+from legacy.v21.inversion import assert_no_marker_columns
+from legacy.v21.pipeline import (
     PROTOCOL_D3, TEMPLATE_KEYS, load_cf_gate, score_trajectory, compute_metrics,
 )
-from rca.v21.ablation_symbolic import (
+from legacy.v21.ablation_symbolic import (
     NO_ONTOLOGY_SIGNATURE_DIR, STRICT_SIGNATURE_DIR,
     learn_no_ontology_template, learn_strict_template,
     fit_mad_baseline, score_trajectory_mad, score_trajectory_strict,

@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from causalrca.config.constants_v21 import (
     CF_FAIL_AGREEMENT, CF_DYNAMIC_RANGE_MIN, GCF_PASS, GCF_FAIL,
 )
-from rca.v21.cf_validation import counterfactual_validation
+from legacy.v21.cf_validation import counterfactual_validation
 
 N = 25
 X = np.linspace(0.4, 1.4, N)

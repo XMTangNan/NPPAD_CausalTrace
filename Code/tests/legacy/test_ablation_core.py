@@ -14,8 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from causalrca.config.constants_v21 import (
     ACCIDENT_TYPES, GROUP_ORDER, PILOT_MARKER_COLS, MARKERS, W_FULL,
 )
-from rca.v21.pipeline import score_trajectory, compute_metrics, apply_minmax
-from rca.v21.ablation_core import score_ablation, ABLATIONS
+from legacy.v21.pipeline import score_trajectory, compute_metrics, apply_minmax
+from legacy.v21.ablation_core import score_ablation, ABLATIONS
 
 V_THR = ["X1", "X2"]
 

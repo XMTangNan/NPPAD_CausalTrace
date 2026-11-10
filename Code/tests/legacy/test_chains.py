@@ -16,8 +16,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from causalrca.config.constants_v21 import MARKERS, GROUP_ORDER
-from rca.v21 import chains as C
-from rca.v21.pipeline import fit_minmax
+from legacy.v21 import chains as C
+from legacy.v21.pipeline import fit_minmax
 
 
 # ==================== 合成夹具 ====================

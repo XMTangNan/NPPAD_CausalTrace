@@ -22,8 +22,8 @@ from causalrca.causal.signatures import (
     bootstrap_lingam_template, save_signature, load_signature,
     annotate_severity_flip,
 )
-from rca.v21.marker_effects import trajectory_steady_pairs, marker_ca_column
-from rca.v21.inversion import signed_median_z, overlimit_rates, activation_set, build_group_pattern
+from legacy.v21.marker_effects import trajectory_steady_pairs, marker_ca_column
+from legacy.v21.inversion import signed_median_z, overlimit_rates, activation_set, build_group_pattern
 from causalrca.io.logging import logger
 
 

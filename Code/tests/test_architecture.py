@@ -47,7 +47,7 @@ def test_legacy_shims_resolve_to_same_objects():
 
 def test_legacy_config_and_paths_still_import():
     """旧常量/路径入口仍可用。"""
-    from rca import rca_config_v21  # noqa: F401
+    from causalrca.config import constants_v21 as rca_config_v21  # noqa: F401
     import config  # noqa: F401
     import core.utils as legacy_utils  # noqa: F401
 
@@ -62,7 +62,7 @@ def test_legacy_config_and_paths_still_import():
 
 def test_shim_assignment_reaches_implementation(monkeypatch, tmp_path):
     """向 shim 属性赋值必须落到实现模块（monkeypatch 报告链依赖此行为）。"""
-    from rca.v21 import artifact as legacy_artifact
+    from causalrca.io import artifact as legacy_artifact
     from causalrca.io import artifact as new_artifact
 
     subs = {"reports": tmp_path}
@@ -76,7 +76,7 @@ def test_shim_assignment_reaches_implementation(monkeypatch, tmp_path):
 
 def test_unknown_attribute_still_raises():
     """白名单外不得静默返回实现模块的私有成员。"""
-    from rca.v21 import artifact as legacy_artifact
+    from causalrca.io import artifact as legacy_artifact
 
     with pytest.raises(AttributeError):
         getattr(legacy_artifact, "not_a_real_symbol")

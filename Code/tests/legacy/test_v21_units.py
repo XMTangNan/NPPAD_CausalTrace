@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from causalrca.causal.signatures import bfs_frontier, total_effect
 from causalrca.evidence.knowledge import apply_ontology_constraint
-from rca.v21.inversion import (
+from legacy.v21.inversion import (
     e3_base_channel, e3_path_channel, activation_set, should_abstain,
     assert_no_marker_columns, MarkerAccessError, overlimit_rates,
 )
@@ -129,7 +129,7 @@ def test_masked_zero_access_assertion():
 
 
 def test_marker_ca_column():
-    from rca.v21.marker_effects import marker_ca_column
+    from legacy.v21.marker_effects import marker_ca_column
     rng = np.random.default_rng(0)
     n = 40
     x = np.linspace(0.4, 1.4, n)
@@ -147,7 +147,7 @@ def test_marker_ca_column():
 
 
 def test_effective_marker_map_precedence():
-    from rca.v21.marker_effects import effective_marker_map
+    from legacy.v21.marker_effects import effective_marker_map
     cA = {"V1": {"cA": -1.0, "piA": 0.95, "estimable": True},
           "V2": {"cA": 5.0, "piA": 0.40, "estimable": True},
           "V3": {"cA": 9.0, "piA": 0.0, "estimable": False}}

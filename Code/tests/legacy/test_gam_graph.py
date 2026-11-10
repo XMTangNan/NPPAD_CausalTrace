@@ -9,7 +9,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rca.v21.gam_graph import (
+from legacy.v21.gam_graph import (
     pair_vote_matrix, bootstrap_pair_counts, consensus_classify,
 )
 

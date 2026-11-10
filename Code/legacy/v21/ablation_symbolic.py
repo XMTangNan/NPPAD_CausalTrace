@@ -32,12 +32,12 @@ from causalrca.causal.signatures import (
     bootstrap_lingam_template, load_signature, save_signature,
     compute_graph_only_scale, transform_graph_block, select_stable_edges,
 )
-from rca.v21.marker_effects import trajectory_steady_pairs, marker_ca_column
-from rca.v21.inversion import (
+from legacy.v21.marker_effects import trajectory_steady_pairs, marker_ca_column
+from legacy.v21.inversion import (
     signed_median_z, overlimit_rates, activation_set, should_abstain,
     assert_no_marker_columns, build_group_pattern,
 )
-from rca.v21.pipeline import (
+from legacy.v21.pipeline import (
     observe_main_window, score_template_raw, _nanmax_or_zero,
     apply_minmax, fuse_scores, e1_vector, marker_main_medians,
 )

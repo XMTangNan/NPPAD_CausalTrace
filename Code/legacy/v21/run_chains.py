@@ -29,11 +29,11 @@ from causalrca.config.constants_v21 import (
 )
 from causalrca.data import loader as D
 from causalrca.causal.signatures import load_signature
-from rca.v21.pipeline import (
+from legacy.v21.pipeline import (
     load_cf_gate, observe_main_window, score_trajectory,
 )
-from rca.v21.inversion import assert_no_marker_columns
-from rca.v21 import chains as C
+from legacy.v21.inversion import assert_no_marker_columns
+from legacy.v21 import chains as C
 from causalrca.io.logging import logger
 
 CHAIN_DIR = V21_OUTPUT / "chains"

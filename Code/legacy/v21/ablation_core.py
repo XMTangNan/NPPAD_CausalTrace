@@ -27,11 +27,11 @@ import numpy as np
 from causalrca.config.constants_v21 import (
     ACCIDENT_TYPES, GROUP_ORDER, MARKER_COLS, W_FULL, W_MASKED,
 )
-from rca.v21.inversion import (
+from legacy.v21.inversion import (
     assert_no_marker_columns, e2_score, e3_base_channel, e3_path_channel,
     should_abstain,
 )
-from rca.v21.pipeline import (
+from legacy.v21.pipeline import (
     apply_minmax, e1_vector, marker_main_medians, observe_main_window,
     score_template_raw, _nanmax_or_zero,
 )

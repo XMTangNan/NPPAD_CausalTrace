@@ -18,8 +18,8 @@ from causalrca.config.constants_v21 import (
 )
 from causalrca.data import loader as D
 from causalrca.causal.signatures import load_signature
-from rca.v21.pipeline import load_cf_gate, PROTOCOL_D3
-from rca.v21.calibration import (
+from legacy.v21.pipeline import load_cf_gate, PROTOCOL_D3
+from legacy.v21.calibration import (
     calibration_jobs, evaluate_loo, assemble_calibration, json_ready,
 )
 from causalrca.io.logging import logger

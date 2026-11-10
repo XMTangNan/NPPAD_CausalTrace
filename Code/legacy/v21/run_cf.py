@@ -15,8 +15,8 @@ from causalrca.config.constants_v21 import (
 )
 from causalrca.data import loader as D
 from causalrca.causal.signatures import load_signature
-from rca.v21.marker_effects import trajectory_steady_pairs
-from rca.v21.cf_validation import counterfactual_validation
+from legacy.v21.marker_effects import trajectory_steady_pairs
+from legacy.v21.cf_validation import counterfactual_validation
 from causalrca.io.logging import logger
 
 

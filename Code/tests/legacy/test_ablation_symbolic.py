@@ -12,12 +12,12 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rca.v21.ablation_symbolic import (
+from legacy.v21.ablation_symbolic import (
     observe_main_window_mad, score_trajectory_strict, edge_retention,
     aggregate_edge_stats_no_marker,
 )
-from rca.v21.pipeline import observe_main_window
-from rca.v21.inversion import build_group_pattern, signed_median_z
+from legacy.v21.pipeline import observe_main_window
+from legacy.v21.inversion import build_group_pattern, signed_median_z
 
 
 def test_mad_activation_vs_sigma():
