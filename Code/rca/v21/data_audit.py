@@ -29,14 +29,16 @@ from rca.v21.data import (
     load_trajectory, window_slice, save_json,
 )
 from rca.v21.knowledge import ENTITY_TABLE
+from rca.v21 import external_knowledge as EK
 from core.utils import logger
 
 # ==================== 审计常量（方案 §4.4.1 / §4.4.2）====================
 POTENTIAL_PATHOLOGY_CV = 0.01      # σ/|μ| < 1% → 潜在病态
 Z_PATHOLOGY_THRESHOLD = 100.0      # max|z| > 100 → Z病态
 Z_TRUNCATION = (-10.0, 10.0)       # z 截断
-# 逐变量物理 σ_floor（评审 P0：禁止全局统一 1%·|μ|）
-PHYSICAL_SIGMA_FLOOR = {"bar": 0.5, "%": 0.5, "t/h": 5.0}
+# 逐变量物理 σ_floor 的数值配置**不再在本模块定义**（V23-DESIGN-029）：
+# 唯一来源是 rca/v21/external_knowledge.py + external_knowledge/tolerance_overrides.yaml
+# （by_variable → by_unit → fallback·|μ|）。此处仅保留对它的引用，避免两套口径漂移。
 MIN_BASELINE_POINTS = 30           # 基线段点数不足则回退全段前 150 点
 FALLBACK_HEAD_POINTS = 150
 
@@ -93,18 +95,28 @@ def _class_marker(code: str, cfg: Optional[Dict] = None) -> Optional[str]:
 
 # ==================== B5 纯函数：σ_floor / 变量 z 画像 ====================
 def sigma_floor_for(var: str, mu: float,
-                    entity_table: Optional[Dict] = None) -> Dict:
-    """逐变量物理 σ_floor；无物理下限时回退 1%·|μ|。
+                    entity_table: Optional[Dict] = None,
+                    unit: Optional[str] = None) -> Dict:
+    """逐变量物理 σ_floor 的**兼容包装**（数值决策唯一来源：external_knowledge）。
 
-    返回 {"floor", "source": "physical"|"fallback", "unit", "rule"}。
+    V23-DESIGN-029：原先 data_audit 自带一套 PHYSICAL_SIGMA_FLOOR + 1%·|μ| 的实现，
+    与 external_knowledge.sigma_floor_for（tolerance_overrides.yaml）构成两套口径；
+    现统一由 EK 决定数值（by_variable → by_unit → fallback），本函数只保留
+    data_audit 既有的 dict 契约（floor/source/unit/rule），以免断引用。
+
+    Args:
+        var: 变量名
+        mu: 基线均值（fallback 时用 |μ| 计下限）
+        entity_table: 量纲表覆盖（默认 knowledge.ENTITY_TABLE）
+        unit: 显式量纲（优先于 entity_table 反查）
     """
-    et = ENTITY_TABLE if entity_table is None else entity_table
-    unit = et.get(var, {}).get("unit")
-    if unit in PHYSICAL_SIGMA_FLOOR:
-        return {"floor": float(PHYSICAL_SIGMA_FLOOR[unit]), "source": "physical",
-                "unit": unit, "rule": f"unit={unit} -> {PHYSICAL_SIGMA_FLOOR[unit]}"}
-    return {"floor": float(POTENTIAL_PATHOLOGY_CV * abs(mu)), "source": "fallback",
-            "unit": unit, "rule": "no physical floor -> 1%*|mu|"}
+    if unit is None:
+        et = ENTITY_TABLE if entity_table is None else entity_table
+        unit = et.get(var, {}).get("unit")
+    floor, source = EK.sigma_floor_for(var, mu, unit)
+    rule = (f"physical: {var}/unit={unit} -> {floor}" if source == "physical"
+            else f"fallback: {floor} = ratio*|mu| (unit={unit})")
+    return {"floor": float(floor), "source": source, "unit": unit, "rule": rule}
 
 
 def variable_z_profile(var: str, baseline_values, main_values=None,
@@ -124,13 +136,8 @@ def variable_z_profile(var: str, baseline_values, main_values=None,
     mad = float(np.median(np.abs(x - mu))) if n else float("nan")
     cv = (sigma / abs(mu)) if (n and abs(mu) > 1e-12) else None
 
-    sf = sigma_floor_for(var, mu, entity_table)
-    if unit is not None:
-        sf["unit"] = unit
-        if unit in PHYSICAL_SIGMA_FLOOR:
-            sf["floor"], sf["source"] = float(PHYSICAL_SIGMA_FLOOR[unit]), "physical"
-        else:
-            sf["floor"], sf["source"] = POTENTIAL_PATHOLOGY_CV * abs(mu), "fallback"
+    # σ_floor 一律走 EK 唯一来源；显式 unit 直接传入，不再本地二次覆盖
+    sf = sigma_floor_for(var, mu, entity_table, unit)
 
     sigma_robust = max(1.4826 * mad, sf["floor"]) if n else float("nan")
     potential = bool(cv is not None and cv < POTENTIAL_PATHOLOGY_CV)
@@ -507,12 +514,17 @@ def audit_z_pathology(code: str, baseline_severities: Sequence[int] = (1,),
         baseline_sevs = [sevs[0]] if sevs else []
 
     out: Dict = _common(code, run_id, "z_pathology_audit")
+    _tol = EK.load_tolerance_overrides()
     out.update({"main_window": list(main_win), "baseline_window": list(base_win),
                 "thresholds": {"potential_pathology_cv": POTENTIAL_PATHOLOGY_CV,
                                "z_pathology": Z_PATHOLOGY_THRESHOLD},
                 "sigma_floor_config": {
-                    "physical": PHYSICAL_SIGMA_FLOOR,
-                    "fallback": "1%*|mu|（无物理下限时）"},
+                    # 唯一来源：external_knowledge + tolerance_overrides.yaml（V23-DESIGN-029）
+                    "source": ("rca/v21/external_knowledge.sigma_floor_for + "
+                               "external_knowledge/tolerance_overrides.yaml"),
+                    "by_variable": _tol["by_variable"],
+                    "by_unit": _tol["by_unit"],
+                    "fallback": _tol["fallback"]},
                 "z_truncation": list(Z_TRUNCATION)})
 
     if not sevs:

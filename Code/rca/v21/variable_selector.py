@@ -6,7 +6,8 @@
 四阶段漏斗：
   阶段1 硬过滤：近常量（σ<1e-6 或唯一值<3）、缺失率>50%、全程零值 剔除
   阶段2 数据驱动评分：CV(0.25) + 非高斯(0.20) + 轨迹级MI(0.30) + 跨轨迹区分度(0.25)
-  阶段3 物理知识校验：触发变量+关键响应强制保留、子系统覆盖、冗余消除
+  阶段3 物理知识校验：触发变量+关键响应强制保留、精确重复测点去重、
+        子系统覆盖、冗余消除
   阶段4 因果发现适配：VIF<500 迭代剔除、变量数 15-25
 
 复用：
@@ -61,6 +62,18 @@ TOP_K = 30
 # 取值 0.15 的依据：评分已归一到 [0,1]，0.15 足以让锚定变量进入 TOP_K 前列，
 # 又不足以把高共线变量强留在最终集合（VIF≥500 仍会被剔除并记录）。
 ANCHOR_SCORE_BONUS = 0.15
+
+# 精确重复测点对判定阈值（V23-DESIGN-028）：同一物理量的双测点在数据里是
+# 两条几乎同一的序列，实测 FLB PSGA/PSGB=0.9999999996、WFWA/WFWB=0.9999999947，
+# SGATR PSGA/PSGB=0.999916、LSGA/LSGB=0.994073。取 |Pearson r| ≥ 0.99
+# （R² ≥ 0.98，等效 VIF≈50）判为「精确重复」：
+#   1) 覆盖上述全部实测配对（最小 0.994073）；
+#   2) 与强制集内下一个最高相关（LOCA TAVG/VOL=0.9106）留有明显间隔，
+#      不会退化成通用冗余过滤器（通用去冗余仍由 deduplicate 负责）；
+#   3) 等效 VIF 比 VIF_MAX=500 低一个数量级，与 V3 判据解耦。
+# 该阈值只决定「同一物理量双测点保留哪一路」，不参与 V3/V5 判定。
+DUPLICATE_CORR_MIN = 0.99
+DUPLICATE_STAGE = "stage3"
 
 # 变量列序固定规则（V23-CODE-023）：字母序（ASCII，变量名全大写）。
 # 为什么必须固定：DirectLiNGAM 的逐变量回归顺序对输入列序敏感，同一变量集
@@ -174,6 +187,66 @@ def deduplicate(vars_list: List[str], scores: Dict[str, float],
         if non_forced_in_sub:
             result.append(max(non_forced_in_sub, key=lambda v: scores.get(v, 0.0)))
     return result
+
+
+# ==================== 阶段3：精确重复测点去重（V23-DESIGN-028）====================
+def _pair_corr(df: pd.DataFrame, a: str, b: str) -> Optional[float]:
+    """两列在共同非缺失行上的 Pearson r；样本不足或常数列返回 None。"""
+    if a not in df.columns or b not in df.columns:
+        return None
+    sub = df[[a, b]].dropna()
+    if len(sub) < 3:
+        return None
+    xa = sub[a].to_numpy(dtype=float)
+    xb = sub[b].to_numpy(dtype=float)
+    if xa.std() < 1e-12 or xb.std() < 1e-12:
+        return None
+    return float(np.corrcoef(xa, xb)[0, 1])
+
+
+def dedupe_duplicate_key_responses(
+        key_responses: Sequence[str], raw_data: pd.DataFrame
+) -> Tuple[List[str], List[Dict]]:
+    """阶段3：同一物理量的双测点只保留一路（方案 §3.3 阶段3 冗余消除的特例）。
+
+    为什么需要：PSGA/PSGB、WFWA/WFWB、LSGA/LSGB 是同一物理量的 A/B 两路测点，
+    实测相关系数 0.994~1.000（见 DUPLICATE_CORR_MIN 注释）。两路同时进入强制集
+    （forced → protected）会绕过去冗余与 VIF 迭代，导致入选集合 VIF≈∞、V3 恒 fail。
+
+    口径：
+      - 只处理 key_responses，触发变量永不参与剔除；
+      - 按配置顺序贪心遍历，与「已保留的一路」|r| ≥ DUPLICATE_CORR_MIN 即剔除；
+      - 保留先出现的一路（如 PSGA 先于 PSGB），剔除项完整记录配对/相关系数/保留项。
+
+    Returns:
+        (保留的 key_responses, 剔除记录列表)
+    """
+    kept: List[str] = []
+    dropped: List[Dict] = []
+    for v in key_responses:
+        if v not in raw_data.columns:
+            kept.append(v)
+            continue
+        twin: Optional[Tuple[str, float]] = None
+        for k in kept:
+            r = _pair_corr(raw_data, k, v)
+            if r is not None and abs(r) >= DUPLICATE_CORR_MIN:
+                twin = (k, r)
+                break
+        if twin is None:
+            kept.append(v)
+            continue
+        dropped.append({
+            "var": v,
+            "retained": twin[0],
+            "pair": sorted([twin[0], v]),
+            "corr": float(twin[1]),
+            "stage": DUPLICATE_STAGE,
+            "reason": (f"同一物理量双测点：{twin[0]} / {v} 的 |Pearson r|="
+                       f"{abs(twin[1]):.6f} ≥ {DUPLICATE_CORR_MIN}，"
+                       f"保留 {twin[0]}，剔除 {v}"),
+        })
+    return kept, dropped
 
 
 # ==================== 数据构造 ====================
@@ -302,23 +375,44 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
 
     # ---------- 阶段3：物理知识校验（方案 §3.3 阶段3）----------
     trigger = get_trigger_var(accident_type)
-    key_responses = get_key_responses(accident_type)
+    key_responses_configured = get_key_responses(accident_type)
+    # 精确重复测点去重（V23-DESIGN-028）：同一物理量的 A/B 双测点只保留一路，
+    # 另一路不进入 forced，故不会被 protected 永久钉住、也不会抬高 V3 的 VIF。
+    key_responses, dropped_key_response = dedupe_duplicate_key_responses(
+        key_responses_configured, raw_data)
+    if dropped_key_response:
+        logger.info(
+            f"[变量选取] {accident_type}: 阶段3 剔除重复测点 "
+            f"{[(d['var'], d['retained'], d['corr']) for d in dropped_key_response]}")
     forced = [v for v in [trigger] + key_responses if v is not None and v in num_cols]
+
+    # 被剔除的重复测点此后不得以任何路径回流（V23-DESIGN-028）：
+    #   阶段2 TOP_K 里可能本来就有它；它可能被选为子系统代表（→ protected）；
+    #   可能是锚定变量；也可能被 N_MIN 回补。四条路径统一封死。
+    dropped_key_vars = {d["var"] for d in dropped_key_response}
+    retained_of = {d["var"]: d for d in dropped_key_response}
+    if dropped_key_vars:
+        top_k = [v for v in top_k if v not in dropped_key_vars]
 
     for v in forced:
         if v not in top_k and v in candidates:
             top_k.append(v)
 
     required_subsystems = get_required_subsystems(accident_type)
-    # 每子系统选取得分最高的代表变量（V2 子系统覆盖，受 VIF 保护）
+    # 每子系统选取得分最高的代表变量（V2 子系统覆盖，受 VIF 保护）。
+    # 若最高分恰是被剔除的重复测点，则代表权交给同物理量已入选的另一路
+    # （不得因此改用次高分变量——那会凭空引入一个未被选中的保护变量）。
     subsystem_reps: List[str] = []
     for sub in required_subsystems:
         sub_cands = [v for v in candidates if get_subsystem(v) == sub]
-        if sub_cands:
-            best = max(sub_cands, key=lambda v: scores.get(v, 0.0))
-            subsystem_reps.append(best)
-            if best not in top_k:
-                top_k.append(best)
+        if not sub_cands:
+            continue
+        best = max(sub_cands, key=lambda v: scores.get(v, 0.0))
+        if best in retained_of:
+            best = retained_of[best]["retained"]
+        subsystem_reps.append(best)
+        if best not in top_k:
+            top_k.append(best)
 
     # ---------- 阶段3b：论文锚定（V23-DESIGN-018；返工 V23-DESIGN-023）----------
     # 论文原文：最终变量集 = XGBoost 特征选择 + 领域专家验证（p.4），但未给出名单；
@@ -329,6 +423,14 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
     anchor_all = list(anchor_spec["anchor_variables"])
     anchor_dropped: List[Dict] = []
     for v in anchor_all:
+        if v in retained_of:
+            d = retained_of[v]
+            anchor_dropped.append({
+                "var": v, "stage": "stage3_duplicate",
+                "reason": (f"与保留测点 {d['retained']} 为同一物理量的重复测点"
+                           f"（|Pearson r|={abs(d['corr']):.6f}），阶段3 去重剔除"),
+            })
+            continue
         if v in candidates:
             continue
         if v in anchor_spec["missing_in_data"]:
@@ -337,7 +439,8 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
             reason = stage1_drop_reason(v, stage1_log) or "not_numeric_column"
         anchor_dropped.append({"var": v, "stage": "stage1_or_missing", "reason": reason})
 
-    anchor_vars = [v for v in anchor_all if v in candidates]
+    anchor_vars = [v for v in anchor_all
+                   if v in candidates and v not in dropped_key_vars]
     for v in anchor_vars:
         scores[v] = min(1.0, float(scores.get(v, 0.0)) + ANCHOR_SCORE_BONUS)
     for v in anchor_vars:
@@ -413,7 +516,8 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
                 })
         selected = list(protected_kept) + trimmed
     elif len(selected) < N_MIN:
-        remaining = sorted([v for v in candidates if v not in selected],
+        remaining = sorted([v for v in candidates
+                            if v not in selected and v not in dropped_key_vars],
                            key=lambda v: scores.get(v, 0.0), reverse=True)
         for v in remaining:
             if len(selected) >= N_MIN:
@@ -473,6 +577,22 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
             "action": "retained",
         })
 
+    # V5 判据不变（关键响应必须全部入选，严禁放宽）：判据作用在**配置清单**上，
+    # 因此被阶段3 判为精确重复测点而剔除的一路会让 V5=False。这不是漏检，而是
+    # 去重的可见代价——剔除项、配对、相关系数、保留项全部记在 dropped_key_response。
+    v5_ok = all(v in selected for v in key_responses_configured)
+    v5_eff_ok = all(v in selected for v in key_responses)
+    v5_note = (
+        f"按配置 V5={'pass' if v5_ok else 'fail'}；"
+        f"阶段3 剔除 {len(dropped_key_response)} 个重复测点 "
+        f"{[d['var'] for d in dropped_key_response]}"
+        f"（保留 {[d['retained'] for d in dropped_key_response]}），"
+        f"有效关键响应 {len(key_responses)}/{len(key_responses_configured)} 个"
+        f"{'全部入选' if v5_eff_ok else '未全部入选'}"
+        if dropped_key_response else
+        f"关键响应 {len(key_responses)} 个{'全部' if v5_ok else '未全部'}按配置入选"
+        f"（无重复测点剔除）")
+
     report = {
         "accident_type": accident_type,
         "n_candidates_stage1": len(candidates),
@@ -480,6 +600,11 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
         "scores": scores,
         "raw_metrics": raw_metrics,
         "forced": forced,
+        "key_responses_configured": key_responses_configured,
+        "key_responses_effective": key_responses,
+        "dropped_key_response": dropped_key_response,
+        "duplicate_corr_min": DUPLICATE_CORR_MIN,
+        "v5_note": v5_note,
         "subsystem_reps": subsystem_reps,
         "protected": sorted(protected),
         "protected_in_selected": sorted(protected & set(selected)),
@@ -545,7 +670,8 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
             # 三态：True=pass / False=fail / None=n/a（原因见 v3_note）
             "V3_vif_lt_500": (None if v3_status == "n/a" else v3_status == "pass"),
             "V4_trigger_included": trigger in selected,
-            "V5_key_responses_included": all(v in selected for v in key_responses),
+            # 判据不变：按配置的关键响应全入选；重复测点剔除的可见代价见 v5_note
+            "V5_key_responses_included": v5_ok,
             "V6_reproducible": None,   # 由调用方二次运行后回填
             "V7_skew_gt_0.5_60pct": skew_frac >= 0.6,
         },
