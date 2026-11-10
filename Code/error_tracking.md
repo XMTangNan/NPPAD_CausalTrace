@@ -1561,3 +1561,37 @@ gitignore），`pytest` 161 passed。
 需在论文中说明可引用数字只取 100 次 run；② 结项汇总报告**已完成**（`方案/对比吸收结项报告-20261110.md`，含 C57 去遮蔽归因更正）。
 **待办**：① 模板级检索若要做"幅值感知"以改善类内分级，另开编号；② 其余 8 类无数据、LOCAC 仅 5 条
 （描述性、`n=5`），检索候选仍按 3 类；035 旧值永久作废。
+
+**V23-DESIGN-058（closed）· 教师真值取证结论写入对比稿（只读取证，无代码改动）**
+
+- 触发：用户裁决"评测指标无法给出（没有明确真值）"，随后要求对教师 `GROUND_TRUTH` 的来源做只读取证并据实改写。
+- 取证结论（另一会话执行，只读）：
+  ① `GROUND_TRUTH` 位于 `nppad_rca_experiment/rca_experiment.py` L35–48，12 类字典；来源仅 L33–34 两行注释
+  （`derived from the NPPAD accident table and variable table`、`direct initiating-event variables, not exhaustive physical causes`）；
+  **无 citation、无外部标注文件**；项目及上级目录非 git 仓库，加入时间与方式无历史可查。
+  ② 上游 `thu-inet/NuclearPowerPlantAccidentData`：`NPPAD/` 18 个类目录无 README/标注文件；根 README 元数据只有
+  `Folder name / Accident Type / Severity`，变量表 96 项**无根因列**。
+  ③ 每 case 仅 `Transient Report.txt` 记 `Malfunction # N`，仓库不提供编号→变量映射，**无法用数据独立复算任何真值**。
+  ④ 真值为类级常量、不随 severity 变化；覆盖 12 类（含 `LOF`、`TT` 各 1 条），数据集有数据的 `SLBIC`/`SLBOC` 未纳入。
+  ⑤ 真值与教师自身算法输出不一致：LOCA/LOCAC/MD 的 Top-1 重合 **0/100**，SGATR 50/100、FLB 45/100、RW 100/100、LLB 87/101
+  → **"真值由其算法结果反推"不成立**（该假设已被证伪，不得再写入文档）。
+- 文档改动：`submit/NPPAD-CausalTrace-v2.3与教师项目方案对比-2026-11-11.md` §1.6 来源行（新增"与自身算法输出的一致性""覆盖"两行）、
+  §1.6 差别段、§3.1 缺点 6、§5 第 3 条、§7 速查表对方行、页末备忘，并新增 **§10 取证记录**（含证据来源会话与范围：只读、未改代码、未跑实验）。
+- 口径：双方真值同属"人工假设"——我方与教师表 10 类对齐、属**继承**；教师表为**人工归纳、无引用、不可复算、类级常量**。
+  双方命中类指标一律只能读作"与假设的一致度"，**不得作准确率**；对双方同等适用。
+- 未动数字：不改任何已落盘产物、不改 `manifest.json` sha256。
+- 状态：✅ 已执行（文档已改，提交见同批 commit）。
+
+**V23-DESIGN-059（open → 跑完后回填结果）· 正式档 100 次全流程（用户显式一次性授权）**
+
+- 授权：用户明确"本次允许 100 次 bootstrap"，属一次性授权，**不改 `N_BOOTSTRAP_DEFAULT=5`**。
+- 代码改动（为满足"可引用标记打开"）：
+  ① `artifact.build_manifest(run_id, citable=None)` 新增 `citable` 形参，写入 manifest 顶层（默认仍 `null`，不自动推导，V23-DESIGN-044 不变）；
+  ② `run_v23_all.py` 新增 `--citable`；仅 `run_mode=spec`（`n_bootstrap>=100`）允许，缩减档带此参数**直接报错**，不静默降级；
+  ③ 同一 run 的 summary `parameters` 记录 `n_bootstrap / run_mode / stability_claims_allowed / citable`。
+- 执行：`run_v23_all --n-bootstrap 100 --citable --rerun-reason E-R1_user_authorized_prod_100`，后台运行，日志 `/tmp/v23_prod_100.log`。
+- run_id：**`v23-20261111T022417`**（2026-11-11 02:24:17 启动），10 步全链（A1/B/D2/C/C3/C3b/C3c/D9/D6-D7/D11/C7）。
+- 预期口径：`run_mode=spec`、`stability_claims_allowed=true`、`citable=true`、`latest` 刷新到该 run。
+- 失败处理：任一步失败即停，不静默重试、不换档凑数；失败原因写入本条并报告。
+- 测试：改动后 `pytest tests` 162 passed（改动前同样 162 passed）。
+- 状态：⏳ 进行中（结果、稳定性/结构健康度实值、诊断对照跑完后回填本条）。

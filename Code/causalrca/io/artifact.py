@@ -213,7 +213,8 @@ def _probe_n_bootstrap(root: Path) -> Optional[int]:
 
 
 def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.png", "*.html", "*.md", "*.txt"),
-                   skip: Iterable[str] = ("manifest.json",)) -> Path:
+                   skip: Iterable[str] = ("manifest.json",),
+                   citable: Optional[bool] = None) -> Path:
     """扫描本 run 根下全量产物，写 <run 根>/manifest.json（path/size/sha256/lineage）。
 
     `path` 一律是相对本 run 根的 POSIX 路径，便于迁移/比对与禁止跨 run 串源。
@@ -257,7 +258,8 @@ def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.
         "run_mode": run_mode,
         # citable 不再由 bootstrap 次数自动推导（V23-DESIGN-044）：需人工显式声明；
         # 默认 null = 未声明。是否可声称边稳定性由 stability_claims_allowed 单独判定。
-        "citable": None,
+        # 2026-11-11：显式声明由调用方传入（run_v23_all --citable），仅 spec 档允许为 True。
+        "citable": citable,
         "stability_claims_allowed": stability_claims_allowed(n_bootstrap),
         "lineage": {
             "run_id_of_manifest": run_id,

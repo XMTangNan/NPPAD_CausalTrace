@@ -44,7 +44,8 @@ from causalrca.reporting import llm_explanation as LE
 from causalrca.reporting import report_template as RT
 from causalrca.config.accident_config import READY_CODES, PARTIAL_CODES, REGISTRY
 from causalrca.config.constants_v23 import (
-    N_BOOTSTRAP_DEFAULT, N_BOOTSTRAP_SPEC, run_mode_for, stability_claims_allowed,
+    N_BOOTSTRAP_DEFAULT, N_BOOTSTRAP_SPEC, RUN_MODE_SPEC,
+    run_mode_for, stability_claims_allowed,
 )
 
 GROUPS: List[str] = ["low", "mid", "high"]
@@ -338,6 +339,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="B1 角色先验开关（默认关闭）；开启时评测并列有/无先验两版排序与两套指标")
     ap.add_argument("--rerun-reason", default=None,
                     help="全链重跑原因（方案 §6.4 强制）：必须命中 E-R1/E-R2/E-R3/E-R4 并写清具体项")
+    ap.add_argument("--citable", action="store_true",
+                    help="显式声明本次产物可引用（仅 n_bootstrap 达正式口径/spec 档允许；缩减档直接报错）")
     args = ap.parse_args(argv)
 
     classes = list(args.classes or READY_CODES)
@@ -365,6 +368,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     run_id = artifact.new_run_id("v23")
     run_mode = run_mode_for(args.n_bootstrap)
+    if args.citable and run_mode != RUN_MODE_SPEC:
+        raise SystemExit(
+            f"--citable 仅允许正式口径（n_bootstrap>={N_BOOTSTRAP_SPEC}，run_mode={RUN_MODE_SPEC}）；"
+            f"本次 n_bootstrap={args.n_bootstrap} → run_mode={run_mode}，不得标可引用")
+    citable = True if args.citable else None
     if not stability_claims_allowed(args.n_bootstrap):
         logger.warning(f"[D10] n_bootstrap={args.n_bootstrap}（正式口径 {N_BOOTSTRAP_SPEC}）："
                        f"run_mode={run_mode}；报告中必须打印实际次数，"
@@ -394,7 +402,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                        "n_bootstrap": args.n_bootstrap,
                        "run_mode": run_mode,
                        "stability_claims_allowed": stability_claims_allowed(args.n_bootstrap),
-                       "citable": None,
+                       "citable": citable,
                        "role_prior": bool(getattr(args, "role_prior", None)),
                        "explanation_backend": backend,
                        "note": llm_note},
@@ -416,7 +424,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     summary_path = artifact.write_artifact("run_v23_all_summary", summary, "reports",
                                            run_id=run_id, source="causalrca/cli/run_v23_all.py")
     if manifest_ok:  # summary 落盘后刷新 manifest，使其纳入本次 summary
-        artifact.build_manifest(run_id)
+        artifact.build_manifest(run_id, citable=citable)
 
     print("=" * 78)
     print(f"[D10] run_id={run_id} steps={summary['n_steps_ok']}/{len(steps)} ok "
