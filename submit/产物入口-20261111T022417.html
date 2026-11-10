@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>CausalTrace 产物入口 · v23-20261111T022417</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --fg:#e6e8ec; --dim:#98a2b3; --acc:#6ea8fe; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:28px 32px 48px; background:var(--bg); color:var(--fg);
+         font:14px/1.65 -apple-system,"Segoe UI","Noto Sans SC","Microsoft YaHei",sans-serif; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 24px; font-size:13px; }
+  h2 { font-size:15px; margin:32px 0 12px; padding-bottom:6px; border-bottom:1px solid var(--line); color:var(--dim); font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .card h3 { margin:0 0 10px; font-size:14px; letter-spacing:.02em; }
+  .card h3 span { color:var(--dim); font-weight:400; margin-left:6px; }
+  .open { display:block; padding:9px 12px; margin-bottom:10px; border:1px solid #35507d; border-radius:8px;
+          background:#1b2536; color:var(--acc); text-decoration:none; font-weight:600; }
+  .open:hover { background:#223049; }
+  ul { list-style:none; margin:0; padding:0; }
+  li { margin:4px 0; }
+  a { color:#a9c4f5; text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .links { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:10px; }
+  .links div { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 14px; }
+  table { border-collapse:collapse; width:100%; margin-top:8px; font-size:13px; }
+  th, td { border:1px solid var(--line); padding:6px 10px; text-align:left; vertical-align:top; }
+  th { color:var(--dim); font-weight:600; background:#141821; }
+  code { background:#12151c; border:1px solid var(--line); border-radius:4px; padding:1px 5px; font-size:12.5px; }
+  .note { color:var(--dim); font-size:12.5px; margin-top:10px; }
+</style>
+</head>
+<body>
+
+<h1>CausalTrace 产物入口</h1>
+<p class="sub">run <code>v23-20261111T022417</code>（n_bootstrap = 100）· 纯静态页，双击即可打开 · 所有链接为相对路径，指向本次运行的真实产物文件</p>
+
+<h2>九宫格：每模板因果图（HTML）</h2>
+<div class="grid">
+
+  <article class="card">
+    <h3>LOCA<span>· low</span></h3>
+    <a class="open" href="../Code/output/runs/v23-20261111T022417/graphs/graph_LOCA_low.html">打开因果图</a>
+    <ul>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_LOCA_low.txt">解读报告（txt）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_LOCA_low.json">解读报告（json）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/signatures/signature_LOCA_low.json">图数据（边表 + 节点表）</a></li>
+    </ul>
+  </article>
+
+  <article class="card">
+    <h3>LOCA<span>· mid</span></h3>
+    <a class="open" href="../Code/output/runs/v23-20261111T022417/graphs/graph_LOCA_mid.html">打开因果图</a>
+    <ul>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_LOCA_mid.txt">解读报告（txt）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_LOCA_mid.json">解读报告（json）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/signatures/signature_LOCA_mid.json">图数据（边表 + 节点表）</a></li>
+    </ul>
+  </article>
+
+  <article class="card">
+    <h3>LOCA<span>· high</span></h3>
+    <a class="open" href="../Code/output/runs/v23-20261111T022417/graphs/graph_LOCA_high.html">打开因果图</a>
+    <ul>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_LOCA_high.txt">解读报告（txt）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_LOCA_high.json">解读报告（json）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/signatures/signature_LOCA_high.json">图数据（边表 + 节点表）</a></li>
+    </ul>
+  </article>
+
+  <article class="card">
+    <h3>SGATR<span>· low</span></h3>
+    <a class="open" href="../Code/output/runs/v23-20261111T022417/graphs/graph_SGATR_low.html">打开因果图</a>
+    <ul>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_SGATR_low.txt">解读报告（txt）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_SGATR_low.json">解读报告（json）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/signatures/signature_SGATR_low.json">图数据（边表 + 节点表）</a></li>
+    </ul>
+  </article>
+
+  <article class="card">
+    <h3>SGATR<span>· mid</span></h3>
+    <a class="open" href="../Code/output/runs/v23-20261111T022417/graphs/graph_SGATR_mid.html">打开因果图</a>
+    <ul>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_SGATR_mid.txt">解读报告（txt）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_SGATR_mid.json">解读报告（json）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/signatures/signature_SGATR_mid.json">图数据（边表 + 节点表）</a></li>
+    </ul>
+  </article>
+
+  <article class="card">
+    <h3>SGATR<span>· high</span></h3>
+    <a class="open" href="../Code/output/runs/v23-20261111T022417/graphs/graph_SGATR_high.html">打开因果图</a>
+    <ul>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_SGATR_high.txt">解读报告（txt）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_SGATR_high.json">解读报告（json）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/signatures/signature_SGATR_high.json">图数据（边表 + 节点表）</a></li>
+    </ul>
+  </article>
+
+  <article class="card">
+    <h3>FLB<span>· low</span></h3>
+    <a class="open" href="../Code/output/runs/v23-20261111T022417/graphs/graph_FLB_low.html">打开因果图</a>
+    <ul>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_FLB_low.txt">解读报告（txt）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_FLB_low.json">解读报告（json）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/signatures/signature_FLB_low.json">图数据（边表 + 节点表）</a></li>
+    </ul>
+  </article>
+
+  <article class="card">
+    <h3>FLB<span>· mid</span></h3>
+    <a class="open" href="../Code/output/runs/v23-20261111T022417/graphs/graph_FLB_mid.html">打开因果图</a>
+    <ul>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_FLB_mid.txt">解读报告（txt）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_FLB_mid.json">解读报告（json）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/signatures/signature_FLB_mid.json">图数据（边表 + 节点表）</a></li>
+    </ul>
+  </article>
+
+  <article class="card">
+    <h3>FLB<span>· high</span></h3>
+    <a class="open" href="../Code/output/runs/v23-20261111T022417/graphs/graph_FLB_high.html">打开因果图</a>
+    <ul>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_FLB_high.txt">解读报告（txt）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/reports/rca_report_FLB_high.json">解读报告（json）</a></li>
+      <li><a href="../Code/output/runs/v23-20261111T022417/signatures/signature_FLB_high.json">图数据（边表 + 节点表）</a></li>
+    </ul>
+  </article>
+
+</div>
+
+<h2>三类汇总图与全局汇总</h2>
+<div class="links">
+  <div><a href="../Code/output/runs/v23-20261111T022417/graphs/graph_LOCA_summary.html">LOCA 三组汇总图</a></div>
+  <div><a href="../Code/output/runs/v23-20261111T022417/graphs/graph_SGATR_summary.html">SGATR 三组汇总图</a></div>
+  <div><a href="../Code/output/runs/v23-20261111T022417/graphs/graph_FLB_summary.html">FLB 三组汇总图</a></div>
+  <div><a href="../Code/output/runs/v23-20261111T022417/graphs/graph_all_summary.html">三类 9 模板总览</a></div>
+</div>
+
+<h2>变量选取报告</h2>
+<div class="links">
+  <div><a href="../Code/output/runs/v23-20261111T022417/variable_sets/selection_report_LOCA.json">LOCA 变量选取报告（json）</a></div>
+  <div><a href="../Code/output/runs/v23-20261111T022417/variable_sets/selection_report_SGATR.json">SGATR 变量选取报告（json）</a></div>
+  <div><a href="../Code/output/runs/v23-20261111T022417/variable_sets/selection_report_FLB.json">FLB 变量选取报告（json）</a></div>
+  <div><a href="../Code/output/runs/v23-20261111T022417/variable_sets/variable_selection_summary.json">三类 15 变量清单与门控结果</a></div>
+</div>
+
+<h2>全文报告与审计</h2>
+<div class="links">
+  <div><a href="../Code/output/runs/v23-20261111T022417/tracing/tracing_report_v23.txt">全量追踪报告（tracing_report_v23.txt）</a></div>
+  <div><a href="../Code/output/runs/v23-20261111T022417/reports/summary_LOCA.json">LOCA 类汇总（json）</a></div>
+  <div><a href="../Code/output/runs/v23-20261111T022417/reports/summary_SGATR.json">SGATR 类汇总（json）</a></div>
+  <div><a href="../Code/output/runs/v23-20261111T022417/reports/summary_FLB.json">FLB 类汇总（json）</a></div>
+  <div><a href="../Code/output/runs/v23-20261111T022417/audit/truth_reachability.json">假设真值逐变量去向审计</a></div>
+  <div><a href="../Code/output/runs/v23-20261111T022417/manifest.json">本次运行的 manifest（文件清单与 sha256）</a></div>
+</div>
+
+<h2>图数据文件字段说明（signature_*.json）</h2>
+<table>
+  <tr><th>字段</th><th>含义</th></tr>
+  <tr><td><code>variables</code></td><td>该模板入模的 15 个变量（节点表）</td></tr>
+  <tr><td><code>marker</code></td><td>该模板的注入变量（事故机理指定的先响应变量）</td></tr>
+  <tr><td><code>stable_edges[]</code></td><td>稳定边（边表，按出现率门控后的图）：<code>from</code> 起点、<code>to</code> 终点、<code>weight_median</code> 跨 bootstrap 权重中位数（正负表示方向）、<code>weight_iqr</code> 四分位距、<code>count</code> 出现次数、<code>f_e</code>/<code>dir_e</code> 出现率与方向一致率</td></tr>
+  <tr><td><code>all_edges[]</code></td><td>全部候选边（含未达稳定门槛者），字段同上</td></tr>
+  <tr><td><code>n_bootstrap</code></td><td>该模板实际 bootstrap 次数（本轮为 100）</td></tr>
+  <tr><td><code>auxiliary</code></td><td>附加关系条目，仅存档、不参与排序</td></tr>
+</table>
+<p class="note">本页只链接原始产物，不含任何指标数字，也不做二次加工。图页面与报告均由同一次运行生成。</p>
+
+</body>
+</html>
