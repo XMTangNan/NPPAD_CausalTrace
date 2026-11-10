@@ -313,7 +313,7 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
 - `<run 根>/reports/run_v23_all_summary.json`：10 步 `status: ok|skipped|failed`、耗时、产物计数、跳过类、`rerun_reason`、LLM 可用性；
 - 任一步失败 → summary 记 `failed` 并非 0 退出，绝不静默跳过。
 
-**第 10 步变量级评测契约（D11，`causalrca/reporting/evaluation.py`；V23-DESIGN-036）**
+**第 10 步变量级评测契约（D11，`causalrca/reporting/evaluation.py`；V23-DESIGN-036/038/039）**
 - 任务：v2.3 不做事故大类匹配，只做「事故内、变量级根因溯源」。评测即变量级——对每条留出轨迹，
   把该模板的**根因候选变量排序**与**该事故类型的始发（注入）变量真值集**比对；
   **不做事故类型分类、不把 9 个模板当检索候选池、不用关键响应/forced 保护集当判据**（v2.1 范式已弃用）。
@@ -337,6 +337,12 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
   的 Hit@1/Hit@3/MRR/AP@3 与注入点名次中位数，并由 `flips` 自动标出"随 clip 翻转"的模板；
   **只报 clip5 一列不得当结论**（`LOCA_high` clip5=第 1、clip_off=第 3；`FLB_high` clip3=第 2、
   clip5=第 5、clip_off=第 3）。
+- **口径定稿为方案 B（V23-DESIGN-039）**：生产口径**维持遮蔽**（`trace_roots` 的 marker 跳过分支不动），
+  `causal` 列 0 是候选集定义使然、不是排序失败；去遮蔽列与 `clip_sensitivity` 降级为**可辨识性诊断**，
+  不进主表、不作准确率主张；**主指标为模板级检索**（事故类 × 严重度组）。受控实验另存
+  `output/experiments/ranking_diagnosis_v23-20261110T150726/`（非主链产物）：7 种排序量下 Hit@1 上限
+  0.1000，Hit@3 0.3167→0.7000 全来自 `RESPONSE_VARS` 0.30 人工先验，孤立节点殿后使 V2c 0.7000→0.3167。
+  **偏差基线两列暂停引用**（V23-CODE-029：`sigma_robust` 下限失效，`d` 爆到 1e4–1e5）。
 - 落 `metrics/metrics_{K}_{g}.json`（逐例四通道明细 + 模板汇总 + `clip_sensitivity` 四列 + 遮蔽披露）与
   `metrics/metrics_summary.json`（三层汇总 + 真值表 + `clip_sensitivity`/`flips` + `comparability_with_teacher`）。
 - **与老师数字不并排**：同任务（事故内变量级 Top-k 命中）但不同协议——我们无人工先验降权、
@@ -374,4 +380,4 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
 | D | D8 Alg3 | `cf_validation.py` | 复用，不改口径 |
 | D | D9 偏离度 | `deviation.py` 接入图/榜单 | 9 份 deviation + 图内着色 |
 | D | D10 端到端 | `run_v23_all.py` | 全链一次重算，manifest 可核对 |
-| D | D11 变量级评测 | `evaluation.py` | 60 条留出 × 9 模板：变量级 Hit@1/Hit@3/MRR/P@2/P@3/Recall@3/AP@3，三通道（生产/去遮蔽/等权偏差基线）同表；与老师 0.4368/0.5800 不并排 |
+| D | D11 变量级评测 | `evaluation.py` | 60 条留出 × 9 模板：变量级 Hit@1/Hit@3/MRR/P@2/P@3/Recall@3/AP@3，四通道（生产/去遮蔽/两条偏差基线）同表、`B_CLIP` 四列并列（diagnostic）；口径定稿方案 B，偏差两列因 V23-CODE-029 暂停引用；与老师 0.4368/0.5800 不并排 |

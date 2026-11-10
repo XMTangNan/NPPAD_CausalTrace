@@ -1190,10 +1190,51 @@
 - **回收旧表述**：`LOCA_high` 的"1.000"只能写成"**clip5 下 1.000、去截断下第 3（Hit@1=0）**"。
 - 状态：✅ 已解决（pytest 155 passed + 1 条与本轮无关的架构守卫失败，见下）。
 
+**V23-DESIGN-039（closed）· 遮蔽口径定稿为方案 B + 受控实验两条结论入册**
+
+- 裁决：**维持遮蔽**（`trace_roots` 的 `if v == marker: continue` 不动）；去遮蔽列
+  `causal_unmasked_for_eval` 降级为**可辨识性诊断**（不进主表、不作准确率主张）；方案 A/C 只留否决理由。
+- 受控实验（`output/experiments/ranking_diagnosis_v23-20261110T150726/`，只读、不属主链）：固定 15 变量 ×
+  60 条留出 × 7 种排序量 × 2 后处理。①**Hit@1 上限 0.1000**，唯一非零来自 V1+LOCA_high 6 条；
+  ②**Hit@3 0.3167→0.7000 全部来自 `RESPONSE_VARS` 0.30 先验**（撤掉即 0.0000），真值最好名次第 2、
+  永不进第 1；③`V2c` `nogroup`→`grouped` **0.7000→0.3167**，因 7/9 模板真值 `out_degree=0` 被"孤立殿后"。
+- 文档落点：方案 §5.13 收敛为单一决策、新增 §5.15（受控实验）、§5.16（论文可写/不可写清单，含
+  "不能进摘要"8 条）；"孤立殿后"的影响登记为已知代价，不作待调参项。
+- 口径保持：`B_CLIP` 四列必报（038）；变量级只作诊断；**主指标=模板级检索**（数值待重算，035 旧值仍作废）。
+- 状态：✅ 已解决（未改遮蔽实现、未重算全链）。
+
+**V23-CODE-029（open）· `sigma_robust` 下限失效使偏离度 `d` 爆量 → 偏差基线与偏差加权不可用**
+
+- 现象：`d = max|x−μ| / max(1.4826·MAD, σ_floor)` 在两处爆量：`σ_robust = 0` 处达 1e12–1e17；
+  `σ_robust ≈ 1e-5` 处达 1e3–1e5。
+- 根因：`external_knowledge.sigma_floor_for` 的兜底是 `1%·|μ|`（`fallback`），只有命中 `by_variable`/
+  `by_unit` 才是物理下限。①`|μ|=0` 且无物理下限 → `σ_floor=0`、`σ_robust=0` →
+  `deviation.compute_deviation` 用 `/(σ+1e-12)` 兜底 → `d_raw` 1e12–1e17；②`|μ|≈1e-3` → `σ_floor≈1e-5` → d 1e3–1e5。
+- 定位（run `v23-20261110T150726`）：
+  - 排序层（`evaluation.trace_deviation`，15 变量，60 条）：`σ≤0` 全部被跳过（**0 例**，故不是跳过导致），
+    但**纯偏差排序 Top-1 恒为 `RM1`（LOCA 20/20；`μ=0.0011`、`σ_floor=1.1e-5`、`d_max=3.5e4`）、
+    `RM2`（SGATR 20/20；`μ=0.022`、`d_max=8.3e5`）、`DNBR`（FLB 20/20；`μ=2.29`、`σ_floor=0.0229`、`d_max=6.2e3`）**；
+    真值名次 4–10、`d` 1.4–287，**永不进 Top-3**。
+  - 展示层（`deviation.compute_deviation`，tolerance 口径）`σ=0` 的变量：`MBK`（LOCA/FLB 六模板）、
+    `RHBR`（LOCA 三组、SGATR high/mid）、`RHRD`（LOCA_low、SGATR mid/high）、`MH2`（LOCA_high）、
+    `STTB`/`RM3`（SGATR_low）；`d_raw` 全在 1e12–1e17，靠 `d=min(d_raw,10)` 才没显示出来。
+- 是否经 σ_floor 兜底：**装了但没兜住**——兜底值本身可为 0（`|μ|=0`）或量级错配（`1%·|μ|` 用在近零通道）。
+- 修法（按证据排序，待实施）：
+  1. **下限保护（推荐）**：`by_variable`/`by_unit` 未命中时不得回退 `1%·|μ|`，改为
+     `max(1%·|μ|, unit_resolution)`（为近零通道的量纲登记物理分辨率）；`σ_robust ≤ 0` 显式记"不可比"，
+     不再静默除以 `1e-12`。
+  2. **分位截断（不足）**：`d` 截到 10 会把 10/15 个变量压成并列（实测 LOCA_low@4），退化为字典序
+     tie-break，不能当排序量。
+  3. **rank 内比较（仅展示）**：模板内分位只保证变量各自可比，不解决跨变量 σ 不可比。
+- 影响面：`metrics_summary.json` 的 `deviation_equal_weight` / `deviation_production_set` 两列**暂停引用**；
+  D9 `reports/deviation_*.json` 的极端档位不可作证据；受控实验 V3/V4/V5 同理。
+- 状态：🔴 open（未修）。**修前不得用偏差做任何排序或权重**（用户裁定）；修复需重跑 D9+D11 并重冻 metrics。
+
 **环境异常（非本轮产物）**：`pytest tests/test_architecture.py::test_output_has_single_run_root_contract`
 失败，原因 `Code/output/experiments/`（16:09 由另一路创建，内含 `protocol_align_v23-20261110T150726/`）
 违反"output/ 顶层只允许 runs/archive/latest/README.md"契约。本轮**不擅自删除**该路产物，
 待裁决移入 `output/archive/` 或由该路清理后即可恢复全绿。
-**open 计数（本轮结束）**：累计 open = 0；待用户裁决 = 5（§9.3 第 1/2/4 项 + 遮蔽口径 A/B/C 三案 +
-`output/experiments/` 归属）；本轮新增 3 条（036/037/038）均已 closed。
-**待办**：遮蔽口径待裁决（三案预判见方案 §5.13）；035 的模板检索指标（Hit@1 0.333→0.633 等）**作废，不得引用**。
+**open 计数（本轮结束）**：累计 open = 1（V23-CODE-029 偏差 σ 下限）；待用户裁决 = 3（§9.3 第 1/2/4 项）+
+`output/experiments/` 归属（可随 029 修复一并归档）；本轮新增 2 条（039 closed、029 open）。
+**待办**：① 修 V23-CODE-029（偏差列修前禁引用）；② 模板级检索主指标待重算；035 的模板检索指标
+（Hit@1 0.333→0.633 等）**作废，不得引用**；遮蔽口径已定稿为方案 B（§5.13），不再是待办。
