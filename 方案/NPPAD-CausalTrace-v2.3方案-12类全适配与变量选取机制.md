@@ -1607,31 +1607,105 @@ $$
 | 异常判定基准 | 仅 LOCA_1 | 每类独立 sev-1 基准（注入前 [0,100]s） | 基准覆盖率 |
 | Algorithm 3 完整度 | 已有实现 | 补充论文对应逻辑+降级声明 | 输出结构完整率 |
 
-### 5.12 留出集评测（第 10 步，D11）
+### 5.12 事故内变量级评测（第 10 步，D11；V23-DESIGN-036）
 
-> 定位：把「模板能不能被认出来」变成可核对的数字，而不是只看 Top-1 榜单。
-> 与 V 系列门控无关（V0–V7 是变量选取阶段的质量门控编号，与版本号 v2.1/v3 无关）。
+> 定位：v2.3 **不做事故大类匹配**，只做「某个事故内的变量级根因溯源」。因此评测也是变量级：
+> 对每条留出轨迹，把该模板的**根因候选变量排序**与**该事故类型的始发（注入）变量真值集**比对。
+> **不沿用 v2.1 的"事故类型匹配 + 签名反演"范式**：不做事故类型分类、不把 9 个模板当检索池、
+> 不用关键响应变量 / forced 保护集作判据（"Top-k 覆盖关键响应"属自证循环代理，已弃用），
+> 也不允许出现"事故类型分类准确率"这类 v2.3 根本不做的任务。
+
+**真值（唯一来源）**：`Code/causalrca/config/injection_truth.py::INJECTION_TRUTH`，
+逐条对齐老师项目 `故障溯源演示平台/nppad_rca_experiment/rca_experiment.py:34-47 GROUND_TRUTH`
+（按 NPPAD 事故表/变量表人工整理的直接始发变量，非穷尽物理根因）。该表**只用于打分**，
+禁止参与选变量 / 建图 / 排序 / 解释；未登记类直接 `KeyError`，不许回退成
+`key_responses` / `trigger_vars` / forced 保护集。
+
+| 类 | 始发变量真值 | 备注 |
+|----|--------------|------|
+| LOCA | WLR, WBK, MBK | WBK/MBK 为可疑项（破口流量积分量） |
+| LOCAC | WLR, WBK, MBK | 同上；数据 partial |
+| SGATR | WTRA | |
+| SGBTR | WTRB | 数据缺失 |
+| FLB | WFLB | |
+| LLB | WLD | 数据缺失 |
+| LR | TBLD | 数据缺失 |
+| RI | RHRD, RH | 数据缺失 |
+| RW | RHRD, RH | 数据缺失 |
+| MD | PPM, RHBR, RH | 数据缺失 |
+| LOF | WRCA, WRCB, RRCA, RRCB, RRCO | 数据缺失 |
+| TT | TBLD | 数据缺失 |
+
+口径边界（必须与数字一起引用）：
+- NPPAD 数据只给「类目录 + 文件序号（=严重度）」，**没有逐条注入变量字段** →
+  真值粒度是 `class_level`（`ground_truth.scope=class_level`）：同类全部轨迹共用该类的始发变量集。
+  因此指标回答的是「**该类的根因变量有没有被排到前面**」，不是「这一条轨迹的注入变量有没有被排到前面」。
+- 只剔除「数据列中不存在的变量」；真值是否落在候选集（模板 15 节点）内单列 `gt_in_candidate_set`，
+  用于区分"没找对"与"根本不在候选里"。
+- LOCA/LOCAC 的 `WBK`/`MBK` 属可疑项（老师项目亦标注），仍计入真值集并单列 `ground_truth.suspect`。
 
 **数据与无泄漏**
-- 留出集只取 `registry/split_manifest.json` 的 `test_severities`：每类 20 条（按组 7/7/6），三类共 60 条；`train_template_severities` 一律不进评测。
-- 打分只读本 run 已落盘产物：`tracing/topology_{K}_{g}.json`（T=(I−B)⁻¹ 溯源权重）+ `registry/`（t_inject / main_window）；**不重算 bootstrap、不重新学图、不训练模型**。
-- 轨迹自身只用于计算与类别无关的偏移强度 d(v)=max|x−μ_pre|/max(1.4826·MAD_pre, σ_floor(v))（μ_pre/MAD_pre 取注入前 [0, t_inject−10]s；σ_floor 取 `external_knowledge.sigma_floor_for`），再做逐轨迹名次归一 r(v)∈[0,1]；不使用标签、不引用真值类别。
+- 留出集只取 `registry/split_manifest.json` 的 `test_severities`：每类 20 条（按组 7/7/6），三类共 60 条；
+  `train_template_severities` 一律不进评测（与老师"训练/评测文件重叠"的缺陷相反：我们严格互斥）。
+- 打分只读本 run 已落盘产物：`tracing/topology_{K}_{g}.json`、`tracing/root_candidates_{K}_{g}.json`、
+  `signatures/signature_{K}_{g}.json`、`registry/`（t_inject / main_window）；**不重算 bootstrap、不重新学图**。
+- 轨迹只用于计算与类别无关的偏移强度 d(v)=max|x−μ_pre|/max(1.4826·MAD_pre, σ_floor(v))
+  （μ_pre/MAD_pre 取注入前 [0, t_inject−10]s；σ_floor 取 `external_knowledge.sigma_floor_for`）。
 
-**两个同表通道**
-| 通道 | 定义 | 用途 |
-|------|------|------|
-| `causal` | score_t = Σ_{v∈V_t} w_t(v)·r(v) / Σ_{v∈V_t} w_t(v)，w_t=topology.nodes[v].total_effect | 主口径：模板驱动变量是否正是实测偏移最大的变量 |
-| `deviation_equal_weight` | 同 V_t 上等权平均 r（不用边方向/强度/溯源权重） | 纯偏差基线：隔离「因果结构是否带来增益」 |
+**四通道同表（偏差基线按配对变量集拆两列，禁止跨配对比较）**
+| 通道 | 候选集 | 定义 | 与谁配对 |
+|------|--------|------|----------|
+| `causal` | 14 节点（排除被遮蔽的注入点） | 生产口径：T=(I−B)⁻¹ 的 \|T\| 行和 DESC → in_degree ASC → weighted_reach DESC → reach_size DESC → consensus_rate DESC，有传导者优先、孤立节点殿后 | `deviation_production_set` |
+| `deviation_production_set` | 14 节点 | 同集等权，只按 d(v) DESC（不用因果图） | `causal` |
+| `causal_unmasked_for_eval` | 15 节点（含注入点） | 评测模式：注入点放回候选，其余同生产口径；用已落盘 `stable_edges` 重算 T=(I−B)⁻¹（纯矩阵，不改生产输出） | `deviation_equal_weight` |
+| `deviation_equal_weight` | 15 节点 | 同集等权，只按 d(v) DESC | `causal_unmasked_for_eval` |
 
-**判定与指标**（cutoff=3，候选 9 个模板）
-- 相关项 = 真类别的 3 个模板（同类不同组）；两通道都不估 severity，组内不做区分，`exact_hit1` 只作参考。
-- 逐例算 Hit@1 / Hit@3 / MRR / P@2 / P@3 / Recall@3 / AP@3；每类（n=20）与全局（n=60）汇总，二项比例给 Wilson 95% 区间。
+**指标**（cutoff=3，与老师 `metrics_for_ranking` 同式）：Hit@1 / Hit@3 / MRR / P@2 / P@3 /
+Recall@3 / AP@3 / Jaccard@3；按模板 (K,g) / 按类（n=20）/ 全局（n=60）三层汇总，
+Wilson 95% 只给 Hit@1/Hit@3。落 `metrics/metrics_{K}_{g}.json`（逐例明细 + 模板汇总 + 遮蔽披露）
+与 `metrics/metrics_summary.json`（三层汇总 + 真值表 + `comparability_with_teacher`）。
 
-**落盘**：`metrics/metrics_{K}_{g}.json`（逐例明细 + 模板汇总）、`metrics/metrics_summary.json`（每类/全局 + Wilson + 口径差异说明），随 manifest 一并 sha256 校验。
+**结果（run `v23-20261110T150726`，60 条留出 × 9 模板；Hit@1 / Hit@3 / MRR）**
+| 类 | n | causal（生产，14） | 偏差基线（生产，14） | 去遮蔽（15） | 偏差基线（15） |
+|----|---|--------------------|----------------------|--------------|----------------|
+| LOCA | 20 | 0 / 0 / 0 | 0 / 0 / 0 | **0.300 / 0.300 / 0.350** | 0 / 0 / 0.174 |
+| SGATR | 20 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0.073 | 0 / 0 / 0.175 |
+| FLB | 20 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0.191 | 0 / 0 / 0.174 |
+| 全局 | 60 | 0 / 0 / 0 | 0 / 0 / 0 | **0.100 / 0.100 / 0.205** | 0 / 0 / 0.175 |
 
-**与 v2.1 口径差异（不可直接比数值）**：v2.1 `baseline_metrics.json` 是 3 类**分类准确率**（B0 marker 规则 / B1 Pearson / B2 XGB，FULL 与 MASKED 两条件，60 条留出，accuracy+Wilson）；本步骤是**9 模板检索排序质量**（含同类组级模板）。两者只能比结论方向。
+（全局去遮蔽 Hit@1 的 Wilson 95% = [0.0466, 0.2015]；生产通道 [0, 0.0602]）
 
-**已知边界**：等权偏差基线在同一类内得分相同，天然倾向某类变量集（无判别力），这正是需要因果通道的对照证据；组级模板（low/mid/high）当前无法稳定区分，`exact_hit1` 偏低属预期，后续需独立的 severity 估计器。
+| 模板 | n | 去遮蔽 Hit@1 / Hit@3 / MRR | 偏差基线（15）MRR |
+|------|---|----------------------------|-------------------|
+| LOCA_low | 7 | 0 / 0 / 0.071 | 0.195 |
+| LOCA_mid | 7 | 0 / 0 / 0.071 | 0.188 |
+| LOCA_high | 6 | **1.000 / 1.000 / 1.000** | 0.134 |
+| SGATR_low | 7 | 0 / 0 / 0.077 | 0.192 |
+| SGATR_mid | 7 | 0 / 0 / 0.071 | 0.217 |
+| SGATR_high | 6 | 0 / 0 / 0.071 | 0.107 |
+| FLB_low | 7 | 0 / 0 / 0.125 | 0.135 |
+| FLB_mid | 7 | 0 / 0 / 0.250 | 0.167 |
+| FLB_high | 6 | 0 / 0 / 0.200 | 0.228 |
+
+**怎么读**
+- `causal` 全 0 是**结构性**的，不是"找错了"：注入点 `marker` 在生产链路被「故障指示器遮蔽」
+  （`total_effect=None`、`root_candidates.rank=null`），永不进候选；同集的 `deviation_production_set`
+  也全 0，说明**在任何方法下生产候选集都无法命中注入变量**——生产榜单回答的是"注入点之外的内部根因源"。
+- 去遮蔽后仅 LOCA_high 6/6 全中；LOCA_low/mid 的 WLR 在图内无强出边（LOCA_high 的 WLR→PSGA
+  raw 97.93 被 `B_CLIP=5` 截断后仍居首），SGATR 的 WTRA 出度为 0 → 结构性不可达，FLB 的 WFLB 未进 Top-3。
+- 一句话结论：**这组数字只部分回答"事故内变量级根因找对了没有"**——生产口径答不了（遮蔽且同集基线也为 0），
+  去遮蔽口径能答但只在 LOCA_high 成立（全局 Hit@1 0.10、MRR 0.205，仍高于同集偏差基线的 0 / 0.175）。
+
+**与 v2.1 口径差异**：v2.1 `baseline_metrics.json` 是 3 类**分类准确率**（B0/B1/B2，FULL/MASKED）；
+V23-DESIGN-035 那版"9 模板检索指标"（Hit@1 0.333→0.633 等）**作废，不得引用**。
+
+**与老师项目 accuracy 的关系（不并排）**
+同任务（事故内变量级 Top-k 根因命中），但**不同协议**：我们无人工先验降权（老师 `RESPONSE_PRIOR=0.30`）、
+切分严格互斥（老师训练/评测文件重叠）、每 (类,组) 单独建图（老师 12 类合图）、另有遮蔽/去遮蔽两列，
+且 LOCA 真值含 `MBK/WBK` 而本仓库候选集不含。老师 `results/metrics_summary.csv` 的
+causaltrace_lingam Hit@1 0.4368 / Hit@3 0.5800（deviation 0.2322 / 0.5178，1012 例）**只能作脚注**，
+不得与其并排放进同一张表（`metrics_summary.json.comparability_with_teacher` 固化为
+`same_task=true / comparable_numbers=false`）；要同表必须同一协议复算并说明取舍。
 
 ---
 

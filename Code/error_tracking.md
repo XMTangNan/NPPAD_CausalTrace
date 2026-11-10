@@ -1105,7 +1105,7 @@
   属 legacy 工具，不在 v2.3 闭包内。
 - 状态：✅ 已解决。
 
-**V23-DESIGN-035（closed）· 第 10 步：留出集评测接入链路（D11）**
+**V23-DESIGN-035（closed，**评测口径已被 036 取代**，仅保留踩坑留痕）· 第 10 步：留出集评测接入链路（D11）**
 
 - 问题：全链只产出「谁排第一」，没有任何可核对的**留出集量化指标**；v2.1 的
   `baseline_metrics.json` 是分类准确率口径，无法回答「9 模板能不能被认出来、因果结构有没有增益」。
@@ -1128,6 +1128,35 @@
     落盘契约（只写 metrics/、池=给定类×组、summary 与逐例一致）、缺 topology 必须报错。
 - 状态：✅ 已解决（pytest 152 passed / 0 failed）。
 
+**V23-DESIGN-036（closed）· D11 口径纠正：模板检索级 → 事故内变量级（用户定性裁决）**
+
+- 问题：035 把评测做成了「9 个模板能不能被认出来」（相关项 = 真类别的 3 个模板、池 = 9 模板），
+  这是 **v2.1 的"事故类型匹配 + 签名反演"范式**。v2.3 不做事故大类匹配，只做**某个事故内、
+  变量级的根因溯源**，因此 035 的指标定义、ground truth（关键响应/模板类别）与脚本全部不可沿用；
+  且「命中 = Top-k 是否覆盖关键响应变量」属自证循环代理。
+- 解决（`causalrca/reporting/evaluation.py` 重写）：
+  - **真值收敛**：新建 `causalrca/config/injection_truth.py::INJECTION_TRUTH`（12 类始发变量，
+    逐条对齐老师 `rca_experiment.py:34-47 GROUND_TRUTH`），**只用于打分**，禁止参与选变量/建图/排序；
+    未登记类直接 `KeyError`，不允许回退成 `key_responses`/`trigger_vars`/forced 保护集。
+    只剔除「数据列中不存在的变量」；真值是否在候选集内单列 `gt_in_candidate_set`。
+  - **真值粒度如实披露**：NPPAD 只给「类目录 + 文件序号（=严重度）」，**无逐条注入变量字段** →
+    `ground_truth.scope = class_level`（同类全部轨迹共用该类的始发变量集），不冒充逐样本真值。
+    可疑项（LOCA/LOCAC 的 `WBK`/`MBK`）落 `ground_truth.suspect`，仍计入真值集。
+  - **指标**：变量级 Hit@1/Hit@3/MRR/P@2/P@3/Recall@3/AP@3/Jaccard@3（cutoff=3，与老师
+    `metrics_for_ranking` 同式），按模板 (K,g) / 按类 / 全局三层；Wilson 95% 只给 Hit@1/Hit@3。
+  - **三通道同表**：`causal`（生产口径）/`causal_unmasked_for_eval`（注入点放回候选，用已落盘
+    `stable_edges` 重算 T=(I−B)⁻¹，纯矩阵、不改生产输出）/`deviation_equal_weight`（同候选集等权纯偏差基线）。
+  - **关键事实**：生产口径下命中结构性为 0——注入点 `marker` 被「故障指示器遮蔽」
+    （`total_effect=None`、`root_candidates.rank=null`），且 WLR 的强出边被 `B_CLIP=5` 截断。
+    去遮蔽后 LOCA_high 6/6 全中（LOCA_low/mid 的 WLR 图内无强出边；WTRA 出度为 0 → SGATR 结构性不可达）。
+  - **与老师数字不并排**：同任务不同协议（无人工先验降权、切分互斥、按 (类,组) 建图、另有遮蔽/去遮蔽两列），
+    `metrics_summary.json.comparability_with_teacher` 固化为 `same_task=true / comparable_numbers=false`。
+- 数据落盘：`v23-20261110T150726`（60 条留出 × 9 模板）重跑第 10 步 + manifest；
+  `global`：`causal` hit1 0.0；`causal_unmasked_for_eval` 0.10 [0.0466,0.2015]、MRR 0.2049；
+  `deviation_equal_weight` 0.0（MRR 0.1746）。
+- 状态：✅ 已解决（pytest 155 passed / 0 failed）。
+
 **open 计数（本轮结束）**：累计 open = 0；待用户裁决 = 3（§9.3 第 1/2/4 项：其余 8 类数据、
-LOCAC 样本量、严重度分组是否数据驱动）；本轮新增 1 条（035）已 closed。
-**待办（未在本轮执行）**：A/B 重新冻结（`034433` 已作废），随下一次 §6.4 全链 `--with-ab` 一并重生成。
+LOCAC 样本量、严重度分组是否数据驱动）；本轮新增 1 条（036）已 closed。
+**待办（未在本轮执行）**：A/B 重新冻结（`034433` 已作废），随下一次 §6.4 全链 `--with-ab` 一并重生成；
+035 的模板检索指标（Hit@1 0.333→0.633 等）**作废，不得引用**。

@@ -70,6 +70,7 @@ Code/
 │   │   ├── constants_v23.py      # v2.3 新增阈值（截断/条件数/RRF/LLM 容差）
 │   │   ├── class_variables.py    # 各类可能变量集合（旧 rca/rca_config.CLASS_VARIABLES）
 │   │   ├── registry.py           # 数据/产物路径注册
+│   │   ├── injection_truth.py    # 12 类始发（注入）变量真值表（仅 D11 打分，禁用于选变量/建图/排序）
 │   │   └── accident_config.py    # 12 类事故注册表门面
 │   ├── io/
 │   │   ├── artifact.py           # v2.3 唯一写入口（manifest/哈希/目录约束）
@@ -97,7 +98,7 @@ Code/
 │   │   ├── run_v23_graphs.py     # 分组/汇总 HTML 执行器
 │   │   ├── llm_explanation.py    # D6 模板 rule + 类级/全局汇总（LLM 可选）
 │   │   ├── report_template.py    # D7 模板兜底
-│   │   └── evaluation.py         # D11 留出集评测（9 模板检索指标 + 纯偏差基线）
+│   │   └── evaluation.py         # D11 事故内变量级评测（三通道 + 纯偏差基线）
 │   └── cli/
 │       ├── run_v23_all.py        # 10 步全链编排（单一 run_id）
 │       ├── run_v23_end2end.py    # 9 模板双循环（签名+溯源）
@@ -154,8 +155,8 @@ Code/
     │       ├── graphs/graph_{K}_{g}.html
     │       ├── graphs/graph_{K}_summary.html
     │       ├── graphs/graph_all_summary.html
-    │       ├── metrics/metrics_{K}_{g}.json   # 第 10 步：留出集逐模板检索指标（含纯偏差基线）
-    │       ├── metrics/metrics_summary.json   # 每类/全局汇总 + Wilson 95% + 与 v2.1 口径差异
+    │       ├── metrics/metrics_{K}_{g}.json   # 第 10 步：事故内变量级命中（三通道，含纯偏差基线）
+    │       ├── metrics/metrics_summary.json   # 每类/全局汇总 + Wilson 95% + 真值表 + 与老师不可并排
     │       ├── reports/summary_{K}.json
     │       ├── reports/diff_{K}.json
     │       ├── reports/deviation_{K}_{g}.json
@@ -312,15 +313,28 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
 - `<run 根>/reports/run_v23_all_summary.json`：10 步 `status: ok|skipped|failed`、耗时、产物计数、跳过类、`rerun_reason`、LLM 可用性；
 - 任一步失败 → summary 记 `failed` 并非 0 退出，绝不静默跳过。
 
-**第 10 步评测契约（D11，`causalrca/reporting/evaluation.py`）**
+**第 10 步变量级评测契约（D11，`causalrca/reporting/evaluation.py`；V23-DESIGN-036）**
+- 任务：v2.3 不做事故大类匹配，只做「事故内、变量级根因溯源」。评测即变量级——对每条留出轨迹，
+  把该模板的**根因候选变量排序**与**该事故类型的始发（注入）变量真值集**比对；
+  **不做事故类型分类、不把 9 个模板当检索候选池、不用关键响应/forced 保护集当判据**（v2.1 范式已弃用）。
 - 留出集只取 `registry/split_manifest.json` 的 `test_severities`（每类 20 条，按组 7/7/6）；
-  训练轨迹不进评测，只读本 run 的 `tracing/topology_*` 与 `registry/`，不重算 bootstrap、不重新学图。
-- 候选 = 9 个模板；两个通道同表对照：`causal`（T=(I−B)⁻¹ 溯源权重加权）与
-  `deviation_equal_weight`（同变量集等权，纯偏差基线，不用因果图）。
-- 逐例指标 Hit@1 / Hit@3 / MRR / P@2 / P@3 / Recall@3 / AP@3（cutoff=3），
-  相关项 = 真类别的 3 个模板；组内不区分，`exact_hit1` 仅作参考。
-- 落 `metrics/metrics_{K}_{g}.json`（逐例明细+模板汇总）与 `metrics/metrics_summary.json`
-  （每类/全局汇总 + Wilson 95%，仅对 Hit@1/Hit@3/exact_hit1 这类二项比例给区间）。
+  只读本 run 的 `tracing/topology_*`、`tracing/root_candidates_*`、`signatures/signature_*`，
+  不重算 bootstrap、不重新学图。
+- 真值唯一来源 `causalrca/config/injection_truth.py::INJECTION_TRUTH`（逐条对齐老师项目
+  `rca_experiment.py:34-47 GROUND_TRUTH`）。**只剔除数据列中不存在的变量**；真值是否落在候选集
+  （模板 15 个节点）内单列 `gt_in_candidate_set` 披露。口径边界：NPPAD 数据只给「类目录 + 文件序号
+  （=严重度）」，**没有逐条注入变量字段** → 真值粒度为 `class_level`（同类全部轨迹共用该类的始发
+  变量集），产物 `ground_truth.scope` 如实标注，不得当成逐样本真值。
+- 三通道同表（同一批轨迹、同一候选集）：`causal` 生产口径（注入点被「故障指示器遮蔽」、
+  不进候选）/ `causal_unmasked_for_eval` 评测模式（注入点放回候选，其余同生产口径；用已落盘
+  `stable_edges` 重算 T=(I−B)⁻¹，纯矩阵、不改生产输出）/ `deviation_equal_weight` 纯偏差基线
+  （同候选集等权，只用 d(v)=max|x−μ_pre|/max(1.4826·MAD_pre, σ_floor)）。
+- 指标 Hit@1 / Hit@3 / MRR / P@2 / P@3 / Recall@3 / AP@3 / Jaccard@3（cutoff=3，与老师
+  `metrics_for_ranking` 同式），按模板 (K,g) / 按类 / 全局三层汇总；Wilson 95% 只给 Hit@1/Hit@3。
+- 落 `metrics/metrics_{K}_{g}.json`（逐例三通道明细 + 模板汇总 + 遮蔽披露）与
+  `metrics/metrics_summary.json`（三层汇总 + 真值表 + `comparability_with_teacher`）。
+- **与老师数字不并排**：同任务（事故内变量级 Top-k 命中）但不同协议——我们无人工先验降权、
+  切分严格互斥、每 (类,组) 单独建图、另有遮蔽/去遮蔽两列；只能作脚注引用。
 
 **不再使用**：`output/archive/rca_v21_frozen/v23_*` 下的 `tracing_report_v23.txt` 等旧汇总（11-04 产物，已冻结只读）。验收结论以本 run 的 `reports/summary_{K}.json`、`reports/diff_{K}.json` 与 `manifest.json` 为准；权威 run 由 `output/latest` 与 manifest 的 `run_id` 一致确定。
 
@@ -354,4 +368,4 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
 | D | D8 Alg3 | `cf_validation.py` | 复用，不改口径 |
 | D | D9 偏离度 | `deviation.py` 接入图/榜单 | 9 份 deviation + 图内着色 |
 | D | D10 端到端 | `run_v23_all.py` | 全链一次重算，manifest 可核对 |
-| D | D11 留出集评测 | `evaluation.py` | 60 条留出 × 9 模板：AP@3/P@2/P@3/Recall@3/MRR/Hit@1/Hit@3 + 等权偏差基线同表 |
+| D | D11 变量级评测 | `evaluation.py` | 60 条留出 × 9 模板：变量级 Hit@1/Hit@3/MRR/P@2/P@3/Recall@3/AP@3，三通道（生产/去遮蔽/等权偏差基线）同表；与老师 0.4368/0.5800 不并排 |

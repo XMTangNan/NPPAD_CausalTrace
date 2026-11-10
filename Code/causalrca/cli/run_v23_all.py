@@ -9,7 +9,7 @@
   6 aggregation   C3b/C3c 汇总 + 差异（run_id 强校验）
   7 deviation     D9 偏离度 4 级着色
   8 explanation_reports  D6 解释 + D7 报告（9 份，读上面的产物）
-  9 evaluation     D11 留出集评测（9 模板检索指标 + 纯偏差基线，只读签名/溯源）
+  9 evaluation     D11 留出集变量级评测（事故内变量命中 + 纯偏差基线，只读签名/溯源）
  10 manifest      全量产物 sha256（manifest.json）
 最后写 reports/run_v23_all_summary.json：各步状态/耗时/产物计数/跳过类/失败项。
 
@@ -64,7 +64,7 @@ STEPS: List[Dict[str, str]] = [
     {"name": "explanation_reports", "layer": "D6/D7",
      "desc": "根因解释（rule 离线）+ 9 份报告"},
     {"name": "evaluation", "layer": "D11",
-     "desc": "留出集评测（9 模板检索指标 + 纯偏差基线；只读签名/溯源/公差）"},
+     "desc": "留出集变量级评测（事故内变量命中 + 纯偏差基线；只读签名/溯源/真值表）"},
     {"name": "manifest", "layer": "C7",
      "desc": "manifest.json 全量产物 sha256 + lineage"},
 ]
@@ -251,12 +251,15 @@ def step_explanation_reports(run_id: str, classes: List[str], groups: List[str],
 
 
 def step_evaluation(run_id: str, classes: List[str], groups: List[str]) -> Dict:
-    """D11：留出集评测（只读 split_manifest/topology/registry，不重算因果）。"""
+    """D11：留出集变量级评测（只读 split_manifest/topology/signature，不重算因果）。"""
     from causalrca.reporting import evaluation as EV
     res = EV.evaluate(run_id, classes=classes, groups=groups)
+    g = res["summary"]["global"]
     return {"n_traces": res["n_traces"], "n_files": len(res["files"]),
-            "causal_hit1": res["summary"]["global"]["causal"]["hit1"],
-            "baseline_hit1": res["summary"]["global"]["deviation_equal_weight"]["hit1"]}
+            "granularity": "variable_level_in_accident",
+            "causal_hit1": g["causal"]["hit1"],
+            "unmasked_hit1": g["causal_unmasked_for_eval"]["hit1"],
+            "baseline_hit1": g["deviation_equal_weight"]["hit1"]}
 
 
 def step_ab_variable_selection(run_id: str):
