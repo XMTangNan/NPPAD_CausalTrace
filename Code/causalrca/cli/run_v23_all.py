@@ -253,11 +253,12 @@ def step_explanation_reports(run_id: str, classes: List[str], groups: List[str],
             "n_reports": len(reports)}
 
 
-def step_evaluation(run_id: str, classes: List[str], groups: List[str]) -> Dict:
+def step_evaluation(run_id: str, classes: List[str], groups: List[str],
+                    role_prior: Optional[bool] = None) -> Dict:
     """D11：留出集变量级评测（只读 split_manifest/topology/signature，不重算因果）。"""
     from causalrca.reporting import evaluation as EV
     res = EV.evaluate(run_id, classes=classes, groups=groups,
-                      role_prior=getattr(args, "role_prior", None))
+                      role_prior=role_prior)
     g = res["summary"]["global"]
     return {"n_traces": res["n_traces"], "n_files": len(res["files"]),
             "granularity": "variable_level_in_accident",
@@ -287,7 +288,8 @@ def _plan_steps(with_ab: bool) -> List[Dict]:
 
 
 def _step_fns(run_id: str, classes: List[str], groups: List[str],
-              n_bootstrap: int, backend: str) -> Dict[str, object]:
+              n_bootstrap: int, backend: str,
+              role_prior: Optional[bool] = None) -> Dict[str, object]:
     """步骤名 → 执行函数（参数已绑定，含本链 run_id）。"""
     return {
         "variable_sets": lambda: step_variable_sets(run_id),
@@ -298,7 +300,7 @@ def _step_fns(run_id: str, classes: List[str], groups: List[str],
         "aggregation": lambda: step_aggregation(run_id, classes, groups),
         "deviation": lambda: step_deviation(run_id, classes, groups),
         "explanation_reports": lambda: step_explanation_reports(run_id, classes, groups, backend),
-        "evaluation": lambda: step_evaluation(run_id, classes, groups),
+        "evaluation": lambda: step_evaluation(run_id, classes, groups, role_prior),
         "ab_variable_selection": lambda: step_ab_variable_selection(run_id),
         "manifest": lambda: step_manifest(run_id),
     }
@@ -372,7 +374,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 f"with_ab={args.with_ab}")
 
     steps = _plan_steps(args.with_ab)
-    fns = _step_fns(run_id, classes, groups, args.n_bootstrap, backend)
+    fns = _step_fns(run_id, classes, groups, args.n_bootstrap, backend,
+                    getattr(args, "role_prior", None))
     results: List[Dict] = []
     for i, step in enumerate(steps, start=1):
         entry = _run_step(i, step, fns[step["name"]], results, len(steps))

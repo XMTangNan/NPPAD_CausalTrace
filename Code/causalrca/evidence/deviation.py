@@ -10,6 +10,11 @@ V23-DESIGN-011（2026-11-10 决策）口径定稿为“模板内相对分位”�
 - 病态变量（低方差通道）走稳健 σ + ±10 截断（V23-DESIGN-006）；**σ 不可比者不再给巨大数**
   （V23-CODE-029）：`σ_robust ≤ 0`，或无物理下限且本底零变异 → `d_status=not_comparable`、
   `d_raw=None`，不参与分位与排序。仅手工标记的饱和变量仍不展示。
+- **第三态（V23-CODE-033，2026-11-10）**：σ 由 fallback/登记下限撑起、正常工况近似恒定
+  （MAD=0 或 σ 与 |μ| 同量级且都在噪音量级）、正常工况参考带无展布（IQR=0 或远小于动态区间）
+  且该通道在本轨迹幅值下实质为 0（`max(|μ|,σ) ≤ 1e-3·max|x|`）——四条同时满足时同样标
+  `not_comparable`，理由 `degenerate_zero_channel`。此类通道的“N 倍 σ”只是拿任意下限当标尺，
+  不是物理相对倍数。不新增截断、不改 `d` 定义、不改聚合方式。
 - 图例统一为“通道偏移强度（模板内相对）”。
 
 收敛（V23-DESIGN-002/003）：公差由调用方传入（内存 dict）或从
@@ -118,7 +123,13 @@ def compute_deviation(accident_type: str, severity: int,
         sigma = float(th["sigma_robust"])
         sigma_mad = float(th.get("sigma_mad") or 0.0)
         floor_src = str(th.get("sigma_floor_source") or "unknown")
-        ok, why = EK.is_deviation_comparable(sigma, floor_src, sigma_mad)
+        _q = th.get("quantiles") or {}
+        iqr = (float(_q["p90"]) - float(_q["p10"])) if ("p90" in _q and "p10" in _q) else None
+        abs_max = float(np.abs(vals).max()) if vals.size else None
+        ok, why = EK.is_deviation_comparable(
+            sigma, floor_src, sigma_mad,
+            mu=float(mu), sigma_floor=float(th.get("sigma_floor") or 0.0),
+            iqr=iqr, abs_max=abs_max)
         if not ok:
             raw[var] = {
                 "d_raw": None, "d": None,
@@ -211,7 +222,8 @@ def compute_deviation(accident_type: str, severity: int,
                  "跨模板不可比绝对偏移量（不同模板档位计数相同是分位分档的必然结果，"
                  "不代表物理强度一致）；d=min(d_raw,10) 与 "
                  "d_abs_level（旧 3/5/7σ 绝对档）仅作附注；偏离度 ≠ 根因；"
-                 "d_status=not_comparable 表示该变量无可用 σ 下限，不参与分位与排序（V23-CODE-029）"),
+                 "d_status=not_comparable 表示该变量无可用 σ 下限或属退化零通道（正常工况无展布、"
+                 "相对倍数无物理含义），不参与分位与排序（V23-CODE-029/033）"),
     }
 
 
@@ -231,6 +243,8 @@ def deviation_for_group(accident_type: str, group: str, tolerance: Dict,
         "group": group,
         "severity": sev,
         "n_variables": dev["n_variables"],
+        "n_not_comparable": dev.get("n_not_comparable", 0),
+        "not_comparable": dev.get("not_comparable", []),
         "level_counts": dev["level_counts"],
         "abs_level_counts": dev["abs_level_counts"],
         "percentiles": dev["percentiles"],

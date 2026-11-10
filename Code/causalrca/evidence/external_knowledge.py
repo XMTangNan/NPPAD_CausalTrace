@@ -34,6 +34,10 @@ REQUIRED_TEMPLATE_FIELDS = ("code", "name_cn", "trigger", "expected_chain",
 REQUIRED_RELATION_FIELDS = ("id", "name", "lhs", "rhs", "rhs_operator",
                             "expected_sign", "applicable_accidents", "missing_terms")
 DEFAULT_FALLBACK_RATIO = 0.01
+# 退化零通道判据（V23-CODE-033）：正常工况带展小于本通道动态区间的 25% 视为“无展布”；
+# 参考带与 σ 小于本轨迹最大幅值的 0.1%（千分之一）视为“实质为 0”。
+DEGENERATE_ZERO_BAND = 0.25
+DEGENERATE_ZERO_LEVEL = 1e-3
 
 
 def load_yaml(name: str) -> Dict[str, Any]:
@@ -197,16 +201,54 @@ BACKWARD_DIRECTIONS = ("backward", "reverse", "reversed", -1, "-1", "back")
 
 
 def is_deviation_comparable(sigma_robust: float, floor_source: str,
-                            sigma_mad: float) -> Tuple[bool, str]:
-    """判断 d 是否可比（V23-CODE-029）。
+                            sigma_mad: float,
+                            mu: Optional[float] = None,
+                            sigma_floor: Optional[float] = None,
+                            iqr: Optional[float] = None,
+                            abs_max: Optional[float] = None) -> Tuple[bool, str]:
+    """判断 d 是否可比（V23-CODE-029 + V23-CODE-033 第三态）。
 
-    不可比两种情形：① σ_robust ≤ 0（分母无意义）；② 无物理下限（来源为 fallback）且本底
-    无变异（σ 仅由 1%·|μ| 撑起，|μ|→0 时 σ→0）。不可比变量不得进入任何排序，只落状态。
+    不可比三种情形（三态同用一个 `not_comparable` 状态，不新增截断、不改 d 定义）：
+    ① σ_robust ≤ 0（分母无意义）；
+    ② 无物理下限（来源 fallback）且本底无变异（σ 仅由 1%·|μ| 撑起，|μ|→0 时 σ→0）；
+    ③ 退化零通道（第三态，2026-11-10）：三条同时满足才判——
+       (a) σ_robust 由 fallback 或登记下限撑起（无独立实测变异支撑）；
+       (b) 正常工况近似恒定（MAD=0，或 σ 与 |μ| 同量级且都处于本通道动态区间的噪音量级）；
+       (c) 正常工况参考带无展布（IQR=0）或整段区间对相对倍数无意义。
+       此类通道的“N 倍 σ”只是把一个任意下限当标尺，不是物理相对倍数，故退出排序。
+
+    只传前三个位置参数时行为与 029 完全一致（兼容旧调用）。
     """
     if not math.isfinite(float(sigma_robust)) or float(sigma_robust) <= 0.0:
         return False, "sigma_zero"
     if floor_source != "physical" and float(sigma_mad) <= 0.0:
         return False, "no_physical_floor_and_constant_baseline"
+    if mu is None or sigma_floor is None or iqr is None:
+        return True, "ok"
+
+    sigma = float(sigma_robust)
+    mu_abs = abs(float(mu))
+    floor = float(sigma_floor)
+    iqr = float(iqr)
+    # (a) σ 无独立实测变异支撑：来源为 fallback，或 σ 恰好被登记下限顶住
+    cond_a = (floor_source != "physical") or (floor > 0.0 and sigma <= floor * (1.0 + 1e-6))
+    # (b) 正常工况近似恒定
+    if float(sigma_mad) <= 0.0:
+        cond_b = True
+    elif mu_abs > 0.0 and 0.1 <= sigma / mu_abs <= 10.0:
+        cond_b = (iqr > 0.0 and max(mu_abs, sigma) <= DEGENERATE_ZERO_BAND * iqr)
+    else:
+        cond_b = False
+    # (c) 相对倍数失去物理含义：参考带无展布，且该通道在本轨迹量级下实质为 0
+    if iqr <= 0.0:
+        band_ok = True
+    else:
+        band_ok = (mu_abs <= DEGENERATE_ZERO_BAND * iqr
+                   and sigma <= DEGENERATE_ZERO_BAND * iqr)
+    zero_ok = (abs_max is not None and float(abs_max) > 0.0
+               and max(mu_abs, sigma) <= DEGENERATE_ZERO_LEVEL * float(abs_max))
+    if cond_a and cond_b and band_ok and zero_ok:
+        return False, "degenerate_zero_channel"
     return True, "ok"
 
 

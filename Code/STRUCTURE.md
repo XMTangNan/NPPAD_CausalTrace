@@ -375,6 +375,13 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
   `metrics/metrics_summary.json`（三层汇总 + 真值表 + `clip_sensitivity`/`flips` + `comparability_with_teacher`）。
 - **与老师数字不并排**：同任务（事故内变量级 Top-k 命中）但不同协议——我们无人工先验降权、
   切分严格互斥、每 (类,组) 单独建图、另有遮蔽/去遮蔽两列；只能作脚注引用。
+- **偏差第三态（V23-CODE-033，2026-11-10）**：`d_status=not_comparable` 除 029 的两种情形外，
+  新增 `d_status_reason="degenerate_zero_channel"`——σ 由 fallback/登记下限撑起、正常工况近似恒定
+  （MAD=0 或 σ 与 |μ| 同量级且均在噪音量级）、正常工况参考带无展布（IQR=0 或 ≤25% 动态区间）、
+  且在本轨迹幅值下实质为 0（`max(|μ|,σ) ≤ 1e-3·max|x|`）四条同时满足。`reports/deviation_{K}_{g}.json`
+  增加 `n_not_comparable`（全变量计数）与 `not_comparable`（名单），`deviations` 仍只展示 TopN。
+  不新增截断、不改 `d` 定义、不改聚合（`max`）。判据在 `external_knowledge.is_deviation_comparable`
+  （`DEGENERATE_ZERO_BAND=0.25`、`DEGENERATE_ZERO_LEVEL=1e-3`）。
 - **真值可达性审计（V23-DESIGN-043，B2；只留痕不干预选择）**：`audit/truth_reachability_<CLASS>.json`
   与汇总 `audit/truth_reachability.json`。只读 `variable_sets/selection_report_<CLASS>.json`，逐变量登记
   最终去向七类：`selected` / `stage1_rejected` / `dedup_merged` / `vif_dropped` / `anchor_dropped` /
