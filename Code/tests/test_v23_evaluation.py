@@ -147,6 +147,10 @@ def test_evaluate_writes_metrics_only(monkeypatch, tmp_path):
     assert gt["suspect"] == ["WBK", "MBK"]
     assert tpl["injection_point_masking"]["masked"] is True
     assert tpl["injection_point_masking"]["variable"] == "WLR"
+    assert set(tpl["clip_sensitivity"]["clips"]) == {lab for lab, _c in EV.CLIP_VARIANTS}
+    assert {"hit1", "hit3", "mrr", "marker_rank_median"} <= set(
+        tpl["clip_sensitivity"]["clips"]["clip_off"])
+    assert tpl["clip_sensitivity"]["clips"]["clip5"]["n"] == 7
     assert tpl["candidate_set"]["source"].startswith("tracing/topology_LOCA_low.json")
     for tr in tpl["traces"]:
         assert tr["accident_type"] == "LOCA"
@@ -166,6 +170,24 @@ def test_evaluate_writes_metrics_only(monkeypatch, tmp_path):
     assert summary["global"]["causal"]["n"] == 14
     assert summary["global"]["causal"]["hit1"] == 0.0       # 遮蔽 → 结构性 0
     assert set(summary["per_template"]["LOCA_low"]) == set(EV.CHANNELS)
+
+
+def test_clip_sensitivity_is_first_class():
+    """B_CLIP 敏感性必须并列四列，且翻转模板要被显式标出（V23-DESIGN-038）。"""
+    latest = _latest_run()
+    tpl = EV.load_template("LOCA", "high", latest)
+    ranks = {lab: EV.causal_ranking_unmasked(tpl, clip=c).index("WLR") + 1
+             for lab, c in EV.CLIP_VARIANTS}
+    assert ranks["clip5"] == 1 and ranks["clip_off"] == 3     # 命中随截断翻转
+
+    summary = json.loads((artifact.run_path(latest) / "metrics" / "metrics_summary.json")
+                         .read_text(encoding="utf-8"))
+    labels = {lab for lab, _c in EV.CLIP_VARIANTS}
+    assert set(summary["clip_sensitivity"]["clips"]) == labels
+    for lab in labels:
+        g = summary["clip_sensitivity"]["clips"][lab]["global"]
+        assert {"hit1", "hit3", "mrr", "ap3", "marker_rank_median", "n"} <= set(g)
+    assert "LOCA_high" in summary["clip_sensitivity"]["flips"]["templates"]
 
 
 def test_evaluate_rejects_missing_topology(monkeypatch, tmp_path):

@@ -28,6 +28,12 @@ v2.3 不做事故大类匹配，只做「事故内、变量级的根因溯源」
   没有这一列，注入点结构性不可能被命中（命中率恒 0 只能说明“被遮蔽”，
   不能回答“根因找对没有”）。
 
+**B_CLIP 敏感性（V23-DESIGN-038，评测一等公民）**
+总效应是 T=(I−B)⁻¹ 的 |T| 行和，`B_CLIP` 硬截断会改名次：`LOCA_high` 的 `WLR` 在 clip5 下第 1、
+去截断（clip_off）下第 3。因此每个模板与汇总都必须并列 `clip3 / clip5 / clip10 / clip_off`
+四列的 Hit@1 / Hit@3 / MRR（+ 注入点名次中位数），并自动列出“随 clip 翻转”的模板（`flips`）。
+**只报 clip5 一列不得当结论。**
+
 **与老师 accuracy 的关系**
 同任务（事故内变量级 Top-k 命中）、但**不同协议**：我们无人工先验降权、切分严格互斥
 （split_manifest.test_severities）、每 (类,组) 单独建图、且额外给“遮蔽/去遮蔽”两列。
@@ -55,6 +61,8 @@ CUTOFF = 3                       # 指标截断 @3（与老师 metrics_for_ranki
 BASELINE_LEAD_SEC = 10.0         # 注入前窗口末端留 10s 余量（[0, t_inject−10]）
 CHANNELS = ("causal", "causal_unmasked_for_eval",
             "deviation_equal_weight", "deviation_production_set")
+# B_CLIP 敏感性（V23-DESIGN-038）：变量级命中对总效应截断阈值敏感，必须并列四列
+CLIP_VARIANTS = (("clip3", 3.0), ("clip5", B_CLIP), ("clip10", 10.0), ("clip_off", None))
 METRIC_KEYS = ("hit1", "hit3", "mrr", "p2", "p3", "recall3", "ap3", "jaccard3")
 
 
@@ -156,11 +164,15 @@ def causal_ranking(tpl: Dict) -> List[str]:
     return _production_order(tpl, eff, exclude=[tpl["marker"]] if tpl["marker"] else [])
 
 
-def unmasked_total_effect(tpl: Dict) -> Dict[str, float]:
-    """评测模式：把注入点放回候选，用已落盘 stable_edges 重算总效应（纯矩阵，无 bootstrap）。"""
+def unmasked_total_effect(tpl: Dict, clip: Optional[float] = B_CLIP) -> Dict[str, float]:
+    """评测模式：把注入点放回候选，用已落盘 stable_edges 重算总效应（纯矩阵，无 bootstrap）。
+
+    `clip` 只影响 |B| 的硬截断上限；clip=None 表示不截断（敏感性分析用）。
+    """
     variables = list(tpl["variables"])
-    T, idx, _diag = ST.build_total_effect_matrix(tpl["stable_edges"], variables,
-                                                 clip=B_CLIP, return_diag=True)
+    T, idx, _diag = ST.build_total_effect_matrix(
+        tpl["stable_edges"], variables,
+        clip=float("inf") if clip is None else clip, return_diag=True)
     effect_vars = {v for v, nd in tpl["nodes"].items() if int(nd.get("out_degree") or 0) == 0}
     if tpl["marker"]:
         effect_vars.add(tpl["marker"])
@@ -169,9 +181,9 @@ def unmasked_total_effect(tpl: Dict) -> Dict[str, float]:
             for v in variables}
 
 
-def causal_ranking_unmasked(tpl: Dict) -> List[str]:
+def causal_ranking_unmasked(tpl: Dict, clip: Optional[float] = B_CLIP) -> List[str]:
     """评测模式排序：候选含注入点，其余排序键与生产口径一致。"""
-    return _production_order(tpl, unmasked_total_effect(tpl))
+    return _production_order(tpl, unmasked_total_effect(tpl, clip=clip))
 
 
 def trace_deviation(df, cfg: Dict, variables: Sequence[str]) -> Dict[str, float]:
@@ -253,6 +265,43 @@ def _summarize(rows: Sequence[Dict]) -> Dict:
     return out
 
 
+def _summarize_clip(rows: Sequence[Dict], label: str) -> Dict:
+    """B_CLIP 敏感性单列汇总：Hit@1/Hit@3/MRR/AP@3 + 注入点名次中位数 + Wilson。"""
+    mets = [r["clip_sensitivity"][label]["metrics"] for r in rows]
+    n = len(mets)
+    agg: Dict[str, object] = {"n": n}
+    for key in ("hit1", "hit3", "mrr", "ap3"):
+        agg[key] = round(float(np.mean([m[key] for m in mets])), 4) if n else None
+    for key in ("hit1", "hit3"):
+        k = int(sum(round(float(m[key])) for m in mets))
+        lo, hi = wilson_ci95(k, n)
+        agg[f"{key}_n"] = k
+        agg[f"{key}_wilson95"] = [None if lo is None else round(lo, 4),
+                                  None if hi is None else round(hi, 4)]
+    ranks = [r["clip_sensitivity"][label]["marker_rank"] for r in rows
+             if r["clip_sensitivity"][label]["marker_rank"]]
+    agg["marker_rank_median"] = round(float(np.median(ranks)), 2) if ranks else None
+    return agg
+
+
+def _clip_flip_note(per_tpl_clips: Dict[str, Dict[str, Dict]]) -> Dict[str, object]:
+    """显式标出哪些模板的命中/注入点名次会随 clip 翻转（供读者判读，不靠肉眼比对）。"""
+    flips: Dict[str, Dict] = {}
+    for name, by_clip in per_tpl_clips.items():
+        ranks = {lab: v.get("marker_rank_median") for lab, v in by_clip.items()}
+        hits = {lab: (v.get("hit1"), v.get("hit3")) for lab, v in by_clip.items()}
+        if len({r for r in ranks.values()}) > 1 or len(set(hits.values())) > 1:
+            flips[name] = {"marker_rank_median": ranks,
+                           "hit1_hit3": {lab: list(h) for lab, h in hits.items()},
+                           "top3": {lab: v.get("top3") for lab, v in by_clip.items()}}
+    return {
+        "templates": flips,
+        "rule": ("判定：任一 clip 下 hit1/hit3 或注入点名次不同即列入；"
+                 "列入者不得以单列 clip5 数字作结论"),
+        "known_case": "LOCA_high：clip5 下 WLR 第 1（hit1=1.0）、clip_off 下第 3（hit1=0）",
+    }
+
+
 # ==================== 主流程 ====================
 def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
              groups: Optional[Sequence[str]] = None) -> Dict:
@@ -300,6 +349,17 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
         # 偏差基线第二列：与生产通道**同变量集**（不含被遮蔽的注入点）
         rank_d_prod = deviation_ranking(
             [v for v in tpl["nodes"] if v != tpl["marker"]], d)
+        # B_CLIP 敏感性：同一候选集，只改 |B| 的截断上限（clip5 = 生产默认）
+        clip_rows: Dict[str, Dict] = {}
+        for label, clip in CLIP_VARIANTS:
+            rk = rank_u if label == "clip5" else causal_ranking_unmasked(tpl, clip=clip)
+            clip_rows[label] = {
+                "metrics": {kk: (round(vv, 4) if isinstance(vv, float) else vv)
+                            for kk, vv in ranking_metrics(rk, gt).items()},
+                "marker_rank": (rk.index(tpl["marker"]) + 1)
+                               if tpl["marker"] and tpl["marker"] in rk else None,
+                "top3": rk[:3],
+            }
         row = {
             "accident_type": k, "group": g, "severity": sev, "template": tr["template"],
             "gt": gt,
@@ -315,6 +375,7 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
                         "causal_unmasked_for_eval": ranking_metrics(rank_u, gt),
                         "deviation_equal_weight": ranking_metrics(rank_d, gt),
                         "deviation_production_set": ranking_metrics(rank_d_prod, gt)},
+            "clip_sensitivity": clip_rows,
         }
         row["metrics"] = {ch: {kk: (round(vv, 4) if isinstance(vv, float) else vv)
                                for kk, vv in row["metrics"][ch].items()} for ch in CHANNELS}
@@ -322,6 +383,7 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
 
     written: List[str] = []
     by_template: Dict[str, Dict] = {}
+    by_template_clips: Dict[str, Dict] = {}
     for name, tpl in templates.items():
         sub = [r for r in rows if r["template"] == name]
         if not sub:
@@ -330,6 +392,11 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
         marker = tpl["marker"]
         masked = (tpl["nodes"].get(marker) or {}).get("total_effect") is None
         eff_unmasked = unmasked_total_effect(tpl)
+        tpl_clips: Dict[str, Dict] = {}
+        for label, _clip in CLIP_VARIANTS:
+            agg = _summarize_clip(sub, label)
+            agg["top3"] = sub[0]["clip_sensitivity"][label]["top3"]
+            tpl_clips[label] = agg
         payload = {
             "template": {"k": tpl["k"], "g": tpl["g"], "n_nodes": len(tpl["nodes"])},
             "n_test": len(sub),
@@ -354,6 +421,12 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
                 "note": tpl["marker_info"].get("note"),
             },
             "method_note": tpl["method_note"],
+            "clip_sensitivity": {
+                "channel": "causal_unmasked（注入点放回候选；只改 |B| 的截断上限，其余不变）",
+                "note": ("变量级命中对 B_CLIP 敏感：clip5 是本仓库生产默认值，"
+                         "引用命中率必须并列四列，单列 clip5 不得当结论"),
+                "clips": tpl_clips,
+            },
             "traces": sub,
             "summary": _summarize(sub),
             "leakage_note": ("留出轨迹取自 split_manifest.test_severities；排序读本 run 已落盘 "
@@ -364,6 +437,7 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
                                        source=f"tracing/root_candidates_{tpl['k']}_{tpl['g']}.json")
         written.append(Path(path).name)
         by_template[name] = payload["summary"]
+        by_template_clips[name] = tpl_clips
 
     per_class = {k: _summarize([r for r in rows if r["accident_type"] == k]) for k in classes
                  if any(r["accident_type"] == k for r in rows)}
@@ -396,6 +470,23 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
         "test_selection": {k: {g: ((split["classes"].get(k) or {}).get("groups", {})
                                    .get(g, {}) or {}).get("test_severities")
                                for g in groups} for k in classes},
+        "clip_sensitivity": {
+            "channel": "causal_unmasked（注入点放回候选；只改 |B| 的截断上限）",
+            "why": ("总效应 = |T| 行和，T=(I−B)⁻¹；B_CLIP 硬截断会改变名次，"
+                    "因此变量级命中必须并列 clip3/clip5/clip10/clip_off 四列"),
+            "clips": {
+                label: {
+                    "global": _summarize_clip(rows, label),
+                    "per_class": {k: _summarize_clip(
+                        [r for r in rows if r["accident_type"] == k], label)
+                        for k in classes if any(r["accident_type"] == k for r in rows)},
+                    "per_template": {
+                        name: {kk: by_template_clips[name][label][kk]
+                               for kk in ("hit1", "hit3", "mrr", "marker_rank_median", "n")}
+                        for name in by_template_clips},
+                } for label, _clip in CLIP_VARIANTS},
+            "flips": _clip_flip_note(by_template_clips),
+        },
         "per_class": per_class,
         "per_template": {name: {ch: {kk: s[ch][kk] for kk in
                                      ("hit1", "hit3", "mrr", "p2", "p3", "recall3", "ap3", "n")}

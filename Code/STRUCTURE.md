@@ -325,14 +325,20 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
   （模板 15 个节点）内单列 `gt_in_candidate_set` 披露。口径边界：NPPAD 数据只给「类目录 + 文件序号
   （=严重度）」，**没有逐条注入变量字段** → 真值粒度为 `class_level`（同类全部轨迹共用该类的始发
   变量集），产物 `ground_truth.scope` 如实标注，不得当成逐样本真值。
-- 三通道同表（同一批轨迹、同一候选集）：`causal` 生产口径（注入点被「故障指示器遮蔽」、
+- 四通道同表（同一批轨迹）：`causal` 生产口径（注入点被「故障指示器遮蔽」、
   不进候选）/ `causal_unmasked_for_eval` 评测模式（注入点放回候选，其余同生产口径；用已落盘
   `stable_edges` 重算 T=(I−B)⁻¹，纯矩阵、不改生产输出）/ `deviation_equal_weight` 纯偏差基线
-  （同候选集等权，只用 d(v)=max|x−μ_pre|/max(1.4826·MAD_pre, σ_floor)）。
+  （与去遮蔽通道同 15 节点）/ `deviation_production_set` 纯偏差基线（与生产通道同 14 节点），
+  偏差基线两列只为保证"因果 vs 偏差"各自严格同变量集，不得跨配对比较。
 - 指标 Hit@1 / Hit@3 / MRR / P@2 / P@3 / Recall@3 / AP@3 / Jaccard@3（cutoff=3，与老师
   `metrics_for_ranking` 同式），按模板 (K,g) / 按类 / 全局三层汇总；Wilson 95% 只给 Hit@1/Hit@3。
-- 落 `metrics/metrics_{K}_{g}.json`（逐例三通道明细 + 模板汇总 + 遮蔽披露）与
-  `metrics/metrics_summary.json`（三层汇总 + 真值表 + `comparability_with_teacher`）。
+- **B_CLIP 敏感性是一等公民（V23-DESIGN-038）**：总效应是 T=(I−B)⁻¹ 的 |T| 行和，`B_CLIP`
+  硬截断会改名次，故每个模板与汇总都必须并列 `clip3 / clip5 / clip10 / clip_off` 四列
+  的 Hit@1/Hit@3/MRR/AP@3 与注入点名次中位数，并由 `flips` 自动标出"随 clip 翻转"的模板；
+  **只报 clip5 一列不得当结论**（`LOCA_high` clip5=第 1、clip_off=第 3；`FLB_high` clip3=第 2、
+  clip5=第 5、clip_off=第 3）。
+- 落 `metrics/metrics_{K}_{g}.json`（逐例四通道明细 + 模板汇总 + `clip_sensitivity` 四列 + 遮蔽披露）与
+  `metrics/metrics_summary.json`（三层汇总 + 真值表 + `clip_sensitivity`/`flips` + `comparability_with_teacher`）。
 - **与老师数字不并排**：同任务（事故内变量级 Top-k 命中）但不同协议——我们无人工先验降权、
   切分严格互斥、每 (类,组) 单独建图、另有遮蔽/去遮蔽两列；只能作脚注引用。
 

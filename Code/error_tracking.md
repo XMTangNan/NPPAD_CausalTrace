@@ -1148,7 +1148,8 @@
     `stable_edges` 重算 T=(I−B)⁻¹，纯矩阵、不改生产输出）/`deviation_equal_weight`（同候选集等权纯偏差基线）。
   - **关键事实**：生产口径下命中结构性为 0——注入点 `marker` 被「故障指示器遮蔽」
     （`total_effect=None`、`root_candidates.rank=null`），且 WLR 的强出边被 `B_CLIP=5` 截断。
-    去遮蔽后 LOCA_high 6/6 全中（LOCA_low/mid 的 WLR 图内无强出边；WTRA 出度为 0 → SGATR 结构性不可达）。
+    去遮蔽后 LOCA_high 在 **clip5** 下 6/6 全中（LOCA_low/mid 的 WLR 图内无强出边；WTRA 出度为 0 → SGATR
+    结构性不可达）。**该表述已被 038 修正**：clip_off 下 WLR 降为第 3，命中归零。
   - **与老师数字不并排**：同任务不同协议（无人工先验降权、切分互斥、按 (类,组) 建图、另有遮蔽/去遮蔽两列），
     `metrics_summary.json.comparability_with_teacher` 固化为 `same_task=true / comparable_numbers=false`。
 - 数据落盘：`v23-20261110T150726`（60 条留出 × 9 模板）重跑第 10 步 + manifest；
@@ -1172,6 +1173,27 @@
   → 两套变量集各有胜负，无一致优劣。
 - 状态：✅ 已解决。
 
-**open 计数（本轮结束）**：累计 open = 0；待用户裁决 = 4（§9.3 第 1/2/4 项 + 遮蔽口径 A/B/C 三案）；
-本轮新增 2 条（036/037）均已 closed。
+**V23-DESIGN-038（closed）· B_CLIP 敏感性升为评测一等公民（回收"LOCA_high 1.000"）**
+
+- 问题：036 只报了 `clip=5` 一列的变量级命中，读者会当成结论；实测同一候选集只改截断上限就翻名次。
+- 解决（`evaluation.py`）：
+  - `CLIP_VARIANTS = clip3(3.0) / clip5(B_CLIP) / clip10(10.0) / clip_off(None→inf)`；
+    `unmasked_total_effect(tpl, clip)`、`causal_ranking_unmasked(tpl, clip)` 参数化。
+  - 每模板 `metrics_{K}_{g}.json` 增 `clip_sensitivity.clips{4}`（Hit@1/Hit@3/MRR/AP@3/Wilson/
+    注入点名次中位数 + 该 clip 的 top3）；逐例增 `clip_sensitivity.clips{4}.metrics/marker_rank/top3`。
+  - `metrics_summary.json` 增 `clip_sensitivity`（global / per_class / per_template × 4 列 + 自动
+    `flips` 列表），并写明"只报 clip5 一列不得当结论"。
+- 实测（60 条留出，去遮蔽通道）：全局 Hit@1 = 0.10/0.10/0.10/**0.00**，
+  Hit@3 = **0.20**/0.10/0.10/**0.20**，MRR = 0.234/0.205/0.199/0.141（clip3/clip5/clip10/clip_off）。
+  翻转模板 5 个：`LOCA_high`(1→1→1→3)、`FLB_high`(2→5→5→3，非单调)、`FLB_mid`(4→4→5→7)、
+  `FLB_low`(8→8→8→7)、`SGATR_low`(14→13→13→13)。
+- **回收旧表述**：`LOCA_high` 的"1.000"只能写成"**clip5 下 1.000、去截断下第 3（Hit@1=0）**"。
+- 状态：✅ 已解决（pytest 155 passed + 1 条与本轮无关的架构守卫失败，见下）。
+
+**环境异常（非本轮产物）**：`pytest tests/test_architecture.py::test_output_has_single_run_root_contract`
+失败，原因 `Code/output/experiments/`（16:09 由另一路创建，内含 `protocol_align_v23-20261110T150726/`）
+违反"output/ 顶层只允许 runs/archive/latest/README.md"契约。本轮**不擅自删除**该路产物，
+待裁决移入 `output/archive/` 或由该路清理后即可恢复全绿。
+**open 计数（本轮结束）**：累计 open = 0；待用户裁决 = 5（§9.3 第 1/2/4 项 + 遮蔽口径 A/B/C 三案 +
+`output/experiments/` 归属）；本轮新增 3 条（036/037/038）均已 closed。
 **待办**：遮蔽口径待裁决（三案预判见方案 §5.13）；035 的模板检索指标（Hit@1 0.333→0.633 等）**作废，不得引用**。
