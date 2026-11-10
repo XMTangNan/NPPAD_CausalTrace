@@ -214,12 +214,13 @@ PYTHONPATH=. python -m rca.v21.run_v23_graphs --run-id <id>
 PYTHONPATH=. python -m rca.v21.severity_aggregation --run-id <id>
 PYTHONPATH=. python -m rca.v21.run_v23_llm_explanation --run-id <id>   # 模板 rule + 类级/全局（--backend llm 可选）
 PYTHONPATH=. python -m rca.v21.run_v23_report --run-id <id>
-PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（138 例：134 passed / 4 既有失败）
+PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（138 例，全绿）
 ```
 
-> 注：4 例既有失败全部在 `tests/test_v23_report_llm.py`，根因是 `output/rca_v23/tracing/` 与
-> `signatures/` 来自不同批次（`v23c-*` vs `v23-*`）导致跨阶段拒绝混源，与代码结构无关；
-> 需按 §6.4 重算产物后消除，登记见 `error_tracking.md`。`cd Code && pytest tests -q` 亦可
+> 注：原先 4 例失败在 `tests/test_v23_report_llm.py`，根因是 `output/rca_v23/tracing/` 与
+> `signatures/` 来自不同批次（`v23c-*` vs `v23-*`）导致跨阶段拒绝混源；`v23-20261110T134957`
+> 统一重算后已 **138 passed / 0 failed**（产物缺失时这 4 例转为 skipped，属设计行为）。
+> 登记见 `error_tracking.md` V23-DESIGN-030。`cd Code && pytest tests -q` 亦可
 > （`pyproject.toml` 仅补 `testpaths`/`pythonpath`，`PYTHONPATH=. python -m` 方式不变）。
 
 **运行约定（强制，方案 §6.4）**

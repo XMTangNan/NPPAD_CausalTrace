@@ -25,11 +25,12 @@
 | 2 | **严重度分组** | 一处写"由变点检测决定分组边界（如 low 2–86 / sat 87–100）" | **分组仍按预注册固定三段** `low 2–33 / mid 34–66 / high 67–100`（`rca_config_v21.SEVERITY_BANDS`、`accident_config.severity_bands`）。变点检测（CUSUM + DP-L2-BIC）**只作审计与信息门控**，不改分组边界（实测变点：LOCA 7/12/21/43、SGATR 87、FLB 0）。数据驱动分组仍是待裁决项（O4） | §4.2、§4.4.2、§4.6、§9.3 |
 | 3 | **变量选取统计单位** | 一处写"按时间点统计"，一处写"按轨迹统计" | **关联统计的单位 = 轨迹**：MI 与跨轨迹区分度在 `groupby(trajectory_id).mean()` 的轨迹均值上与严重度做回归/计算；CV 与非高斯度在合并时间序列上计算（`variable_selector.py:261-288`） | §3.3 阶段2、§3.4 |
 | 4 | **基线窗口** | 一处写"LOCA_1 准稳态段 t=520~2030s 作为全局基准"；一处写"注入前 [0,100]s" | **两套并存、各司其职，禁止互相替代**：① 过程本体/公差 μ/σ 基线 = **注入前 [0,100]s 共 11 点**（`tolerance.py`，V23-DATA-004，`baseline_points=11`）；② 数据审计的 Z 病态/变点基线 = **恢复段 [520,2030]s 共 152 点**（`data_audit.py`，取自注册表 `baseline_window`） | §4.4.1、§5.9、§7.4 |
-| 5 | **σ_floor 口径** | 一处写"统一取 1%·\|μ\|"；外部材料写"53/93 变量由 σ_floor 兜底" | **`σ_robust = max(1.4826·MAD, σ_floor(v))`**；`σ_floor(v)` 优先**逐变量物理下限**（bar 0.5 / % 0.5 / t/h 5.0），无配置回退 `1%·\|μ\|`。实测由 σ_floor 兜底的通道数 = **87/93（LOCA）、88/93（SGATR）、88/93（FLB）**，其中 fallback 53 + physical 34；"53/93"只是 fallback 来源数 | §4.4.1、§5.9、§7.4 K10 |
+| 5 | **σ_floor 口径** | 一处写"统一取 1%·\|μ\|"；外部材料写"53/93 变量由 σ_floor 兜底"；实现里曾有两份 `sigma_floor_for`（`data_audit` 按本地量纲表、`external_knowledge` 按 YAML） | **单一来源 = `rca/v21/external_knowledge.py::sigma_floor_for` + `external_knowledge/tolerance_overrides.yaml`**（`by_variable` → `by_unit` → `fallback·\|μ\|`）。`σ_robust = max(1.4826·MAD, σ_floor(v))`；`data_audit.sigma_floor_for` 自 V23-DESIGN-029 起只是**保留 dict 契约的兼容包装**，不再持有数值配置（本地 `PHYSICAL_SIGMA_FLOOR` 已删除）。合一后实测**零数值变化**：96 变量 physical 37 / fallback 59，兜底通道数与来源计数与合并前一致。实测由 σ_floor 兜底的通道数 = **87/93（LOCA）、88/93（SGATR）、88/93（FLB）**，其中 fallback 53 + physical 34；"53/93"只是 fallback 来源数 | §4.4.1、§5.9、§7.4 K10 |
 | 6 | **稳定边阈值** | 论文 Algorithm 1 原值 `f_e≥0.5 且 s_e/dir≥0.6` | **`f_e≥0.70 且 dir_e≥0.90`**（`STABLE_F=0.70`、`STABLE_DIR=0.90`）。0.5/0.6 只作"论文原值"引用，不用于任何产物。v2.3 为 **LiNGAM 单引擎稳定边**（`consensus_available=false`、`n_consensus=null`），GAM 共识默认未接入，**禁止把稳定边等同共识边** | §2.3、§2.7、§7.3 |
 | 7 | **SGATR sev87 归因** | 一处写"严重度分组边界设置不当造成的伪影" | **两条事实分开记**：(a) 变点检测确认 severity=87 处 marker→LSGA 掉档（WTRA 掉档）；(b) sev87+ 的 LSGA 双峰饱和使 GAM 训练中位处局部斜率反转（high 组 C^A=−2693.11，low/mid 为 +23.36/+19.37），R5 方向一致率 0/71 属**已定位的真实数据现象、机制未证实**；不得为改数值调整 `g*` 选择规则或 C^A 口径 | §4.4.2、§7.3、§9.3 |
 | 8 | **数据规模** | 一处写"每类 ~100 条轨迹 × 96 变量 × ~4000 时间步"；一处写"23 变量" | **LOCA/SGATR/FLB 各 100 条（sev 1–100）；LOCAC 5 条（partial）；Normal 1 条；其余 8 类无目录**。每类划分 = sev-1 基线 1 条 + 测试 20 条（7/7/6）+ 模板 79 条。每条轨迹 **345–476 个采样点**（10 s/步，≈3440–4750 s 覆盖）；**96 通道**（含 TIME），每类数据审计数值列 **93**、入模 **15**（gate_ratio 0.156）。"~4000 时间步""23 变量"作废 | §1.4、§4.0、§5.1 |
 | 9 | **过期引用** | `anomaly.py::build_thresholds_from_loca1_steady()` 被当作"现状"；`anomaly.py` 被列为"待新建"；产物路径仍写 `v23_signatures/` 等 | ① 该函数实际在 **`Code/accidents/loca/anomaly.py`**（v1 LOCA 专用遗留），**不是 v2.3 现状**；v2.3 现状为 **`rca/v21/tolerance.py`**（评审 C 文档"代码中不存在"一句按此更正：函数存在，但不在 `rca/v21`）。② "23 变量"是 v2.0 早期审计起点（`CANDIDATE_UNION` = 18 物理 + 3 marker + 2 安注），现行本体 96。③ v2.3 唯一产物根 = `output/rca_v23/`，`v23_signatures/`、`v23_tracing/`、`v23_graphs/`、`signatures_strict/` 均为**冻结只读历史路径** | §2.4、§5.1、§5.3.1、§6.2、§9.3 |
+| 10 | **重复测点去重口径** | 历史实现把 `forced = trigger + key_responses` 直接钉进 `protected`，同一物理量的 A/B 双测点（PSGA/PSGB、WFWA/WFWB、LSGA/LSGB）两路同时入选，VIF≈∞ → V3 恒 fail | **阶段3 去重**（用户裁决方案 (a)）：同一物理量双测点 `\|Pearson r\| ≥ 0.99` 判为精确重复，保留配置顺序里先出现的一路，另一路写 `dropped_key_response`（`pair` / `corr` / `retained` / `stage=stage3`）；被剔除者封死四条回流路径（阶段2 TOP_K、子系统代表、锚定变量、N_MIN 回补），最高分候选恰为重复测点时代表权交给同物理量已入选的另一路。**V3 阈值 500 与 V5 判据均未改动** | §3.3 阶段3、§4.4.1、§9.3 |
 
 ### 0.3 状态类信息的唯一来源（不复制进正文）
 
@@ -547,6 +548,7 @@ score(v) = 0.25 × norm(CV(v))
 | 子系统覆盖 | 每类事故涉及的子系统至少有 1 个变量入选 | 本体：变量→子系统映射 |
 | 因果链完整 | 预定义的关键传导路径上的变量必须入选 | 本体：物理关系清单 |
 | 冗余消除 | 同一物理量的多个测点（如 THA/THB）只保留综合得分最高的 | 本体：变量功能分组 |
+| 精确重复测点去重 | **先于强制保留执行**：同一物理量的 A/B 双测点若 `\|Pearson r\| ≥ 0.99`（等价 VIF≈50，实测 FLB PSGA/PSGB、WFWA/WFWB；SGATR PSGA/PSGB=0.999916、LSGA/LSGB=0.994073），只保留配置顺序里先出现的一路，另一路写 `dropped_key_response`（`pair`/`corr`/`retained`/`stage=stage3`）。被剔除者不得经阶段2 TOP_K、子系统代表、锚定变量、N_MIN 回补任一途径回流；若某子系统最高分变量恰为被剔除的重复测点，代表权交给同物理量已入选的另一路。**该阈值只决定同一物理量保留哪一路，不参与 V3/V5 判定** | 本体：变量功能分组 + 实测相关系数 |
 | 触发变量保留 | 该事故的触发变量（如 LOCA 的 WLR）强制保留 | 事故配置表 |
 | 关键响应保留 | 安全系统响应变量（如 WECS/WHPI）强制保留 | 事故配置表 |
 
@@ -1949,19 +1951,19 @@ v2.1 实验解读提出的 O1–O12 是本方案的**输入待办**。下表按�
 |---|--------|----------|--------------------|
 | 1 | 其余 8 类事故数据（SLBIC/SLBOC/SGBTR/RW/RI/MD/LR/LLB） | 本地无目录 | 无数据不得生成；12 类验收只能按 3/12 + LOCAC 描述性交付 |
 | 2 | LOCAC 仅 5 条轨迹 | 有目录但不足 20 条 | 样本量不足以分层，只能描述性 |
-| 3 | **V3 三类均 fail** | offenders 均为保护变量（forced + 每子系统代表）：FLB PSGA/PSGB=1.000000、WFWA/WFWB≈0.9999999；SGATR PSGA/PSGB=0.999916、LSGA/LSGB=0.994073；LOCA VOL 与 TAVG/P≈0.91 | 属研究裁决，三选一（见下），不由实现方擅自放宽 |
+| 3 | **V3 三类仍 fail（已按方案 (a) 去重后仍 fail）** | 用户已裁决走 **(a)** 并落地（V23-DESIGN-028）：阶段3 按 `\|Pearson r\| ≥ 0.99` 去重，FLB 剔 `PSGB`/`WFWB`、SGATR 剔 `PSGB`/`LSGB`，LOCA 无重复对（强制集最高相关 0.9106）。去重生效后 V3 **仍 fail**，但 offenders **已不再是重复测点**，全部是受保护变量（forced + 子系统代表）：LOCA `VOL`=2161.6、`RRCA`=1271.0；SGATR `LSGA`=1740.2、`NSGA`=553.1；FLB `QMGB`=2314.6、`PWNT`=1069.9、`TAVG`=760.9、`WCHG`=749.2、`WSTB`=737.7。`max_vif_all` 7.757e9 → 2314.6（FLB）、4.288e5 → 1740.2（SGATR）、2.162e3 → 2161.6（LOCA，未受去重影响） | 保护变量（强制保留 + 每子系统代表）不受 VIF 迭代裁剪，是 V2/V3 的既有设计取舍；放宽 `VIF_MAX=500` 或取消保护都会改方法口径，须另行裁决。**本轮未改阈值、未改 V5 判据** |
 | 4 | 严重度分组是否数据驱动（O4） | 变点已检出（SGATR 87 等），分组仍固定 | 改边界会改全部下游数字，须先裁决 |
 | 5 | LLM 解释链路实测 | `llm_available=false`，默认 rule 后端 | 无 API key，未实际调用，不得写成"已验证" |
-| 6 | `tolerance_LOCA.json` 与台账不符 | 当前文件 run_id=`v23d-20261110T053201`、仅 6 个阈值变量 | 该文件被开发/测试跑覆盖，需以 `v23-20261110T050332` 重算恢复后再引用（本轮不改 `output/`） |
-| 7 | `run_v23_all_summary.json` 被测试痕迹覆盖 | 当前 run_id=`v23-20261110T053211`，`rerun_reason="E-R3 单测：验证失败路径与步骤记录"`，step3 tolerances=failed | 验收数字以台账记录的 `v23-20261110T050332` 为准 |
+| 6 | `tolerance_LOCA.json` 与台账不符 | **已消除**：全链重算后 `tolerances/tolerance_LOCA.json` 与其余产物同属 `run_id=v23-20261110T134957` | — |
+| 7 | `run_v23_all_summary.json` 被测试痕迹覆盖 | **已消除**：当前 `reports/run_v23_all_summary.json` 为 `run_id=v23-20261110T134957`、9/9 步 ok | — |
 | 8 | O2/O6/O7/O8/O9 | 未闭环（见 §7.6） | 属方法研究，需 v3 或后续专项 |
 | 9 | 12 类 ALLOWED_RELATIONS | 仅 3 类落地 | 其余类缺机理资料与数据，不造边 |
 | 10 | 论文锚定 8 变量名单 | 论文原文未给出名单 | 现有锚定是"早期机理筛选集"代理，属工程假设，不可声称复刻论文 |
 
-**第 3 项的三个候选（待用户裁决，本文档不预设立场）**：
-- (a) 对"精确重复测点对"做去重（如 PSGA/PSGB、WFWA/WFWB 仅保留其一）；
-- (b) 放宽 V5 为"共线组内选代表"，V3 作用在代表变量上；
-- (c) 接受 V3 fail 并在论文中显式披露（当前实现的默认行为）。
+**第 3 项已裁决并落地：走 (a) 精确重复测点去重**（V23-DESIGN-028，`v23-20261110T134957`）：
+- (a) 对"精确重复测点对"做去重（`|Pearson r| ≥ 0.99`，如 PSGA/PSGB、WFWA/WFWB、LSGA/LSGB 仅保留其一，另一路记 `dropped_key_response`）——**已实施**；
+- (b) 放宽 V5 为"共线组内选代表"——**未采纳**；
+- (c) 接受 V3 fail 并在论文中显式披露——去重后 V3 仍 fail，**仍需在论文中披露 offenders（现为保护变量）**。
 
 ---
 
@@ -1981,6 +1983,8 @@ v2.1 实验解读提出的 O1–O12 是本方案的**输入待办**。下表按�
 | FLB | WFLB | WFWA, WFWB, TAVG, PWNT, PSGA | 给水+二回路+一回路 |
 | LR | TBLD | WFWA, WFWB, TAVG, PWNT, PSGA | 给水+二回路+一回路 |
 | LLB | WLD | VOL, P, LVPZ, WECS | 化容+一回路 |
+
+> 注：`rca/v21/variable_selector._V21_KEY_RESPONSE_OVERRIDES` 为不改动已验收的 V1–V7，保留了 v2.1 内联的更全集合（SGATR 额外含 `PSGB`/`LSGB`，FLB 额外含 `PSGB`）。经 V23-DESIGN-028 阶段3 精确重复测点去重后，**有效关键响应与本表一致**：SGATR = `PSGA`/`LSGA`/`RM2`，FLB = `WFWA`/`TAVG`/`PWNT`/`PSGA`。
 
 ## 附录 B：与 v3 方案的边界声明
 

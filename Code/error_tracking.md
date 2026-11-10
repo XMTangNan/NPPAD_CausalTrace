@@ -931,11 +931,87 @@
 
 **遗留（未做，待裁决/后续）**
 
-- S2 `sigma_floor_for` 两源合一：会改数值，等用户裁决。
-- V3 三态仍 fail（forced 重复测点对），处置 a/b/c 待裁决。
-- 4 例既有失败（`test_v23_report_llm.py`）：`output/rca_v23/tracing` 为 `v23c-20261110T053205` 批次，
-  与 `signatures`（`v23-20261110T050332`）混源；需按 §6.4 声明 rerun-reason 后重算产物才消除，本轮不动 `output/`。
+- ~~S2 `sigma_floor_for` 两源合一：会改数值，等用户裁决。~~ **已闭环**（V23-DESIGN-029，实测零数值变化）。
+- ~~V3 三态仍 fail（forced 重复测点对），处置 a/b/c 待裁决。~~ **已按 (a) 落地**（V23-DESIGN-028）；
+  去重后 V3 仍 fail，但 offenders 已变为保护变量（见 V23-DESIGN-028 条目）。
+- ~~4 例既有失败（`test_v23_report_llm.py`）~~ **已消除**（V23-DESIGN-030 重算，同 run_id 产物一致，
+  现 `138 passed / 0 failed`）。
 - S5 执行器大拆分、`legacy/` 归档、整体改名 `causal_trace/`：未启动。
+
+---
+
+## V23-DESIGN-028~030（`v23-20261110T134957` 批次，2026-11-10）
+
+**V23-DESIGN-028（closed）· V3 阶段3 精确重复测点去重（用户裁决方案 (a)）**
+
+- 判据：`DUPLICATE_CORR_MIN = 0.99`（`|Pearson r|`，R²≥0.98，等效 VIF≈50），只作用于 `key_responses`，
+  触发变量永不参与；按配置顺序贪心遍历，保留先出现的一路。
+- 实测配对（本轮全链实际剔除）：
+
+  | 类 | 剔除 | 保留 | Pearson r | 发生阶段 |
+  |---|---|---|---|---|
+  | SGATR | `PSGB` | `PSGA` | 0.999916 | stage3 |
+  | SGATR | `LSGB` | `LSGA` | 0.994073 | stage3 |
+  | FLB | `PSGB` | `PSGA` | 1.000000（0.9999999996） | stage3 |
+  | FLB | `WFWB` | `WFWA` | 1.000000（0.9999999947） | stage3 |
+
+  LOCA 无重复对（强制集内最高相关 `TAVG`/`VOL`=0.9106，低于阈值）。
+- 记录字段：`dropped_key_response`（`var`/`retained`/`pair`/`corr`/`stage`/`reason`）、
+  `key_responses_configured`、`key_responses_effective`、`duplicate_corr_min`、`v5_note`。
+- 封死回流（否则去重会被下游抵消）：阶段2 `TOP_K` 过滤、子系统代表（最高分若为被剔者，代表权交给
+  同物理量保留路）、锚定变量（记 `stage=stage3_duplicate`）、`N_MIN` 回补。
+- **未改**：`VIF_MAX=500`、V3 三态判据、V5 判据。V5 仍按**配置清单**判定，故 SGATR/FLB 的
+  `V5_key_responses_included=False`（配置里仍有被剔的那一路），`v5_note` 写明有效关键响应全部入选；
+  这是去重的可见代价，不隐瞒、不放宽。
+- 去重后 V3 三态：**三类均 fail**（无 n/a），offenders 全部是保护变量，已无重复测点：
+  LOCA `VOL`=2161.6、`RRCA`=1271.0；SGATR `LSGA`=1740.2、`NSGA`=553.1；
+  FLB `QMGB`=2314.6、`PWNT`=1069.9、`TAVG`=760.9、`WCHG`=749.2、`WSTB`=737.7。
+- 副作用归因（可逐项对上）：去重把 `PSGB`/`LSGB`/`WFWB` 移出 `forced`→`protected`，`protected` 席位
+  由 10/11 降为 7/9，VIF 迭代因此能裁掉原先被屏蔽的共线邻居，`N_MIN` 回补顺位随之变化，故
+  SGATR −{PSGB,LSGB,RHBR} +{HTR,TKLV,WHPI}、FLB −{PSGB,WFWB} +{WRCA,WUP}；
+  **LOCA selected 与 max_vif_all 完全不变**（2.162e3），证明改动边界正确。
+
+**V23-DESIGN-029（closed）· σ_floor 唯一来源（S2）**
+
+- 唯一 owner：`rca/v21/external_knowledge.py::sigma_floor_for` + `external_knowledge/tolerance_overrides.yaml`
+  （`by_variable` → `by_unit` → `fallback.ratio`）。
+- `rca/v21/data_audit.py::sigma_floor_for` 降级为**兼容包装**（保留 `{floor, source, unit, rule}` dict 契约，
+  不断引用）；删除本地 `PHYSICAL_SIGMA_FLOOR`；`variable_z_profile` 删除 `unit` 二次覆盖，改为把
+  `unit` 直接传给 EK。`sigma_floor_config` 改为记录外部知识库配置。
+- **数值影响：0**。96 个登记变量逐变量比对（旧实现 vs 新实现）：`physical` 37 / `fallback` 59，逐变量
+  `floor` 与 `source` 全部一致；`fallback.ratio=0.01` 与原 `POTENTIAL_PATHOLOGY_CV` 同值。
+  重算前后审计产物 `sigma_floor_source` 计数亦完全一致（LOCA/SGATR/FLB 均 37 physical / 59 fallback）。
+
+**V23-DESIGN-030（closed）· 清除跨批次混源并重算（一次全链）**
+
+- 旧根 `output/rca_v23` 归档至 `output/archive/rca_v23_mixed_20261110T134602`
+  （`tracing/`=`v23c-20261110T053205`、`signatures/`=`v23-20261110T050332`）；冻结消融
+  `ablations/frozen_ab_variable_selection_v23-20261110T034433.json` 保留进新根。
+- `--rerun-reason` 三条理由：V3 去重 / σ_floor 合一 / 消除跨批次混源。
+- **新 run_id = `v23-20261110T134957`**，9/9 步 `ok`，总耗时 **292.6 s**
+  （variable_sets 8.76 / audit 3.65 / tolerances 0.42 / end2end 279.64 / graphs 0.02 /
+  aggregation 0.01 / deviation 0.05 / reports 0.06 / manifest 0.02）。
+- pytest：**138 passed / 0 failed**（原 4 例混源失败随重算消除；重算前因产物被清空处于 skipped）。
+- Top1 新旧对照（旧=台账 `v23-20261110T050332`）：
+
+  | 模板 | 旧 Top1 | 新 Top1 | 变化 |
+  |---|---|---|---|
+  | LOCA_low | RHMT | RHMT | — |
+  | LOCA_mid | TRB | TRB | — |
+  | LOCA_high | WECS | WECS | — |
+  | SGATR_low | NSGA | NSGA | — |
+  | SGATR_mid | NSGA | **RM2** | 变（候选集去重后重构，`NSGA` 让位给辐射监测 `RM2`） |
+  | SGATR_high | RM2 | **TKLV** | 变（同上，`RM2` 降位，换料水箱水位上位） |
+  | FLB_low | WFWA | **PRB** | 变（`WFWB` 剔除后给水子系统重构，安全壳压力上位） |
+  | FLB_mid | WCHG | **QMGB** | 变（同上） |
+  | FLB_high | PSGA | **WRCA** | 变（`PSGB` 剔除后 SG 侧收缩，一回路流量上位） |
+
+  LOCA 三组完全稳定，与“LOCA 无重复测点、selected 与 VIF 均不变”一致；SGATR/FLB 的 5 处 Top1 变化
+  全部落在去重波及的类上，且 `max_vif_all` 同步下降 3 个数量级，无矛盾。
+
+**open 计数**：累计 open = 0；待用户裁决 = 3（§9.3 第 1/2/4 项：其余 8 类数据、LOCAC 样本量、
+严重度分组是否数据驱动）；§9.3 第 3 项（V3）已落地但**结论仍为 fail，需在论文披露**；
+本轮新增 0 个 open。
 
 
 
