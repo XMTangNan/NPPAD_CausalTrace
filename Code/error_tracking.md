@@ -1013,5 +1013,60 @@
 严重度分组是否数据驱动）；§9.3 第 3 项（V3）已落地但**结论仍为 fail，需在论文披露**；
 本轮新增 0 个 open。
 
+---
 
+## 2026-11-10 第二轮裁决落地（V 门控 + 结构重组）
 
+**V23-DESIGN-031（closed）· V5 改为有效集语义**
+
+- 问题：阶段3 对精确重复测点对（FLB `PSGA/PSGB`、`WFWA/WFWB`；SGATR `PSGA/PSGB`、`LSGA/LSGB`）
+  去重后，`V5_key_responses_included` 仍按**配置清单**判定，导致 SGATR/FLB 全部 V5=False，
+  把"物理量已被另一路代表覆盖"误报成"关键响应缺失"。
+- 根因：判据口径与阶段3 去重口径不一致（一个按配置、一个按有效集）。
+- 解决：V5 改按**有效集**判定（`key_responses`，即去重后仍保留代表的清单）；`v5_note` 逐条写出
+  `pair / |r| / 保留哪一路 / 剔除阶段`。**放宽仅限"重复测点等价代表"**：非重复测点的关键响应
+  缺失仍判 False（`v5_missing` 明列）。
+- 代码：`causalrca/features/variable_selector.py::classify_v5`；单测
+  `tests/test_v23_selector_gates.py`（3 例）。
+- 状态：✅ 已解决。
+
+**V23-DESIGN-032（closed）· V3 定稿为"豁免式 pass"（用户裁决，非 (b)）**
+
+- 问题：V3 用全变量 `max_vif_all < 500` 判定，`forced`（触发变量/关键响应）与子系统代表由设计
+  强制入选、VIF 迭代无法剔除，导致三类全部 fail（LOCA 2161.6 / SGATR 1740.2 / FLB 2314.6）。
+- 裁决：采用**豁免式 pass**（严格版），不是"把阈值放宽到 5000"的 (b)。
+  - 判据 = **非保护变量** 的 `max_vif < 500`；保护变量逐项披露、不计入判定。
+  - 新字段 `v3_exempt[]`：`var / vif / vif_ge_threshold / reason`（reason 标注 forced 或 subsystem_rep）。
+  - `v3_status` 三态扩展为可读四值：`pass` / `pass_with_exemption` / `fail` / `n/a`；
+    `checks.V3_vif_lt_500` 仍为三态（True = pass 或 pass_with_exemption，False = fail，None = n/a）。
+  - **豁免不等于通过**：`v3_note` 与文档均强制写明，且豁免项必须逐条披露。
+- 为什么不用 (b)：阶段3 已按 `|r| ≥ 0.99` 剔除重复测点，若此处再把 VIF 阈值放宽，等于对同一份
+  共线性做**二次放松**，并会掩盖真正的自动选择缺陷。
+- 代码：`classify_v3`；单测 5 例（含"豁免≠通过"文案断言）。
+- 状态：✅ 已解决（论文需同时报告 `max_vif_all` 与 `v3_exempt` 明细）。
+
+**V23-DESIGN-033（closed）· 代码结构重组（批 A/B/C）**
+
+- 问题：`rca/v21/` 混装 v2.1 与 v2.3；`rca/` 下只剩 `v21` 目录容易误解代际；此前批准的删除未落地。
+- 解决（三批，各一个 commit）：
+  - **批 A** `44f613f`：v2.3 正式实现迁入 `causalrca/{config,io,data,features,causal,evidence,reporting,cli}`；
+    新增 `causalrca/io/files.py`（save_json 唯一实现）与 `causalrca/causal/edges.py`
+    （从 v2.1 `chains.py` 抽取 `edge_key/validate_path_edges/render_chain_text` 等纯函数，
+    使 v2.3 不再依赖 v2.1）；`CLASS_VARIABLES` 原样复制进 `causalrca/config/class_variables.py`。
+  - **批 B** `d5715c9`：v2.1 全部（10 个实现模块 + 13 个执行器 + 9 个老测试）迁入
+    `legacy/v21/` 与 `tests/legacy/`，附 `FROZEN.md`（冻结 commit、产物目录、复现命令、只读禁令）。
+  - **批 C** `f8a123f`：`git rm` 删除 **48 个文件 / 2998 行**：`accidents/loca/*`（7）、`core/*`（10）、
+    `rca/rca_*.py` 与 `signature*.py` 等（7）、`rca/v21/*` 过渡 shim（29）、`run_plan1_pipeline.py`、
+    `config.py`。删除依据：①不在 `run_v23_all` 9 步闭包；②无测试引用；③不属 v2.1 冻结基线
+    （v2.1 仍需要的 `data_utils/lingam_baseline/nonlinear_baseline` 等已随 legacy 归位）。
+    `rca/` 只保留 `README.md`（旧→新路径对照）。
+- 守卫：`tests/test_architecture.py` 重写——分层存在性、`causalrca` 不得 import
+  `legacy/rca/core/accidents/config`、`legacy` 不得 import `rca`、`rca/` 不得有 `.py`、
+  v2.3 闭包只能经 artifact 写盘、阈值集中且未变（`TOP_K_ROOT/B_CLIP/STABILITY_*/RRF_K/LLM_*`）。
+- 验证：pytest **144 passed / 0 failed**（含 `tests/legacy` 9 例）；纯搬迁，未改算法口径、阈值、默认值。
+- 状态：✅ 已解决。
+
+**open 计数（本轮结束）**：累计 open = 0；待用户裁决 = 3（§9.3 第 1/2/4 项：其余 8 类数据、
+LOCAC 样本量、严重度分组是否数据驱动）；本轮新增 3 条（031/032/033）全部 closed。
+**待办（未在本轮执行，已按优先级后移）**：第 10 步评测接入、A/B 重新冻结（`034433` 已作废）、
+产物根改 `output/runs/<run_id>/`（批 E）。
