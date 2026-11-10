@@ -1594,4 +1594,18 @@ gitignore），`pytest` 161 passed。
 - 预期口径：`run_mode=spec`、`stability_claims_allowed=true`、`citable=true`、`latest` 刷新到该 run。
 - 失败处理：任一步失败即停，不静默重试、不换档凑数；失败原因写入本条并报告。
 - 测试：改动后 `pytest tests` 162 passed（改动前同样 162 passed）。
-- 状态：⏳ 进行中（结果、稳定性/结构健康度实值、诊断对照跑完后回填本条）。
+- 结果（已核验，2026-11-11）：
+  - 10 步全 `ok`；9/9 模板签名 `n_bootstrap=100`；`created_at` 均为本轮、`consensus_run_id` 指向本 run → **未复用旧图**；
+    `manifest`：`n_bootstrap=100 / run_mode=spec / citable=true / stability_claims_allowed=true / latest_updated=true / n_files=160`。
+  - 耗时 **294 秒**（02:24:17 → 02:29:11）。900 次 LiNGAM 拟合 × 15 变量 × 300 行，单次约 0.3 秒，5 分钟内属正常，非空跑。
+  - 主表·稳定性：三类 Top-5 跨组 Jaccard 均值均 **0.2632**；名次标准差中位 1.89–2.87、最大 5.31–6.13；
+    跨组 Spearman 均值 LOCA 0.0179 / SGATR 0.3976 / FLB 0.2429；单调占比 5/15、4/15、1/15。
+    `bootstrap_flip_rate` = **`not_computed`**（逐次名次未落盘，需每次 bootstrap 保存 15 变量名次、≥20 次）。
+  - 主表·结构健康度：稳定边 31–74、截断边 3–16、密度 0.1476–0.3524；`cond(I−B)` 截断前 2.0e2–2.4e9、截断后 111.1–1054.8；
+    类级 max VIF：LOCA `VOL` 2161.6、SGATR `LSGA` 1740.2、FLB `QMGB` 2314.6（均超阈值 500，豁免式 pass）；Top-5 随截断翻转 8/9。
+  - 主表·机理一致性：`not_available`（`pending_expert`），违反率/覆盖率 `null`。
+  - 附录诊断（`diagnostic`）：`causal` Hit@1 0.1000（6/60）、Hit@3 0.1000、MRR 0.2049；`causal` 与 `causal_unmasked_for_eval` 逐项相等；
+    `deviation_*` 0.0000/0.0167/0.1866。**不得作准确率**。
+  - 说明：本次 Hit@3 0.1000 与 `015705/5` 的 0.2000 不同，属两轮图不同（100 次 vs 5 次），**不构成档位比较，也不作为结论**。
+  - 结果列表：`方案/正式档100次结果列表-2026-11-11.md`（含核验表、主表三块、9 模板前 10 变量榜、附录诊断、真值可达性）。
+- 状态：✅ 已执行并核验（产物不可回填；如后续发现口径错误，开新 run，不改本轮文件）。
