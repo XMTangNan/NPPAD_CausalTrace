@@ -278,6 +278,89 @@ def build_raw_dataframe(accident_type: str, severities: Sequence[int],
 
 
 # ==================== 主函数：四阶段变量选取 ====================
+def classify_v3(vif_all: Dict[str, float], selected: Sequence[str],
+                protected: Sequence[str], forced: Sequence[str],
+                subsystem_reps: Sequence[str],
+                vif_computed: bool = True) -> Tuple[str, str, List[Dict]]:
+    """V3 判定（V23-DESIGN-031，用户裁决"豁免式 pass"）。
+
+    判据 = **非保护变量** 的 max VIF < VIF_MAX。保护变量（forced 触发/关键响应
+    + 子系统代表）由设计强制入选、无法被 VIF 迭代剔除，其 VIF 不计入判定，
+    但必须逐项披露在返回的 v3_exempt 里，状态记为 pass_with_exemption——
+    **豁免不等于通过**，只是把"设计强制"与"自动选择"的共线性分开记账。
+
+    为什么不用"把阈值放宽到 5000"的 (b) 方案：阶段3 已按
+    |r| ≥ DUPLICATE_CORR_MIN 剔除重复测点，此处再放宽阈值等于对同一份
+    共线性做二次放松，且会掩盖真正的自动选择缺陷。
+
+    Returns:
+        (status, note, exempt)；status ∈ {pass, pass_with_exemption, fail, n/a}
+    """
+    exempt: List[Dict] = []
+    if vif_computed and vif_all:
+        for v in sorted(set(protected) & set(selected)):
+            reasons = []
+            if v in forced:
+                reasons.append("forced（触发变量/关键响应，强制入选）")
+            if v in subsystem_reps:
+                reasons.append("subsystem_rep（子系统代表，强制保留）")
+            exempt.append({
+                "var": v,
+                "vif": round(float(vif_all[v]), 1),
+                "vif_ge_threshold": bool(vif_all[v] >= VIF_MAX),
+                "reason": "；".join(reasons) or "protected（保护变量）",
+            })
+    if not vif_computed:
+        return "n/a", "VIF 无法计算（协方差矩阵奇异），V3 不适用", exempt
+    if len(selected) < 3:
+        return "n/a", f"入选变量仅 {len(selected)} 个（<3），VIF 不适用", exempt
+    non_prot = {v: vif_all[v] for v in selected if v not in set(protected)}
+    max_np = max(non_prot.values()) if non_prot else None
+    fmt_np = "n/a" if max_np is None else f"{max_np:.1f}"
+    offenders = {v: round(float(x), 1) for v, x in non_prot.items() if x >= VIF_MAX}
+    if offenders:
+        return ("fail",
+                f"非保护变量存在 VIF≥{VIF_MAX:.0f}：{offenders}"
+                f"（max_nonprot={fmt_np}；{len(exempt)} 个保护变量豁免、不计入此判定）",
+                exempt)
+    if exempt:
+        return ("pass_with_exemption",
+                f"非保护变量 VIF 全部 < {VIF_MAX:.0f}（max_nonprot={fmt_np}）；"
+                f"{len(exempt)} 个保护变量豁免计入，明细见 v3_exempt——"
+                f"豁免不等于通过，必须逐项披露",
+                exempt)
+    return ("pass",
+            f"入选集合 VIF 全部 < {VIF_MAX:.0f}（无保护变量豁免）", exempt)
+
+
+def classify_v5(key_responses: Sequence[str],
+                key_responses_configured: Sequence[str],
+                selected: Sequence[str],
+                dropped_key_response: Sequence[Dict]) -> Tuple[bool, str]:
+    """V5 判定（V23-DESIGN-032，用户裁决：**有效集语义**）。
+
+    同一物理量的重复测点对，只要留有另一路代表即算覆盖；配对/相关系数/
+    保留哪一路/剔除阶段全部写进 note。**仅限**这种"重复测点等价代表"，
+    其他关键响应缺失仍判 False（不放宽）。
+    """
+    missing = [v for v in key_responses if v not in selected]
+    ok = not missing
+    if dropped_key_response:
+        pairs = "；".join(
+            f"{d['pair'][0]}/{d['pair'][1]} |r|={abs(d['corr']):.6f} "
+            f"保留 {d['retained']} 剔除 {d['var']} @{d['stage']}"
+            for d in dropped_key_response)
+        note = (f"有效集判定 V5={'pass' if ok else 'fail'}："
+                f"关键响应 {len(key_responses)}/{len(key_responses_configured)} 路"
+                f"{'全部入选' if ok else f'缺失 {missing}'}；"
+                f"阶段3 重复测点等价代表剔除 {len(dropped_key_response)} 路：{pairs}")
+    else:
+        note = (f"有效集判定 V5={'pass' if ok else 'fail'}："
+                f"关键响应 {len(key_responses)} 路"
+                f"{'全部入选（无重复测点剔除）' if ok else f'缺失 {missing}'}")
+    return ok, note
+
+
 def select_variables(accident_type: str, raw_data: pd.DataFrame,
                      severity_by_traj: Dict[str, float],
                      random_state: int = 42
@@ -546,22 +629,14 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
     # V7 方案口径：|skewness| > 0.5 的变量占比 ≥ 60%（评审 P1-8：原代码误将 |skew|+|kurt| 合并）
     skew_frac = (sum(1 for v in selected if raw_metrics["skew"].get(v, 0) > 0.5)
                  / max(len(selected), 1))
-    # V3（返工 V23-DESIGN-023）：作用在**实际入选集合**上（含保留的锚定变量），三态：
-    #   pass = 全部 VIF < VIF_MAX；fail = 存在 VIF ≥ VIF_MAX；
-    #   n/a  = VIF 无法计算或变量数 < 3（必须写明原因，不得用空集蒙混过关）。
+    # V3 判定（V23-DESIGN-031 豁免式 pass，判据/理由见 classify_v3 docstring）
     vif_all = {v: float(final_vifs[v]) for v in selected} if final_vifs else {}
-    if final_vifs is None:
-        v3_status, v3_note = "n/a", "VIF 无法计算（协方差矩阵奇异），V3 不适用"
-    elif len(selected) < 3:
-        v3_status, v3_note = "n/a", f"入选变量仅 {len(selected)} 个（<3），VIF 不适用"
-    else:
-        offenders = {v: round(float(x), 1) for v, x in vif_all.items() if x >= VIF_MAX}
-        v3_status = "fail" if offenders else "pass"
-        v3_note = (f"入选集合存在 VIF≥{VIF_MAX:.0f} 的变量：{offenders}"
-                   if offenders else
-                   f"入选集合（含保留的锚定变量）VIF 全部 < {VIF_MAX:.0f}")
-    max_vif_all = max(vif_all.values()) if vif_all else None
     non_protected_vifs = {v: vif_all[v] for v in selected if v not in protected} if vif_all else {}
+    max_vif_all = max(vif_all.values()) if vif_all else None
+    max_nonprot = max(non_protected_vifs.values()) if non_protected_vifs else None
+    v3_status, v3_note, v3_exempt = classify_v3(
+        vif_all, selected, protected, forced, subsystem_reps,
+        vif_computed=final_vifs is not None)
 
     # 锚定保留记录：Z 病态仅标记，不再作为保留理由
     anchor_retained: List[Dict] = []
@@ -577,21 +652,10 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
             "action": "retained",
         })
 
-    # V5 判据不变（关键响应必须全部入选，严禁放宽）：判据作用在**配置清单**上，
-    # 因此被阶段3 判为精确重复测点而剔除的一路会让 V5=False。这不是漏检，而是
-    # 去重的可见代价——剔除项、配对、相关系数、保留项全部记在 dropped_key_response。
-    v5_ok = all(v in selected for v in key_responses_configured)
-    v5_eff_ok = all(v in selected for v in key_responses)
-    v5_note = (
-        f"按配置 V5={'pass' if v5_ok else 'fail'}；"
-        f"阶段3 剔除 {len(dropped_key_response)} 个重复测点 "
-        f"{[d['var'] for d in dropped_key_response]}"
-        f"（保留 {[d['retained'] for d in dropped_key_response]}），"
-        f"有效关键响应 {len(key_responses)}/{len(key_responses_configured)} 个"
-        f"{'全部入选' if v5_eff_ok else '未全部入选'}"
-        if dropped_key_response else
-        f"关键响应 {len(key_responses)} 个{'全部' if v5_ok else '未全部'}按配置入选"
-        f"（无重复测点剔除）")
+    # V5 判定（V23-DESIGN-032 有效集语义，口径见 classify_v5 docstring）
+    v5_ok, v5_note = classify_v5(
+        key_responses, key_responses_configured, selected, dropped_key_response)
+    v5_missing = [v for v in key_responses if v not in selected]
 
     report = {
         "accident_type": accident_type,
@@ -605,6 +669,7 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
         "dropped_key_response": dropped_key_response,
         "duplicate_corr_min": DUPLICATE_CORR_MIN,
         "v5_note": v5_note,
+        "v5_missing": v5_missing,
         "subsystem_reps": subsystem_reps,
         "protected": sorted(protected),
         "protected_in_selected": sorted(protected & set(selected)),
@@ -616,7 +681,11 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
         "vif_all": vif_all,
         "v3_status": v3_status,
         "v3_note": v3_note,
-        "max_vif": max(non_protected_vifs.values()) if non_protected_vifs else None,
+        "v3_criterion": (f"非保护变量 max VIF < {VIF_MAX:.0f}；"
+                         "保护变量（forced/子系统代表）豁免并逐项披露"),
+        "v3_exempt": v3_exempt,
+        "n_v3_exempt": len(v3_exempt),
+        "max_vif": max_nonprot,
         "max_vif_all": max_vif_all,
         "vif_max_threshold": VIF_MAX,
         "selected": selected,
@@ -667,10 +736,12 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
                 any(get_subsystem(v) == sub for v in selected)
                 for sub in required_subsystems
             ),
-            # 三态：True=pass / False=fail / None=n/a（原因见 v3_note）
-            "V3_vif_lt_500": (None if v3_status == "n/a" else v3_status == "pass"),
+            # 三态：True=pass/pass_with_exemption / False=fail / None=n/a
+            # 判据口径见 v3_note：非保护变量 max VIF < VIF_MAX；保护变量豁免且逐项披露
+            "V3_vif_lt_500": (None if v3_status == "n/a"
+                              else v3_status in ("pass", "pass_with_exemption")),
             "V4_trigger_included": trigger in selected,
-            # 判据不变：按配置的关键响应全入选；重复测点剔除的可见代价见 v5_note
+            # 有效集语义：重复测点只要留有另一路代表即算覆盖，其余关键响应缺失仍 False
             "V5_key_responses_included": v5_ok,
             "V6_reproducible": None,   # 由调用方二次运行后回填
             "V7_skew_gt_0.5_60pct": skew_frac >= 0.6,
