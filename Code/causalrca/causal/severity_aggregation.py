@@ -1,15 +1,15 @@
 """v2.3 C3b/C3c：跨严重度汇总与差异报告（只读 tracing/root_candidates_*）。
 
 铁律（Code/STRUCTURE.md §1 单一来源、方案 v2.3 C4）：
-- 只读同一 run 的 `output/rca_v23/tracing/root_candidates_{K}_{g}.json`，
+- 只读同一 run 的 `<run 根>/tracing/root_candidates_{K}_{g}.json`，
   禁止重算因果、禁止读取旧 `v22/v21` 产物补数据；
 - 命令行必须显式给 `--run-id`，并与本批签名/溯源里的 run_id 逐一核对，
   不一致立即报错退出（禁止混源）；
-- 产物落 `output/rca_v23/reports/summary_{K}.json` 与 `diff_{K}.json`，
+- 产物落 `<run 根>/reports/summary_{K}.json` 与 `diff_{K}.json`，
   记录输入文件 sha256 清单。
 
 用法（cd Code）：
-  PYTHONPATH=. ../.venv/bin/python -m rca.v21.severity_aggregation --run-id v23c-...
+  PYTHONPATH=. ../.venv/bin/python -m causalrca.causal.severity_aggregation --run-id v23c-...
 """
 from __future__ import annotations
 
@@ -27,27 +27,27 @@ CONSENSUS_NOTE = "单引擎稳定边，不等同共识边"
 
 
 # ==================== 读取与 run_id 门控 ====================
-def _load(sub: str, name: str) -> Dict:
-    path = Path(artifact.V23_SUBDIRS[sub]) / f"{name}.json"
+def _load(sub: str, name: str, run_id: Optional[str] = None) -> Dict:
+    path = artifact.subdir_path(sub, run_id) / f"{name}.json"
     if not path.exists():
         raise FileNotFoundError(f"缺产物 {path}（先跑 run_v23_end2end）")
     with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
-def load_root_candidates(k: str, g: str) -> Dict:
-    return _load("tracing", f"root_candidates_{k}_{g}")
+def load_root_candidates(k: str, g: str, run_id: Optional[str] = None) -> Dict:
+    return _load("tracing", f"root_candidates_{k}_{g}", run_id)
 
 
-def load_signature(k: str, g: str) -> Dict:
-    return _load("signatures", f"signature_{k}_{g}")
+def load_signature(k: str, g: str, run_id: Optional[str] = None) -> Dict:
+    return _load("signatures", f"signature_{k}_{g}", run_id)
 
 
 def check_run_id(k: str, g: str, run_id: str) -> None:
     """签名与溯源必须同为本次 run_id，否则拒绝混用。"""
     for sub, name in (("signatures", f"signature_{k}_{g}"),
                       ("tracing", f"root_candidates_{k}_{g}")):
-        doc = _load(sub, name)
+        doc = _load(sub, name, run_id)
         got = doc.get("run_id")
         if got != run_id:
             raise ValueError(
@@ -55,12 +55,13 @@ def check_run_id(k: str, g: str, run_id: str) -> None:
                 f"拒绝生成汇总（禁止混源）")
 
 
-def _sha_inputs(k: str, groups: Sequence[str]) -> List[Dict]:
+def _sha_inputs(k: str, groups: Sequence[str],
+                run_id: Optional[str] = None) -> List[Dict]:
     out = []
     for g in groups:
         for sub, name in (("signatures", f"signature_{k}_{g}"),
                           ("tracing", f"root_candidates_{k}_{g}")):
-            p = Path(artifact.V23_SUBDIRS[sub]) / f"{name}.json"
+            p = artifact.subdir_path(sub, run_id) / f"{name}.json"
             out.append({"path": f"{sub}/{name}.json",
                         "sha256": artifact.sha256_file(p)})
     return out
@@ -80,7 +81,7 @@ def build_summary(k: str, run_id: str,
     """三组 Top-5 跨组一致性、名次变化、marker 排名（同一 run_id）。"""
     docs = {}
     for g in groups:
-        docs[g] = load_root_candidates(k, g)
+        docs[g] = load_root_candidates(k, g, run_id)
     top5 = {g: _top5(docs[g]) for g in groups}
     ranks = {g: _ranks(docs[g]) for g in groups}
 
@@ -141,7 +142,7 @@ def build_summary(k: str, run_id: str,
                            else "已接入 GAM 共识分类"),
         "n_bootstrap": docs[groups[0]].get("n_bootstrap"),
         "engine": docs[groups[0]].get("engine"),
-        "inputs": _sha_inputs(k, groups),
+        "inputs": _sha_inputs(k, groups, run_id),
     }
     return summary
 
@@ -150,7 +151,7 @@ def build_summary(k: str, run_id: str,
 def build_diff(k: str, run_id: str,
                groups: Sequence[str] = tuple(GROUP_ORDER)) -> Dict:
     """low→mid→high 的入榜/出榜/位移 + 边数与机理切换点（同一 run_id）。"""
-    docs = {g: load_root_candidates(k, g) for g in groups}
+    docs = {g: load_root_candidates(k, g, run_id) for g in groups}
     top5 = {g: _top5(docs[g]) for g in groups}
     ranks = {g: _ranks(docs[g]) for g in groups}
     edge_counts = {g: docs[g]["n_stable_edges"] for g in groups}
@@ -206,7 +207,7 @@ def build_diff(k: str, run_id: str,
         "consensus_available": bool(docs[groups[0]].get("consensus_available")),
         "consensus_note": CONSENSUS_NOTE,
         "n_bootstrap": docs[groups[0]].get("n_bootstrap"),
-        "inputs": _sha_inputs(k, groups),
+        "inputs": _sha_inputs(k, groups, run_id),
         "summary": (f"Top1 切换 {len(top1_switches)} 次; 边数差异>50% 组对 "
                     f"{len(edge_diffs)} 个; 机理切换点 {len(mech)} 个"),
     }
@@ -237,6 +238,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     ap.add_argument("--groups", default=",".join(GROUP_ORDER))
     ap.add_argument("--no-manifest", action="store_true")
     args = ap.parse_args(argv)
+    artifact.bind_run(args.run_id)
     classes = [c.strip().upper() for c in args.classes.split(",") if c.strip()]
     groups = [g.strip() for g in args.groups.split(",") if g.strip()]
     for k in classes:

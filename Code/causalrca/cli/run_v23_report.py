@@ -1,6 +1,6 @@
 """V2.3 D7 执行器：一次生成 9 份结构化 RCA 报告（3 类 × 3 组）的 json + txt。
 
-只读 output/rca_v23 既有产物（tracing/signatures/reports），不重算因果；
+只读本 run 的既有产物（tracing/signatures/reports），不重算因果；
 run_id 默认从 root_candidates 推导，传入 --run-id 时强制同源校验。
 
 用法（cd Code）：
@@ -27,6 +27,7 @@ def main(argv: Optional[List[str]] = None) -> str:
     ap.add_argument("--run-id", default=None, help="只接受该 run_id 的输入，防止混源")
     ap.add_argument("--no-manifest", action="store_true", help="不刷新 manifest.json")
     args = ap.parse_args(argv)
+    artifact.bind_run(args.run_id or artifact.latest_run())
 
     classes = list(args.classes or READY_CODES)
     unknown = [k for k in classes if k not in REGISTRY]

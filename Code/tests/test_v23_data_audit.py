@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from causalrca.config.constants_v21 import V23_SUBDIRS
+from causalrca.io import artifact
 from causalrca.data.loader import (
     ClassDataMissing, ensure_class_available, list_class_severities,
 )
@@ -93,13 +93,11 @@ def test_data_missing_class_raises():
 
 # ==================== 端到端：三份产物落盘 ====================
 def test_run_audit_loca_writes_three_reports(tmp_path, monkeypatch):
-    # 单测不得污染正式产物目录：把 audit 子目录重定向到 tmp_path
-    import causalrca.data.audit as DA
-    subdirs = dict(V23_SUBDIRS)
-    subdirs["audit"] = tmp_path
-    monkeypatch.setattr(DA, "V23_SUBDIRS", subdirs)
+    # 单测不得污染正式产物目录：把 run 根重定向到 tmp_path（产物落 <tmp>/<run_id>/audit）
+    monkeypatch.setattr(artifact, "V23_RUNS", tmp_path)
+    monkeypatch.setattr(artifact, "_RUN_ID", "pytest-v23-data-audit")
     summary = run_audit("LOCA", run_id="pytest-v23-data-audit")
-    audit_dir = Path(tmp_path)
+    audit_dir = artifact.subdir_path("audit", "pytest-v23-data-audit")
     names = ["data_audit_LOCA.json", "z_pathology_audit_LOCA.json",
              "changepoint_report_LOCA.json"]
     for name in names:

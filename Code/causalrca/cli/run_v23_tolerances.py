@@ -56,7 +56,7 @@ def write_skipped(run_id: str, classes: Sequence[str]) -> None:
          "partial_not_run": list(partial),
          "note": "data_missing 类直接跳过；partial 类（LOCAC）仅描述性、不进 D2 验收，"
                  "均不生成占位公差"},
-        "tolerances", run_id=run_id, source="rca/v21/accident_config.py")
+        "tolerances", run_id=run_id, source="causalrca/config/accident_config.py")
 
 
 def run_all(run_id: str, classes: Optional[Sequence[str]] = None) -> Dict[str, Dict]:

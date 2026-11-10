@@ -21,29 +21,25 @@ CAUSALTRACE_ROOT = Path(__file__).resolve().parents[3]
 REPO_DATA = CAUSALTRACE_ROOT / "nppad_repo" / "Operation_csv_data"
 NORMAL_CSV = REPO_DATA / "Normal" / "1.csv"
 
-V21_OUTPUT = PROJECT_ROOT / "output" / "rca_v21"
+# v2.1 冻结点（批 E 后统一归档到 output/archive/rca_v21_frozen，只读，见 legacy/v21/FROZEN.md）
+V21_OUTPUT = PROJECT_ROOT / "output" / "archive" / "rca_v21_frozen"
 SIGNATURE_DIR = V21_OUTPUT / "signatures"
 CF_DIR = V21_OUTPUT / "cf_validation"
 for _d in (V21_OUTPUT, SIGNATURE_DIR, CF_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # ==================== v2.3 唯一产物根（Code/STRUCTURE.md §2）====================
-# 旧 V21_OUTPUT 下的 v23_* 目录自 2026-11-10 起冻结只读；所有 v2.3 执行器只写这里。
-V23_OUTPUT = PROJECT_ROOT / "output" / "rca_v23"
-V23_SUBDIRS = {
-    "registry": V23_OUTPUT / "registry",
-    "variable_sets": V23_OUTPUT / "variable_sets",
-    "audit": V23_OUTPUT / "audit",
-    "tolerances": V23_OUTPUT / "tolerances",
-    "signatures": V23_OUTPUT / "signatures",
-    "tracing": V23_OUTPUT / "tracing",
-    "graphs": V23_OUTPUT / "graphs",
-    "reports": V23_OUTPUT / "reports",
-    "knowledge": V23_OUTPUT / "knowledge",
-    "ablations": V23_OUTPUT / "ablations",
-}
-for _d in V23_SUBDIRS.values():
-    _d.mkdir(parents=True, exist_ok=True)
+# 唯一根 = output/runs/<run_id>/（2026-11-10 批 E 起）：本文件只声明「根 + 子目录名」，
+# 具体路径一律由 causalrca/io/artifact.py 按 run_id 派生，禁止任何模块自己拼绝对路径。
+# 旧 output/（单层根）已整体迁入 output/runs/ 或 output/archive/，见 output/README.md。
+V23_RUNS = PROJECT_ROOT / "output" / "runs"
+V23_SUBDIR_NAMES = (
+    "registry", "variable_sets", "audit", "tolerances", "signatures",
+    "tracing", "graphs", "metrics", "reports", "knowledge", "ablations",
+)
+V23_LATEST = PROJECT_ROOT / "output" / "latest"
+V23_RUNS.mkdir(parents=True, exist_ok=True)
+V23_ROOT = PROJECT_ROOT / "output"
 
 # ==================== 类别 / marker（13.0/13.3）====================
 # v2.3：12 类事故元数据唯一来源 = causalrca/config/registry.py（STRUCTURE.md §4），

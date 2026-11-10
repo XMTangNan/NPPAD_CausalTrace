@@ -128,7 +128,7 @@ def compute_vif_safe(df: pd.DataFrame) -> Optional[Dict[str, float]]:
 
 
 # ==================== 本体查询辅助（复用 knowledge.py 数据，不新增 knowledge.py 接口）====================
-# 12 类触发变量与关键响应统一来自 rca/v21/accident_config.py（方案 §4.3 / 附录 A）。
+# 12 类触发变量与关键响应统一来自 causalrca/config/accident_config.py（方案 §4.3 / 附录 A）。
 # v2.1 内联集合与方案附录 A 有差异：SGATR 内联额外含 PSGB/LSGB、FLB 额外含 PSGB，
 # 为不改动已验收的 V1-V7 结果，pilot 三类保留 v2.1 实际内联集合作为覆盖值。
 _V21_KEY_RESPONSE_OVERRIDES: Dict[str, List[str]] = {

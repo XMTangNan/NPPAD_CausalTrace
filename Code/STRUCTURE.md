@@ -39,7 +39,7 @@
    causalrca/config  →  causalrca/io  →  data  →  features  →  causal  →  evidence  →  reporting  →  cli
                                                                                         │
                                                                                         ▼
-                                                                       output/rca_v23/（只经 artifact 写）
+                                                                       output/runs/<run_id>/（只经 artifact 写）
    legacy/v21  ──(允许依赖 causalrca 的公共设施)──►  causalrca/config|io
    causalrca   ──✗ 禁止 import──►  legacy / rca / core / accidents / config(顶层)
 ```
@@ -54,7 +54,7 @@ v2.3 闭包不得直接 `mkdir`/`open(w)`/`json.dump`；`legacy/v21/` 不得反�
 3. 图、榜单、差异报告、RCA 报告必须来自**同一次**签名/溯源结果（manifest 记录生成批次 `run_id`）。
 4. 缺数据的类别只在注册表中标记 `status=data_missing`，执行器跳过并落 `skipped_classes.json`；**禁止生成占位/伪结果**。
 5. v2.3 链的三份跨代输入（`split_manifest` / `shared_baseline` / `marker_scale`）由 A 阶段写入 `registry/`，
-   下游只读 v2.3 根；`output/rca_v21/` 仅作只读回退（`artifact.legacy_input()`），任何执行器不得回写。
+   下游只读 v2.3 根；`output/archive/rca_v21_frozen/` 仅作只读回退（`artifact.legacy_input()`），任何执行器不得回写。
 
 ## 2. 目标目录结构
 
@@ -129,41 +129,49 @@ Code/
 │   └── tolerance_overrides.yaml
 ├── tests/                        # v2.3 测试（含 test_architecture.py 守卫）
 │   └── legacy/                   # v2.1 冻结测试（9 个，随 legacy 保留可跑）
-└── output/
-    └── rca_v23/                  # v2.3 唯一产物根（旧 rca_v21/v23_* 冻结为历史）
-        ├── manifest.json          # run_id、各产物相对路径/大小/sha256
-        ├── registry/
-        │   ├── accident_registry.json
-        │   ├── split_manifest.json
-        │   ├── shared_baseline.json
-        │   └── marker_scale.json
-        ├── variable_sets/
-        │   ├── selection_report_{K}.json   # V0–V7、v3_status（含 pass_with_exemption）、v3_exempt、v5_note
-        │   └── variable_selection_summary.json
-        ├── audit/data_audit_{K}.json
-        ├── audit/z_pathology_audit_{K}.json
-        ├── audit/changepoint_report_{K}.json
-        ├── tolerances/tolerance_{K}.json
-        ├── signatures/signature_{K}_{g}.json
-        ├── tracing/root_candidates_{K}_{g}.json
-        ├── tracing/topology_{K}_{g}.json
-        ├── tracing/clip_sensitivity_{K}_{g}.json
-        ├── tracing/skipped_classes.json
-        ├── graphs/graph_{K}_{g}.html
-        ├── graphs/graph_{K}_summary.html
-        ├── graphs/graph_all_summary.html
-        ├── reports/summary_{K}.json
-        ├── reports/diff_{K}.json
-        ├── reports/deviation_{K}_{g}.json
-        ├── reports/rca_report_{K}_{g}.json / .txt
-        ├── reports/llm_explanation_{K}_{g}.json
-        ├── reports/llm_explanation_class_{K}.json
-        ├── reports/llm_explanation_global.json
-        ├── reports/run_v23_all_summary.json
-        ├── knowledge/knowledge_validation.json
-        └── ablations/
-            ├── frozen_ab_variable_selection_<run_id>.json
-            └── ab_variable_selection.json
+└── output/                       # 布局与保留策略见 output/README.md
+    ├── runs/
+    │   └── <run_id>/             # v2.3 唯一产物根（路径一律由 artifact 按 run_id 派生）
+    │       ├── manifest.json     # run_id、各产物相对本 run 根的路径/大小/sha256/lineage
+    │       ├── registry/
+    │       │   ├── accident_registry.json
+    │       │   ├── split_manifest.json
+    │       │   ├── shared_baseline.json
+    │       │   └── marker_scale.json
+    │       ├── variable_sets/
+    │       │   ├── selection_report_{K}.json   # V0–V7、v3_status（含 pass_with_exemption）、v3_exempt、v5_note
+    │       │   └── variable_selection_summary.json
+    │       ├── audit/data_audit_{K}.json
+    │       ├── audit/z_pathology_audit_{K}.json
+    │       ├── audit/changepoint_report_{K}.json
+    │       ├── tolerances/tolerance_{K}.json
+    │       ├── signatures/signature_{K}_{g}.json
+    │       ├── tracing/root_candidates_{K}_{g}.json
+    │       ├── tracing/topology_{K}_{g}.json
+    │       ├── tracing/clip_sensitivity_{K}_{g}.json
+    │       ├── tracing/skipped_classes.json
+    │       ├── graphs/graph_{K}_{g}.html
+    │       ├── graphs/graph_{K}_summary.html
+    │       ├── graphs/graph_all_summary.html
+    │       ├── metrics/                        # 预留：第 10 步评测（metrics_{K}_{g}.json）
+    │       ├── reports/summary_{K}.json
+    │       ├── reports/diff_{K}.json
+    │       ├── reports/deviation_{K}_{g}.json
+    │       ├── reports/rca_report_{K}_{g}.json / .txt
+    │       ├── reports/llm_explanation_{K}_{g}.json
+    │       ├── reports/llm_explanation_class_{K}.json
+    │       ├── reports/llm_explanation_global.json
+    │       ├── reports/run_v23_all_summary.json
+    │       ├── knowledge/knowledge_validation.json
+    │       └── ablations/
+    │           ├── frozen_ab_variable_selection_<run_id>.json
+    │           └── ab_variable_selection.json
+    ├── archive/                  # 只读历史（禁止被 v2.3 引用）
+    │   ├── rca_v21_frozen/       # v2.1 冻结产物（见 legacy/v21/FROZEN.md）
+    │   ├── rca/  plan1_loca/     # 更早方案产物
+    │   └── rca_v23_mixed_<ts>/   # 旧单层根的混源快照
+    ├── latest                    # 纯文本 run_id：判断权威结果的唯一入口
+    └── README.md                 # 布局说明 + 保留策略 + 权威判定方法
 ```
 
 **命名规则**
@@ -171,7 +179,7 @@ Code/
 - 类别 `K` ∈ `{LOCA,LOCAC,SLBIC,SLBOC,SGATR,SGBTR,RW,RI,FLB,MD,LR,LLB}`；组 `g` ∈ `{low,mid,high}`。
 - 文件名一律 `{产物类型}_{K}[_{g}].{json|html|txt}`，全大写类别、小写组名。
 - JSON 顶层必须含 `schema`、`artifact`、`accident_type`、`group`（或 `null`）、`run_id`、`created_at`、`source`；由 `causalrca/io/artifact.py` 统一注入（旧路径 `rca/v21/artifact.py` 已于批 C 删除），执行器不得手写 json.dump 落盘 v2.3 产物（由 `tests/test_architecture.py` 卡住）。
-- 不再出现 `v23_` 前缀子目录、`signatures_strict`、`signatures_no_ontology` 等并列目录；消融产物统一放 `output/rca_v23/ablations/{name}/`。
+- 不再出现 `v23_` 前缀子目录、`signatures_strict`、`signatures_no_ontology` 等并列目录；消融产物统一放 `<run 根>/ablations/{name}/`。
 - 文本/HTML 产物由 `artifact.write_text_artifact` 同时写同名 `.meta.json`（含 sha256 与 run_id）。
 
 ## 3. 代码路径对照（旧 → 新，批 A/B/C）
@@ -213,15 +221,15 @@ Code/
 
 | 旧位置 | 新位置 | 处置 |
 |--------|--------|------|
-| `output/rca_v21/v23_signatures/` | `output/rca_v23/signatures/` | 重算后写入；旧目录不再更新 |
-| `output/rca_v21/v23_tracing/root_candidates_*` | `output/rca_v23/tracing/` | 重算 |
-| `output/rca_v21/v23_tracing/diff_report_*` | `output/rca_v23/reports/diff_{K}.json` | 由 `severity_aggregation` 在签名重算后统一重跑 |
-| `output/rca_v21/v23_graphs/graph_{K}_{g}.html` | `output/rca_v23/graphs/` | 由 `run_v23_graphs.py` 从 v23 签名统一生成 |
-| `output/rca_v21/v23_graphs/graph_{K}_summary.html` | `output/rca_v23/graphs/` | 同上，与分组图同批次 |
-| `output/rca_v21/v23_llm/` | `output/rca_v23/reports/llm_explanation_*` | 12/36 份按注册表状态生成 |
-| `output/rca_v21/variable_selection/` | `output/rca_v23/variable_sets/` | 重算 |
-| `output/rca_v21/tolerances/` | `output/rca_v23/tolerances/` | 重算 |
-| `output/rca_v21/{signatures,tracing,chains,...}` | 保持不动 | v2.1/v2.2 历史产物，只读 |
+| `output/archive/rca_v21_frozen/v23_signatures/` | `<run 根>/signatures/` | 重算后写入；旧目录不再更新 |
+| `output/archive/rca_v21_frozen/v23_tracing/root_candidates_*` | `<run 根>/tracing/` | 重算 |
+| `output/archive/rca_v21_frozen/v23_tracing/diff_report_*` | `<run 根>/reports/diff_{K}.json` | 由 `severity_aggregation` 在签名重算后统一重跑 |
+| `output/archive/rca_v21_frozen/v23_graphs/graph_{K}_{g}.html` | `<run 根>/graphs/` | 由 `run_v23_graphs.py` 从 v23 签名统一生成 |
+| `output/archive/rca_v21_frozen/v23_graphs/graph_{K}_summary.html` | `<run 根>/graphs/` | 同上，与分组图同批次 |
+| `output/archive/rca_v21_frozen/v23_llm/` | `<run 根>/reports/llm_explanation_*` | 12/36 份按注册表状态生成 |
+| `output/archive/rca_v21_frozen/variable_selection/` | `<run 根>/variable_sets/` | 重算 |
+| `output/archive/rca_v21_frozen/tolerances/` | `<run 根>/tolerances/` | 重算 |
+| `output/archive/rca_v21_frozen/{signatures,tracing,chains,...}` | 保持不动 | v2.1/v2.2 历史产物，只读 |
 
 ## 5. 12 类注册表字段（accident_config.py）
 
@@ -273,14 +281,24 @@ PYTHONPATH=. python -m causalrca.reporting.run_v23_graphs --run-id <id>
 PYTHONPATH=. python -m causalrca.causal.severity_aggregation --run-id <id>
 PYTHONPATH=. python -m causalrca.cli.run_v23_llm_explanation --run-id <id>   # 模板 rule + 类级/全局（--backend llm 可选）
 PYTHONPATH=. python -m causalrca.cli.run_v23_report --run-id <id>
-PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（144 例，全绿；含 tests/legacy 9 例）
+PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（147 例，全绿；含 tests/legacy 9 例）
 ```
 
-> 注：原先 4 例失败在 `tests/test_v23_report_llm.py`，根因是 `output/rca_v23/tracing/` 与
+> 注：原先 4 例失败在 `tests/test_v23_report_llm.py`，根因是旧单层根 `tracing/` 与
 > `signatures/` 来自不同批次（`v23c-*` vs `v23-*`）导致跨阶段拒绝混源；`v23-20261110T134957`
 > 统一重算后已 **138 passed / 0 failed**（产物缺失时这 4 例转为 skipped，属设计行为）。
 > 登记见 `error_tracking.md` V23-DESIGN-030。`cd Code && pytest tests -q` 亦可
 > （`pyproject.toml` 仅补 `testpaths`/`pythonpath`，`PYTHONPATH=. python -m` 方式不变）。
+
+**产物根契约（批 E，强制）**
+- 唯一根 `output/runs/<run_id>/`，路径只能由 `causalrca/io/artifact.py` 派生：
+  `bind_run(run_id)` 绑定、`run_path(run_id)` 纯派生、`subdir_path(name, run_id=None)` 取子目录、
+  `build_manifest(run_id)` 收口并刷新 `output/latest`。禁止任何模块拼接绝对产物路径
+  （`tests/test_architecture.py::test_no_module_hardcodes_legacy_output_root` 守卫）。
+- `output/` 顶层只允许 `runs/ archive/ latest README.md`（+历史 `error_log.jsonl`），
+  由 `test_output_has_single_run_root_contract` 守卫。
+- 权威结果判定：`output/latest` 的 run_id 与 `<该 run>/manifest.json.run_id` 一致。
+
 
 **运行约定（强制，方案 §6.4）**
 - 默认**禁止**每次改代码就跑全链；先用「受影响单测 + 单阶段重跑（复用上游 run_id）+ 冻结产物比对」验证。
@@ -288,11 +306,11 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
 - 每轮全链留痕：run_id、rerun_reason、耗时、步数、相对上一轮的变量集/9 组 Top-1/稳定边变化。
 
 `run_v23_all` 结束落盘：
-- `output/rca_v23/manifest.json`：`run_id`、各产物相对路径/大小/sha256（六类扩展名全覆盖）；
-- `output/rca_v23/reports/run_v23_all_summary.json`：9 步 `status: ok|skipped|failed`、耗时、产物计数、跳过类、`rerun_reason`、LLM 可用性；
+- `<run 根>/manifest.json`：`run_id`、各产物**相对本 run 根**的路径/大小/sha256（六类扩展名全覆盖）；
+- `<run 根>/reports/run_v23_all_summary.json`：9 步 `status: ok|skipped|failed`、耗时、产物计数、跳过类、`rerun_reason`、LLM 可用性；
 - 任一步失败 → summary 记 `failed` 并非 0 退出，绝不静默跳过。
 
-**不再使用**：`output/rca_v21/v23_*` 下的 `tracing_report_v23.txt` 等旧汇总（11-04 产物，已冻结只读）。验收结论以 `reports/summary_{K}.json`、`reports/diff_{K}.json` 与 `manifest.json` 为准。
+**不再使用**：`output/archive/rca_v21_frozen/v23_*` 下的 `tracing_report_v23.txt` 等旧汇总（11-04 产物，已冻结只读）。验收结论以本 run 的 `reports/summary_{K}.json`、`reports/diff_{K}.json` 与 `manifest.json` 为准；权威 run 由 `output/latest` 与 manifest 的 `run_id` 一致确定。
 
 ## 7. 工作分解（与方案 §6.1 对齐）
 

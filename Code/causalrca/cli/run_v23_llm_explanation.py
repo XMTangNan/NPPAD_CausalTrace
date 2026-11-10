@@ -4,7 +4,7 @@
   - 默认 backend=rule，纯离线（不发网络请求、不读 API key），确定性；
   - backend=llm 仅当 CAUSALTRACE_LLM_BASE_URL 与 CAUSALTRACE_LLM_API_KEY 同时存在时启用，
     失败自动降级 rule 并写 degraded_reason；
-  - 只读 output/rca_v23/{tracing,signatures,reports} 的既有产物，不重算因果；
+  - 只读本 run 的 {tracing,signatures,reports} 既有产物，不重算因果；
   - 产物 reports/llm_explanation_{K}_{g}.json，含 backend/degraded_reason/text/
     faithfulness/inputs(sha256)/run_id。
 
@@ -139,6 +139,7 @@ def main(argv: Optional[List[str]] = None) -> str:
     ap.add_argument("--run-id", default=None, help="只接受该 run_id 的输入，防止混源")
     ap.add_argument("--no-manifest", action="store_true", help="不刷新 manifest.json")
     args = ap.parse_args(argv)
+    artifact.bind_run(args.run_id or artifact.latest_run())
 
     classes = list(args.classes or READY_CODES)
     unknown = [k for k in classes if k not in REGISTRY]

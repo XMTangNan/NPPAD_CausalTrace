@@ -1,6 +1,6 @@
 """v2.3 12 类事故注册表：事故元数据的唯一来源（STRUCTURE.md §4）。
 
-本模块承接旧 `Code/rca/v21/accident_config.py`，取值逐字一致；`__file__` 锚点按新位置
+本模块承接旧 `Code/causalrca/config/accident_config.py`，取值逐字一致；`__file__` 锚点按新位置
 （causalrca/config/registry.py → parents[3]）重算，仍指向 .../CausalTrace。
 
 字段与含义见 Code/STRUCTURE.md §4；权威取值来自方案 §4.1（12 类清单）、

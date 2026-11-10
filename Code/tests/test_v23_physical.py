@@ -10,6 +10,8 @@
 - D2 执行器：LOCA 单类小样本落 tmp_path，产物带 run_id/schema/source。
 """
 import json
+import shutil
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -25,17 +27,43 @@ from causalrca.cli import run_v23_tolerances as RT
 from causalrca.evidence import tolerance as T
 
 
-def _patch_output(monkeypatch, root):
-    """artifact 唯一产物根整体指向 tmp（同名子目录），不污染正式 output。"""
-    root.mkdir(parents=True, exist_ok=True)
-    subs = {}
-    for name in list(artifact.V23_SUBDIRS):
-        d = root / name
+class _RunDirs:
+    """延迟解析 run 根下的子目录（run 根 = <tmp>/<当前绑定 run_id>）。"""
+
+    def __init__(self, root):
+        self.root = Path(root)
+
+    def __getitem__(self, name):
+        d = Path(artifact.run_root()) / name
         d.mkdir(parents=True, exist_ok=True)
-        subs[name] = d
-    monkeypatch.setattr(artifact, "V23_SUBDIRS", subs)
-    monkeypatch.setattr(artifact, "V23_OUTPUT", root)
-    return subs
+        return d
+
+    def values(self):
+        return [self[n] for n in artifact.V23_SUBDIR_NAMES]
+
+
+def _patch_output(monkeypatch, root, run_id=None):
+    """把唯一产物根指向 tmp（run 根 = <tmp>/<run_id>），run_id 固定便于预置输入。
+
+    A 阶段产物（variable_sets/）从 latest run 只读拷贝，避免单测依赖真实 output 的写入痕迹。
+    """
+    latest = artifact.latest_run()
+    src = artifact.run_path(latest) / "variable_sets" if latest else None
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    run_id = run_id or f"v23c-{root.name}"
+    monkeypatch.setattr(artifact, "V23_RUNS", root)
+    monkeypatch.setattr(artifact, "V23_LATEST", root / "latest")
+    monkeypatch.setattr(artifact, "new_run_id",
+                        lambda prefix="v23c": f"{prefix}-{root.name}")
+    monkeypatch.setattr(artifact, "_RUN_ID", run_id)
+    if src and src.exists():
+        dst = root / run_id / "variable_sets"
+        if True:
+            dst.mkdir(parents=True, exist_ok=True)
+            for f in sorted(src.glob("*.json")):
+                shutil.copy2(f, dst / f.name)
+    return _RunDirs(root)
 
 
 def _read(sub_dir, name):

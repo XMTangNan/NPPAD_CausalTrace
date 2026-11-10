@@ -14,7 +14,7 @@
 
 A/B（auto vs v2.1 变量集）已从主链摘出（V23-DESIGN-019）：
   - 默认不跑；需要时显式 `--with-ab`（追加为第 9 步，manifest 前）；
-  - 既有 A/B 结果冻结为一次性消融产物，归档 output/rca_v23/ablations/
+  - 既有 A/B 结果冻结为一次性消融产物，归档 <run 根>/ablations/
     （frozen_ab_variable_selection_<run_id>.json），论文引用该冻结件，不再每轮重算。
 
 说明：
@@ -95,15 +95,14 @@ def _run_step(index: int, step: Dict, fn, results: List[Dict], total: int) -> Di
 
 def _artifact_counts() -> Dict[str, int]:
     counts: Dict[str, int] = {}
-    for sub in sorted(artifact.V23_SUBDIRS):
-        d = artifact.V23_SUBDIRS[sub]
+    for sub, d in artifact.subdirs().items():
         counts[sub] = len(list(d.glob("*"))) if d.exists() else 0
     return counts
 
 
 def _skipped_classes() -> List[Dict]:
     """读 tracing/skipped_classes.json（end2end 写），失败不影响 summary。"""
-    path = artifact.V23_SUBDIRS["tracing"] / "skipped_classes.json"
+    path = artifact.subdir_path("tracing") / "skipped_classes.json"
     if not path.exists():
         return []
     try:
@@ -376,7 +375,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     manifest_ok = any(e["name"] == "manifest" and e["status"] == "ok" for e in results)
     summary_path = artifact.write_artifact("run_v23_all_summary", summary, "reports",
-                                           run_id=run_id, source="rca/v21/run_v23_all.py")
+                                           run_id=run_id, source="causalrca/cli/run_v23_all.py")
     if manifest_ok:  # summary 落盘后刷新 manifest，使其纳入本次 summary
         artifact.build_manifest(run_id)
 

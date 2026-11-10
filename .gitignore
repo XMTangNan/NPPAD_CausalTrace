@@ -8,9 +8,9 @@ __pycache__/
 *.pyc
 .venv/
 
-# 运行产物
-Code/output/
-**/output/
+# 运行产物（只有布局说明 output/README.md 纳入版本控制，其余一律不入库）
+**/output/*
+!**/output/README.md
 *.log
 *.jsonl
 

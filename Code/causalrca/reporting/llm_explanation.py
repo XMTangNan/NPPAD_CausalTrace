@@ -317,7 +317,7 @@ def _degrade(rec: Dict, reason: str) -> Dict:
 # V2.3 D6：两级后端解释生成器（rule 离线默认 / llm 可选）+ 忠实性校验
 # ------------------------------------------------------------------
 # 铁律（方案 v2.3 §6.1 D6）：
-#   1. 只读 output/rca_v23 下的 tracing/root_candidates_*、signatures/、
+#   1. 只读本 run 下的 tracing/root_candidates_*、signatures/、
 #      reports/summary|diff|deviation_*，不重算因果、不读旧 rca_v21/v22 产物；
 #   2. rule 后端纯离线、确定性，输出的每个数字与变量名都必须能在 payload 找到；
 #   3. llm 后端只在 CAUSALTRACE_LLM_BASE_URL 与 CAUSALTRACE_LLM_API_KEY 同时存在时启用，
@@ -458,8 +458,8 @@ def verify_faithfulness(text: str, payload: Dict) -> Dict:
 
 # ==================== 只读输入（不重算因果） ====================
 def _read_optional(sub: str, name: str):
-    """读 output/rca_v23/<sub>/<name>.json；不存在返回 (None, None)。"""
-    path = Path(artifact.V23_SUBDIRS[sub]) / f"{name}.json"
+    """读本 run 的 <sub>/<name>.json；不存在返回 (None, None)。"""
+    path = artifact.subdir_path(sub) / f"{name}.json"
     if not path.exists():
         return None, None
     with open(path, encoding="utf-8") as f:
@@ -534,7 +534,7 @@ def _load_k2(k: str, g: str, sig: Dict) -> Dict:
             if doc is not None:
                 return _normalize_k2(doc, _rel_path(sub, tpl.format(k=k, g=g)))
     return {"available": False,
-            "reason": "physics_constraints 尚未接入签名，output/rca_v23 下无 K2 三态产物"}
+            "reason": "physics_constraints 尚未接入签名，本 run 下无 K2 三态产物"}
 
 
 def _load_k3(k: str, sig: Dict) -> Dict:
@@ -604,7 +604,7 @@ def _load_deviation(k: str, g: str) -> Dict:
                 "n_variables": doc.get("n_variables"),
                 "level_counts": doc.get("level_counts"),
                 "note": doc.get("note", "偏离度 ≠ 根因")}
-    rep_dir = Path(artifact.V23_SUBDIRS["reports"])
+    rep_dir = artifact.subdir_path("reports")
     cands = sorted(rep_dir.glob(f"deviation_{k}_*.json"))
     if cands:
         try:

@@ -11,8 +11,8 @@
 | 冻结 commit | `44f613f`（批 A 完成、批 B 搬迁前；搬迁只改文件位置与 import 行） |
 | 代码位置 | `Code/legacy/v21/` |
 | 老测试 | `Code/tests/legacy/`（9 个，随本目录一起保留可跑） |
-| 产物目录（只读） | `Code/output/rca_v21/`、`Code/output/rca/`、`Code/output/plan1_loca/` |
-| 归档副本 | `Code/output/archive/rca_v21_frozen/`（批 E 迁移，只读） |
+| 产物目录（只读） | `Code/output/archive/rca_v21_frozen/`（批 E 起；原 `Code/output/rca_v21/`）、`Code/output/archive/rca/`、`Code/output/archive/plan1_loca/` |
+| 归档副本 | 同上（批 E 迁移，逐文件 sha256 不变，只读） |
 | 状态 | 冻结（frozen），不再演进 |
 
 ## 2. 目录内容

@@ -1,7 +1,7 @@
 """V2.3 D6/D7/D10 单测：解释忠实性、离线 rule 后端、LLM 降级、9 份报告、全链编排。
 
-原则：涉及写盘一律落 tmp_path（monkeypatch artifact.V23_SUBDIRS），不污染正式产物；
-需要真实证据的用例只读取 output/rca_v23 下已存在的 9 模板产物（不存在则 skip）。
+原则：涉及写盘一律落 tmp_path（monkeypatch artifact.V23_RUNS），不污染正式产物；
+需要真实证据的用例只读取 output/latest 指向的 run 下已存在的 9 模板产物（不存在则 skip）。
 """
 import json
 import shutil
@@ -16,30 +16,60 @@ from causalrca.reporting import report_template as RT
 from causalrca.cli import run_v23_all as RA
 from causalrca.cli import run_v23_report as RR
 
-REAL_V23 = Path(artifact.V23_OUTPUT)
+_LATEST_RUN = artifact.latest_run()
+REAL_V23 = artifact.run_path(_LATEST_RUN) if _LATEST_RUN else None
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
-def _patch_output(monkeypatch, root):
-    """把产物根整体指向 tmp（保持同名子目录），返回 subs 字典。"""
-    root.mkdir(parents=True, exist_ok=True)
-    subs = {}
-    for name in list(artifact.V23_SUBDIRS):
-        d = root / name
+class _RunDirs:
+    """延迟解析 run 根下的子目录（run 根 = <tmp>/<当前绑定 run_id>）。"""
+
+    def __init__(self, root):
+        self.root = Path(root)
+
+    def __getitem__(self, name):
+        d = Path(artifact.run_root()) / name
         d.mkdir(parents=True, exist_ok=True)
-        subs[name] = d
-    monkeypatch.setattr(artifact, "V23_SUBDIRS", subs)
-    return subs
+        return d
+
+    def values(self):
+        return [self[n] for n in artifact.V23_SUBDIR_NAMES]
+
+
+def _patch_output(monkeypatch, root, run_id=None):
+    """把唯一产物根指向 tmp（run 根 = <tmp>/<run_id>），run_id 固定便于预置输入。
+
+    A 阶段产物（variable_sets/）从 latest run 只读拷贝，避免单测依赖真实 output 的写入痕迹。
+    """
+    latest = artifact.latest_run()
+    src = artifact.run_path(latest) / "variable_sets" if latest else None
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    run_id = run_id or f"v23c-{root.name}"
+    monkeypatch.setattr(artifact, "V23_RUNS", root)
+    monkeypatch.setattr(artifact, "V23_LATEST", root / "latest")
+    monkeypatch.setattr(artifact, "new_run_id",
+                        lambda prefix="v23c": f"{prefix}-{root.name}")
+    monkeypatch.setattr(artifact, "_RUN_ID", run_id)
+    if src and src.exists():
+        dst = root / run_id / "variable_sets"
+        if True:
+            dst.mkdir(parents=True, exist_ok=True)
+            for f in sorted(src.glob("*.json")):
+                shutil.copy2(f, dst / f.name)
+    return _RunDirs(root)
 
 
 def _copy_real_case(subs, k="LOCA", g="mid"):
     """把真实模板的 4 个只读输入复制到 tmp，供报告链路使用。"""
+    if REAL_V23 is None:
+        pytest.skip("runs/ 下无有效产物")
     pairs = [("tracing", f"root_candidates_{k}_{g}.json"),
              ("signatures", f"signature_{k}_{g}.json"),
              ("reports", f"summary_{k}.json"),
              ("reports", f"diff_{k}.json")]
     for sub, name in pairs:
-        src = Path(artifact.V23_OUTPUT) / sub / name
+        src = REAL_V23 / sub / name
         if not src.exists():
             pytest.skip(f"缺真实产物 {sub}/{name}")
         shutil.copy2(src, subs[sub] / name)
@@ -83,7 +113,15 @@ def test_load_k2_reads_real_auxiliary_payload():
     assert len(k2["relations"]) == aux["n_relations_applicable"]
 
 
+def _bind_real():
+    """只读真实产物：把进程绑定到 latest run（不写盘）。"""
+    if _LATEST_RUN is None:
+        pytest.skip("runs/ 下无有效产物")
+    artifact.bind_run(_LATEST_RUN)
+
+
 def test_load_k2_legacy_top_level_and_missing():
+    _bind_real()
     legacy = {"k2": {"relations": [{"relation_id": "R1", "status": "violation"}],
                      "n_violation": 1}}
     assert LE._load_k2("LOCA", "low", legacy)["n_violation"] == 1
@@ -92,6 +130,7 @@ def test_load_k2_legacy_top_level_and_missing():
 
 
 def test_payload_k2_available_on_real_signature():
+    _bind_real()
     sig_path = REAL_V23 / "signatures" / "signature_LOCA_high.json"
     if not sig_path.exists():
         pytest.skip("缺真实产物 signatures/signature_LOCA_high.json")
@@ -102,6 +141,7 @@ def test_payload_k2_available_on_real_signature():
 
 # ==================== rule 后端（真实产物，离线） ====================
 def test_rule_backend_on_real_loca_mid():
+    _bind_real()
     rc = REAL_V23 / "tracing" / "root_candidates_LOCA_mid.json"
     if not rc.exists():
         pytest.skip("缺真实产物 tracing/root_candidates_LOCA_mid.json")
@@ -118,6 +158,7 @@ def test_rule_backend_on_real_loca_mid():
 
 # ==================== llm 后端降级 ====================
 def test_llm_backend_degrades_to_rule_when_unreachable(monkeypatch):
+    _bind_real()
     rc = REAL_V23 / "tracing" / "root_candidates_LOCA_mid.json"
     if not rc.exists():
         pytest.skip("缺真实产物 tracing/root_candidates_LOCA_mid.json")
@@ -136,7 +177,7 @@ def test_llm_backend_degrades_to_rule_when_unreachable(monkeypatch):
 
 # ==================== D7 报告 ====================
 def test_report_LOCA_mid_json_and_txt(monkeypatch, tmp_path):
-    subs = _patch_output(monkeypatch, tmp_path / "rca_v23")
+    subs = _patch_output(monkeypatch, tmp_path / "runs")
     _copy_real_case(subs, "LOCA", "mid")
     expected_run_id = json.loads(
         (subs["tracing"] / "root_candidates_LOCA_mid.json").read_text(encoding="utf-8")
@@ -167,7 +208,7 @@ def test_report_LOCA_mid_json_and_txt(monkeypatch, tmp_path):
 
 # ==================== D10 全链编排 ====================
 def test_run_v23_all_dry_run_prints_six_steps_without_writing(monkeypatch, tmp_path, capsys):
-    subs = _patch_output(monkeypatch, tmp_path / "rca_v23")
+    subs = _patch_output(monkeypatch, tmp_path / "runs")
     rc = RA.main(["--dry-run", "--classes", "LOCA"])
     out = capsys.readouterr().out
     n_steps = len(RA.STEPS)
@@ -175,8 +216,9 @@ def test_run_v23_all_dry_run_prints_six_steps_without_writing(monkeypatch, tmp_p
     assert f"共 {n_steps} 个步骤" in out
     for i in range(1, n_steps + 1):
         assert f"[{i}/{n_steps}]" in out
-    # 不写盘：所有子目录为空
-    assert all(not list(d.iterdir()) for d in subs.values())
+    # 不写盘：除预置的 A 阶段输入外，所有子目录为空
+    assert all(not list(subs[n].iterdir())
+               for n in artifact.V23_SUBDIR_NAMES if n != "variable_sets")
     assert not (subs["reports"] / "run_v23_all_summary.json").exists()
 
 
@@ -188,7 +230,7 @@ def test_run_v23_all_records_failure_and_returns_nonzero(monkeypatch, tmp_path, 
     # 前置 A1/B 两步用桩替代，避免用例真的去跑变量选取与数据审计
     monkeypatch.setattr(RA, "step_variable_sets", lambda run_id: "ok")
     monkeypatch.setattr(RA, "step_audit", lambda run_id, classes: "ok")
-    subs = _patch_output(monkeypatch, tmp_path / "rca_v23")
+    subs = _patch_output(monkeypatch, tmp_path / "runs")
     rc = RA.main(["--classes", "LOCA", "--groups", "mid",
                   "--rerun-reason", "E-R3 单测：验证失败路径与步骤记录"])
     capsys.readouterr()

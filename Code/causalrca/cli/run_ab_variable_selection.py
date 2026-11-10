@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from causalrca.config.constants_v21 import (
-    ACCIDENT_TYPES, GROUP_ORDER, MARKERS, GLOBAL_SEED, V23_SUBDIRS,
+    ACCIDENT_TYPES, GROUP_ORDER, MARKERS, GLOBAL_SEED,
     LEARN_WINDOW_START, LEARN_WINDOW_END, LEARN_WINDOW_POINTS,
     STABLE_F, STABLE_DIR,
 )
@@ -33,9 +33,9 @@ from causalrca.io.files import save_json
 AB_N_BOOTSTRAP = 100
 # V23-DESIGN-009：12 类本体边合计 84 条，backbone_hit_ratio 的固定分母
 ONTOLOGY_TOTAL_EDGES = sum(len(v) for v in ALLOWED_RELATIONS.values())
-OUT_DIR = V23_SUBDIRS["ablations"]
-OUT_DIR.mkdir(parents=True, exist_ok=True)
-VS_SUMMARY = V23_SUBDIRS["variable_sets"] / "variable_selection_summary.json"
+# 产物目录随 run 根变化：一律现取（不在模块导入时固化路径）
+def _vs_summary() -> Path:
+    return A.subdir_path("variable_sets") / "variable_selection_summary.json"
 
 
 def _load_blocks(manifest, k, g, gvars):
@@ -111,7 +111,7 @@ def main() -> None:
     baseline = D.load_json("shared_baseline.json")
     scale = D.load_json("marker_scale.json")
     vsets = D.load_json("variable_sets.json")
-    with open(VS_SUMMARY, encoding="utf-8") as f:
+    with open(_vs_summary(), encoding="utf-8") as f:
         vs_summary = json.load(f)
 
     results: Dict[str, Dict] = {}
@@ -197,7 +197,7 @@ def main() -> None:
 
     A.write_artifact("ab_variable_selection", {"detailed": results, "summary": summary},
                      "ablations", run_id=run_id,
-                     source="rca/v21/run_ab_variable_selection.py (n_bootstrap=%d)" % AB_N_BOOTSTRAP)
+                     source="causalrca/cli/run_ab_variable_selection.py (n_bootstrap=%d)" % AB_N_BOOTSTRAP)
     logger.info(f"\n===== A/B 对照汇总（跨组均值）=====")
     for k in ACCIDENT_TYPES:
         s = summary[k]

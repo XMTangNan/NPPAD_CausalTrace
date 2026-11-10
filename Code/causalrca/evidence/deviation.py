@@ -12,7 +12,7 @@ V23-DESIGN-011（2026-11-10 决策）口径定稿为“模板内相对分位”�
 - 图例统一为“通道偏移强度（模板内相对）”。
 
 收敛（V23-DESIGN-002/003）：公差由调用方传入（内存 dict）或从
-`V23_SUBDIRS["tolerances"]` 读取，本模块不再拼接 v2.1 旧目录；
+本 run 的 `tolerances/` 读取，本模块不再拼接 v2.1 旧目录；
 产物经 `artifact` 写入 `reports/deviation_{K}_{g}.json`。
 """
 from __future__ import annotations
@@ -71,13 +71,13 @@ def _percentile_rank(value: float, values: np.ndarray) -> float:
     return min(100.0, 100.0 * rank / float(values.size))
 
 
-def _tolerance_path(accident_type: str) -> Path:
-    return Path(artifact.V23_SUBDIRS["tolerances"]) / f"tolerance_{accident_type}.json"
+def _tolerance_path(accident_type: str, run_id: Optional[str] = None) -> Path:
+    return artifact.subdir_path("tolerances", run_id) / f"tolerance_{accident_type}.json"
 
 
-def load_tolerance(accident_type: str) -> Dict:
-    """优先读 tolerances/tolerance_{K}.json；缺失时按 sev-1 现算（不写盘）。"""
-    path = _tolerance_path(accident_type)
+def load_tolerance(accident_type: str, run_id: Optional[str] = None) -> Dict:
+    """优先读本 run 的 tolerances/tolerance_{K}.json；缺失时按 sev-1 现算（不写盘）。"""
+    path = _tolerance_path(accident_type, run_id)
     if path.exists():
         with open(path, encoding="utf-8") as f:
             return json.load(f)
@@ -218,7 +218,7 @@ def run_all_deviations(run_id: str,
 
     results: Dict[str, Dict] = {}
     for k in classes:
-        tol = tolerances.get(k) or load_tolerance(k)
+        tol = tolerances.get(k) or load_tolerance(k, run_id)
         for g in groups:
             summary = deviation_for_group(k, g, tol)
             artifact.write_artifact(

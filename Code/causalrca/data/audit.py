@@ -4,7 +4,7 @@
 - 纯函数（sigma_floor_for / variable_z_profile / cusum_changepoints /
   pelt_dp_changepoints / marker_profile）可单测，不读盘；
 - audit_class_data / audit_z_pathology / audit_changepoints 读数据但不写盘；
-- run_audit(code, run_id) 落盘三份 JSON 到 V23_SUBDIRS["audit"]；
+- run_audit(code, run_id) 落盘三份 JSON 到本 run 的 audit/ 子目录；
 - run_all 逐类 try/except ClassDataMissing，跳过清单返回，绝不生成占位产物。
 
 产物文件名（STRUCTURE.md §2）：
@@ -21,7 +21,7 @@ from scipy.stats import spearmanr
 from causalrca.config.constants_v21 import (
     REPO_DATA, MAIN_WINDOW_START, MAIN_WINDOW_END,
     BASELINE_WINDOW_START, BASELINE_WINDOW_END,
-    SEVERITY_BANDS, GROUP_ORDER, CONSTANT_SIGMA, V23_SUBDIRS,
+    SEVERITY_BANDS, GROUP_ORDER, CONSTANT_SIGMA,
 )
 from causalrca.config.accident_config import ACCIDENT_ORDER, get_accident, marker_of
 from causalrca.data.loader import (
@@ -718,7 +718,8 @@ def run_audit(code: str, run_id: Optional[str] = None) -> Dict:
     """B4+B5+B6 三份产物落盘；data_missing 抛 ClassDataMissing（上层捕获）。"""
     ensure_class_available(code)          # 先门控，缺数据不落任何占位产物
     sevs = list_class_severities(code)
-    audit_dir = Path(V23_SUBDIRS["audit"])
+    from causalrca.io import artifact
+    audit_dir = artifact.subdir_path("audit", run_id)
 
     b4 = audit_class_data(code, sevs, run_id=run_id)
     b5 = audit_z_pathology(code, run_id=run_id)

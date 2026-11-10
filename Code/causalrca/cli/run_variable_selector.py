@@ -3,12 +3,12 @@
 用法（cd Code）：PYTHONPATH=. python -m rca.v21.run_variable_selector
 
 产物（Code/STRUCTURE.md §2）：
-  output/rca_v23/registry/accident_registry.json   12 类注册表快照
-  output/rca_v23/registry/split_manifest.json      v2.1 冻结分组快照（只读输入留痕）
-  output/rca_v23/registry/shared_baseline.json     v2.1 冻结共享基线快照
-  output/rca_v23/registry/marker_scale.json        v2.1 冻结 marker 尺度快照
-  output/rca_v23/variable_sets/selection_report_{K}.json
-  output/rca_v23/variable_sets/variable_selection_summary.json
+  <run 根>/registry/accident_registry.json   12 类注册表快照
+  <run 根>/registry/split_manifest.json      v2.1 冻结分组快照（只读输入留痕）
+  <run 根>/registry/shared_baseline.json     v2.1 冻结共享基线快照
+  <run 根>/registry/marker_scale.json        v2.1 冻结 marker 尺度快照
+  <run 根>/variable_sets/selection_report_{K}.json
+  <run 根>/variable_sets/variable_selection_summary.json
 
 S1 契约：三份"输入快照"由 A 阶段统一写入 v2.3 registry，C 阶段只读 v2.3 根
 （`run_v23_end2end.load_inputs` 优先读 registry，v2.1 根仅作只读回退）。
@@ -54,7 +54,7 @@ def main() -> None:
                                            "ready_codes": READY_CODES,
                                            "partial_codes": PARTIAL_CODES,
                                            "missing_codes": MISSING_CODES},
-                     "registry", run_id=run_id, source="rca/v21/accident_config.py")
+                     "registry", run_id=run_id, source="causalrca/config/accident_config.py")
     snapshot_frozen_inputs(run_id)
     manifest = D.load_json("split_manifest.json")
 
@@ -99,7 +99,7 @@ def main() -> None:
         "skipped": skipped,
     }
     A.write_artifact("variable_selection_summary", summary, "variable_sets", run_id=run_id,
-                     source="rca/v21/run_variable_selector.py")
+                     source="causalrca/cli/run_variable_selector.py")
 
     logger.info("\n===== 变量选取结果汇总 =====")
     for k in all_selected:

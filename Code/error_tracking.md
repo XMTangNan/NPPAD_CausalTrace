@@ -1066,7 +1066,45 @@
 - 验证：pytest **144 passed / 0 failed**（含 `tests/legacy` 9 例）；纯搬迁，未改算法口径、阈值、默认值。
 - 状态：✅ 已解决。
 
+**V23-DESIGN-034（closed）· 产物目录精细化（批 E：唯一根 output/runs/<run_id>/）**
+
+- 问题：v2.3 产物平铺在 `output/rca_v23/`，与 v2.1 的 `rca_v21/`、更早的 `rca/`、`plan1_loca/`、
+  `results/`、`figures/` 混在同一层；无法一眼判断"哪份是权威"，也无法按 run 整体归档或删除。
+- 解决：
+  - **唯一根**：`V23_SUBDIRS`（绝对路径字典）与 `V23_OUTPUT` 删除，改为
+    `constants_v21.V23_RUNS` + `V23_SUBDIR_NAMES`；`causalrca/io/artifact.py` 新增
+    `run_path(run_id)`（纯派生）、`bind_run(run_id)`（进程内唯一 run）、`run_root()`、
+    `subdir_path(name, run_id=None)`、`set_latest/latest_run`；`write_artifact` 遇到不同
+    `run_id` 自动切换绑定，未绑定又无显式 run_id 时**直接报错**（不再落到无主目录）。
+  - 调用点收敛：`data/audit.py`、`evidence/deviation.py`、`causal/severity_aggregation.py`、
+    `reporting/run_v23_graphs.py`、`reporting/llm_explanation.py`、`reporting/report_template.py`、
+    `cli/run_v23_all.py`、`cli/run_v23_end2end.py`、`cli/run_ab_variable_selection.py` 全部改为
+    `artifact.subdir_path(...)`；模块级路径常量（`VS_SUMMARY`/`OUT_DIR`）改为惰性函数。
+  - `E2E.main` 顺序修正：先生成 run_id（定 run 根）再 `load_inputs()`，避免读 A 阶段产物时根未定。
+  - `config/paths.py` 的历史目录（`FIG_DIR/RESULT_DIR/RCA_OUTPUT_DIR/PLAN1_OUTPUT_DIR`）
+    下沉到 `output/archive/`，不再在 `output/` 顶层重建。
+  - 守卫：`test_no_module_hardcodes_legacy_output_root`（`causalrca/**` 不得出现
+    `rca_v23`/`V23_SUBDIRS`/`V23_OUTPUT`）、`test_run_root_is_derived_from_run_id_only`、
+    `test_output_has_single_run_root_contract`（顶层只允许 `runs/ archive/ latest README.md`）。
+- 迁移（不丢数据）：`output/rca_v23/`（148 文件）→ `output/runs/v23-20261110T134957/`，
+  **逐文件 sha256 完全一致**；`rca_v21`→`archive/rca_v21_frozen`（309 文件）、`rca`（6）、
+  `plan1_loca`（22）进 `archive/`；空 `results/`、`figures/` 删除；新增 `output/latest` 与
+  `output/README.md`（布局/保留策略/权威判定）。
+- 全链验证（E-R3 产物结构变更，`--rerun-reason="批 E：产物根改为 runs/<run_id>…"`）：
+  run_id **`v23-20261110T144242`**，9/9 步 ok、总耗时 **291.2s**（end2end 278.6s）、manifest **146 文件**、
+  相对路径全部落在本 run 目录内、无跨 run 条目；`output/latest` 指向该 run。
+- 与 `v23-20261110T134957` 对拍（去 `run_id`/`created_at`）：**9/9 模板 `root_candidates` 完全一致**、
+  三类 `selected_vars` 完全一致（溯源与变量集不受产物根改造影响）。
+  差异仅两类，均可解释：
+  ① `signatures/*`、`reports/*` 内 `source`/输入 sha256 路径串由旧根改为 run 根相对路径；
+  ② `selection_report_*` 的 V3/V5 字段——`T144242` 是 DESIGN-031/032 新口径**首次落产物**的批次
+     （`134957` 仍是旧口径），故 `V3_vif_lt_500` 由 False 转 True 并新增 `v3_exempt`/`v5_note`。
+- 遗留（不阻塞）：本 run 的 `ablations/` 为空——旧 `frozen_ab_variable_selection_v23-20261110T034433.json`
+  未随迁移复制过来（仍留在 `runs/v23-20261110T134957/ablations/`），待 A/B 重冻结（DESIGN-028）后
+  以新 run 重新生成；`legacy/` 下的 validation 执行器仍会写 `archive/rca_v21_frozen/` 子目录，
+  属 legacy 工具，不在 v2.3 闭包内。
+- 状态：✅ 已解决。
+
 **open 计数（本轮结束）**：累计 open = 0；待用户裁决 = 3（§9.3 第 1/2/4 项：其余 8 类数据、
-LOCAC 样本量、严重度分组是否数据驱动）；本轮新增 3 条（031/032/033）全部 closed。
-**待办（未在本轮执行，已按优先级后移）**：第 10 步评测接入、A/B 重新冻结（`034433` 已作废）、
-产物根改 `output/runs/<run_id>/`（批 E）。
+LOCAC 样本量、严重度分组是否数据驱动）；本轮新增 4 条（031/032/033/034）全部 closed。
+**待办（未在本轮执行，已按优先级后移）**：第 10 步评测接入、A/B 重新冻结（`034433` 已作废）。

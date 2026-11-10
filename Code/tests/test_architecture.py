@@ -13,6 +13,8 @@ import pathlib
 import pytest
 
 LAYERS = {"config", "io", "data", "features", "causal", "evidence", "reporting", "cli"}
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]   # Code/
+CAUSALRCA = PROJECT_ROOT / "causalrca"
 
 
 def _pkg_root(name: str) -> pathlib.Path:
@@ -150,3 +152,40 @@ def test_v21_legacy_writers_are_outside_v23_closure():
               "legacy.v21.run_r3", "legacy.v21.run_baselines", "legacy.v21.run_chains",
               "legacy.v21.run_source_tracing"}
     assert not (legacy & set(V23_CLOSURE))
+
+
+# ==================== 批 E：产物唯一根（output/runs/<run_id>/）====================
+_LEGACY_ROOT_LITERALS = ("output/rca_v23", "rca_v23", "V23_SUBDIRS", "V23_OUTPUT")
+
+
+def test_no_module_hardcodes_legacy_output_root():
+    """唯一根由 artifact 按 run_id 派生：任何模块都不许再拼旧根字面路径。"""
+    bad = []
+    for p in CAUSALRCA.rglob("*.py"):
+        text = p.read_text(encoding="utf-8")
+        for lit in _LEGACY_ROOT_LITERALS:
+            if lit in text:
+                bad.append(f"{p.relative_to(CAUSALRCA)}: {lit}")
+    assert not bad, "仍出现旧产物根字面量（应改用 artifact.subdir_path/run_root）: " + str(bad)
+
+
+def test_run_root_is_derived_from_run_id_only():
+    """runs/<run_id>/ 由 artifact 派生；未绑定 run 时必须显式报错而非落到无主目录。"""
+    from causalrca.io import artifact as A
+    assert A.run_path("v23-demo").name == "v23-demo"
+    assert A.run_path("v23-demo").parent == A.V23_RUNS
+    saved = A._RUN_ID
+    try:
+        A._RUN_ID = None
+        with pytest.raises(RuntimeError):
+            A.run_root()
+    finally:
+        A._RUN_ID = saved
+
+
+def test_output_has_single_run_root_contract():
+    """output/ 顶层只允许 runs/、archive/、latest、README.md（+历史日志）。"""
+    allowed = {"runs", "archive", "latest", "README.md", "error_log.jsonl"}
+    top = {p.name for p in (PROJECT_ROOT / "output").iterdir()}
+    assert top <= allowed, f"output/ 顶层出现非约定目录: {sorted(top - allowed)}"
+

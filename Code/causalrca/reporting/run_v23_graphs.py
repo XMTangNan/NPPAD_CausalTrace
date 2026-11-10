@@ -1,6 +1,6 @@
 """v2.3 C3 图件：只读 signatures/ + tracing/，生成分组图与汇总图（不重算因果）。
 
-产物（全部经 rca.v21.artifact 落盘到 output/rca_v23/graphs/）：
+产物（全部经 causalrca.io.artifact 落盘到 <run 根>/graphs/）：
 - graph_{K}_{g}.html        12 类 × 3 组的传导图（每组一张）
 - graph_{K}_summary.html    单类三组并集图 + 频次投票榜
 - graph_all_summary.html    全类总览
@@ -64,8 +64,8 @@ td.num{text-align:right;font-family:Consolas,monospace}
 
 
 # ==================== 读取 ====================
-def _load(sub: str, name: str) -> Dict:
-    path = Path(artifact.V23_SUBDIRS[sub]) / f"{name}.json"
+def _load(sub: str, name: str, run_id: Optional[str] = None) -> Dict:
+    path = artifact.subdir_path(sub, run_id) / f"{name}.json"
     if not path.exists():
         raise FileNotFoundError(f"缺产物 {path}（先跑 run_v23_end2end）")
     with open(path, encoding="utf-8") as f:
@@ -80,10 +80,10 @@ def _check_run_id(doc: Dict, name: str, run_id: str) -> None:
 
 
 def _try_load(sub: str, name: str, run_id: str) -> Optional[Dict]:
-    path = Path(artifact.V23_SUBDIRS[sub]) / f"{name}.json"
+    path = artifact.subdir_path(sub, run_id) / f"{name}.json"
     if not path.exists():
         return None
-    doc = _load(sub, name)
+    doc = _load(sub, name, run_id)
     _check_run_id(doc, name, run_id)
     return doc
 
@@ -527,6 +527,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     ap.add_argument("--groups", default=",".join(GROUP_ORDER))
     ap.add_argument("--no-manifest", action="store_true")
     args = ap.parse_args(argv)
+    artifact.bind_run(args.run_id)
     classes = [c.strip().upper() for c in args.classes.split(",") if c.strip()]
     groups = [g.strip() for g in args.groups.split(",") if g.strip()]
     generated_at = datetime.now().astimezone().isoformat(timespec="seconds")

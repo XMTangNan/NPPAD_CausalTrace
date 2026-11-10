@@ -21,13 +21,16 @@ NORMAL_DIR = REPO_DATA / "Normal"
 
 OUTPUT_DIR = CODE_ROOT / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-FIG_DIR = OUTPUT_DIR / "figures"
+# 批 E 起：v2.3 产物只落 output/runs/<run_id>/（见 causalrca/io/artifact.py）；
+# 下列历史目录统一沉到 output/archive/，不再在 output/ 顶层重建。
+ARCHIVE_DIR = OUTPUT_DIR / "archive"
+FIG_DIR = ARCHIVE_DIR / "figures"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
-RESULT_DIR = OUTPUT_DIR / "results"
+RESULT_DIR = ARCHIVE_DIR / "results"
 RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
-# 方案二 RCA 产出目录
-RCA_OUTPUT_DIR = OUTPUT_DIR / "rca"
+# 方案二 RCA 产出目录（历史，只读）
+RCA_OUTPUT_DIR = ARCHIVE_DIR / "rca"
 RCA_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 RCA_RESULT_DIR = RCA_OUTPUT_DIR / "results"
 RCA_RESULT_DIR.mkdir(parents=True, exist_ok=True)
@@ -35,7 +38,7 @@ RCA_SIGNATURE_DIR = RCA_OUTPUT_DIR / "signatures"
 RCA_SIGNATURE_DIR.mkdir(parents=True, exist_ok=True)
 
 # 方案一 LOCA 产出目录（历史产出归档）
-PLAN1_OUTPUT_DIR = OUTPUT_DIR / "plan1_loca"
+PLAN1_OUTPUT_DIR = ARCHIVE_DIR / "plan1_loca"
 PLAN1_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 PLAN1_RESULT_DIR = PLAN1_OUTPUT_DIR / "results"
 PLAN1_RESULT_DIR.mkdir(parents=True, exist_ok=True)

@@ -30,7 +30,7 @@ from causalrca.config.constants_v21 import (
     LEARN_WINDOW_START, LEARN_WINDOW_END, LEARN_WINDOW_POINTS,
     BASELINE_WINDOW_START, BASELINE_WINDOW_END, BASELINE_WINDOW_POINTS,
     LINGAM_N_BOOTSTRAP, CONSTANT_SIGMA, PHYSICAL_CANDIDATES,
-    SAFETY_STEP_VARS, TIME_STEP, V23_SUBDIRS,
+    SAFETY_STEP_VARS, TIME_STEP,
 )
 from causalrca.config.accident_config import (
     READY_CODES, PARTIAL_CODES, MISSING_CODES, get_accident,
@@ -42,9 +42,13 @@ from causalrca.evidence.knowledge import build_ontology, ENTITY_TABLE, validate_
 from causalrca.causal.signatures import bootstrap_lingam_template, fit_single_template
 from causalrca.io.logging import logger
 
-# V23-CODE-021：必须读 A 阶段写入的 v2.3 变量集（V23_SUBDIRS["variable_sets"]），
+# V23-CODE-021：必须读 A 阶段写入的 v2.3 变量集（本 run 的 variable_sets/），
 # 不能读 rca_v21/variable_selection（11-03 旧集，LOCA 仍含 HUP）。
-VS_SUMMARY = V23_SUBDIRS["variable_sets"] / "variable_selection_summary.json"
+def _vs_summary_path():
+    """A 阶段变量集汇总（随 run 根变化，故不设模块级常量）。"""
+    return artifact.subdir_path("variable_sets") / "variable_selection_summary.json"
+
+
 CONSENSUS_SOURCE_NONE = "none: v2.3 单引擎，GAM 共识未接入"
 CONSENSUS_NOTE = "单引擎稳定边，不等同共识边"
 
@@ -54,9 +58,9 @@ def _load_frozen_input(name: str) -> Dict:
     """读 v2.3 registry 里的冻结输入；缺文件才回退 v2.1 根（只读，不许回写）。
 
     S1 契约：split_manifest / shared_baseline / marker_scale 由 A 阶段写入
-    V23_SUBDIRS["registry"]，C 阶段只认 v2.3 根；v2.1 仅作旧产物兼容回退。
+    本 run 的 registry/，C 阶段只认 v2.3 根；v2.1 仅作旧产物兼容回退。
     """
-    path = artifact.V23_SUBDIRS["registry"] / f"{name}.json"
+    path = artifact.subdir_path("registry") / f"{name}.json"
     if path.exists():
         with open(path, encoding="utf-8") as f:
             return json.load(f)
@@ -66,9 +70,10 @@ def _load_frozen_input(name: str) -> Dict:
 
 def load_inputs() -> Dict:
     """C 阶段输入（A/B 阶段已冻结的划分、共享基线、marker 尺度、变量集）。"""
-    if not VS_SUMMARY.exists():
-        raise FileNotFoundError(f"缺变量选取结果: {VS_SUMMARY}（先跑 A 阶段）")
-    with open(VS_SUMMARY, encoding="utf-8") as f:
+    vs_summary = _vs_summary_path()
+    if not vs_summary.exists():
+        raise FileNotFoundError(f"缺变量选取结果: {vs_summary}（先跑 A 阶段）")
+    with open(vs_summary, encoding="utf-8") as f:
         vs = json.load(f)
     return {
         "manifest": _load_frozen_input("split_manifest"),
@@ -76,7 +81,7 @@ def load_inputs() -> Dict:
         "scale": _load_frozen_input("marker_scale"),
         "selected_vars": vs["selected_vars"],
         "vs_report": {
-            k: artifact.repo_relative(V23_SUBDIRS["variable_sets"]
+            k: artifact.repo_relative(artifact.subdir_path("variable_sets")
                                       / f"selection_report_{k}.json")
             for k in vs["selected_vars"]
         },
@@ -268,7 +273,7 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
 
     artifact.write_artifact(
         sig_name, sig, "signatures", run_id=run_id, accident_type=k, group=g,
-        source=inputs["vs_report"].get(k, "rca_v23/variable_sets/"))
+        source=inputs["vs_report"].get(k, "variable_sets/"))
 
     common = {
         "template": {"k": k, "g": g, "marker": r["marker"],
@@ -450,8 +455,9 @@ def main(argv: Optional[Sequence[str]] = None) -> str:
     if unknown:
         ap.error(f"未登记的事故类别: {unknown}")
 
-    inputs = load_inputs()
+    # 先定 run 根再读输入：A 阶段产物按 run_id 落盘，读与写必须同一个根
     run_id = artifact.new_run_id("v23c")
+    inputs = load_inputs()
     logger.info(f"[v23c] run_id={run_id} n_bootstrap={args.n_bootstrap} "
                 f"classes={classes} groups={groups} "
                 f"single_engine={not args.with_gam_consensus}")
@@ -481,7 +487,7 @@ def main(argv: Optional[Sequence[str]] = None) -> str:
     artifact.write_artifact(
         "knowledge_validation",
         validate_knowledge_layer({k: inputs["selected_vars"][k] for k in ready}),
-        "knowledge", run_id=run_id, source="rca/v21/knowledge.py")
+        "knowledge", run_id=run_id, source="causalrca/evidence/knowledge.py")
 
     skipped: List[Dict] = [skipped_entry(c) for c in missing]
     if not args.no_partial_smoke:
@@ -516,7 +522,7 @@ def main(argv: Optional[Sequence[str]] = None) -> str:
          "n_missing": len(MISSING_CODES),
          "note": "partial 只做单模板 smoke（不生成签名/榜单）；data_missing 直接跳过，"
                  "禁止占位结果"},
-        "tracing", run_id=run_id, source="rca/v21/accident_config.py")
+        "tracing", run_id=run_id, source="causalrca/config/accident_config.py")
 
     # ---- C7 复现性（同参数重算首个模板）----
     repro = None

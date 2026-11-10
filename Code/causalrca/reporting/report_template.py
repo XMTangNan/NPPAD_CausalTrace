@@ -77,7 +77,7 @@ def _fmt_edge(e) -> str:
 
 def _load_llm_explanation(k: str, g: str) -> Optional[Dict]:
     """读同 run_id 的 D6 解释产物（缺失不算错误，报告照出）。"""
-    path = Path(artifact.V23_SUBDIRS["reports"]) / f"llm_explanation_{k}_{g}.json"
+    path = artifact.subdir_path("reports") / f"llm_explanation_{k}_{g}.json"
     if not path.exists():
         return None
     try:
@@ -335,7 +335,7 @@ def report_to_text(report: Dict) -> str:
 
 
 def write_report(report: Dict) -> Dict[str, str]:
-    """落盘 output/rca_v23/reports/rca_report_{K}_{g}.json 与 .txt（txt 带 .meta.json）。"""
+    """落盘 <run 根>/reports/rca_report_{K}_{g}.json 与 .txt（txt 带 .meta.json）。"""
     k, g = report["accident_type"], report["group"]
     name = f"rca_report_{k}_{g}"
     run_id = report["run_id"]
