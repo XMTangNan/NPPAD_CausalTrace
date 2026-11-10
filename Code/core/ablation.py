@@ -16,7 +16,8 @@ import pandas as pd
 from typing import Dict, List
 
 from config import RANDOM_SEED
-from core.utils import logger, save_json
+from causalrca.io.logging import logger
+from causalrca.io.files import save_json
 from core.data_utils import build_matrix, standardize
 from core.bootstrap import run_bootstrap, select_stable_edges
 from core.total_effect import compute_total_effects

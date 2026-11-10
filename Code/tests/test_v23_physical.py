@@ -15,14 +15,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from rca.rca_config_v21 import SAFETY_STEP_VARS
-from rca.v21 import artifact
-from rca.v21 import data as D
-from rca.v21 import deviation as DEV
-from rca.v21 import external_knowledge as EK
-from rca.v21 import physics_constraints as PC
-from rca.v21 import run_v23_tolerances as RT
-from rca.v21 import tolerance as T
+from causalrca.config.constants_v21 import SAFETY_STEP_VARS
+from causalrca.io import artifact
+from causalrca.data import loader as D
+from causalrca.evidence import deviation as DEV
+from causalrca.evidence import external_knowledge as EK
+from causalrca.evidence import physics_constraints as PC
+from causalrca.cli import run_v23_tolerances as RT
+from causalrca.evidence import tolerance as T
 
 
 def _patch_output(monkeypatch, root):

@@ -10,11 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from rca.v21 import artifact
-from rca.v21 import llm_explanation as LE
-from rca.v21 import report_template as RT
-from rca.v21 import run_v23_all as RA
-from rca.v21 import run_v23_report as RR
+from causalrca.io import artifact
+from causalrca.reporting import llm_explanation as LE
+from causalrca.reporting import report_template as RT
+from causalrca.cli import run_v23_all as RA
+from causalrca.cli import run_v23_report as RR
 
 REAL_V23 = Path(artifact.V23_OUTPUT)
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -182,9 +182,9 @@ def test_run_v23_all_dry_run_prints_six_steps_without_writing(monkeypatch, tmp_p
 
 def test_run_v23_all_records_failure_and_returns_nonzero(monkeypatch, tmp_path, capsys):
     # 模拟 D2 执行器未就绪（即使真实模块已被别的用例导入，也强制走失败路径）
-    import rca.v21 as v21_pkg
-    monkeypatch.delattr(v21_pkg, "run_v23_tolerances", raising=False)
-    monkeypatch.setitem(sys.modules, "rca.v21.run_v23_tolerances", None)
+    import causalrca.cli as _cli_pkg
+    monkeypatch.delattr(_cli_pkg, "run_v23_tolerances", raising=False)
+    monkeypatch.setitem(sys.modules, "causalrca.cli.run_v23_tolerances", None)
     # 前置 A1/B 两步用桩替代，避免用例真的去跑变量选取与数据审计
     monkeypatch.setattr(RA, "step_variable_sets", lambda run_id: "ok")
     monkeypatch.setattr(RA, "step_audit", lambda run_id, classes: "ok")

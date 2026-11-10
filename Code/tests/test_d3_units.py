@@ -11,7 +11,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rca.rca_config_v21 import ACCIDENT_TYPES, GROUP_ORDER, PILOT_MARKER_COLS
+from causalrca.config.constants_v21 import ACCIDENT_TYPES, GROUP_ORDER, PILOT_MARKER_COLS
 from rca.v21.pipeline import (
     fit_minmax, apply_minmax, fuse_scores, e1_vector, wilson_ci,
     score_trajectory,

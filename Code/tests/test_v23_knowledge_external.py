@@ -8,11 +8,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rca.v21 import knowledge as K
-from rca.v21 import external_knowledge as EK
+from causalrca.evidence import knowledge as K
+from causalrca.evidence import external_knowledge as EK
 
 try:  # 另一 agent 负责的 12 类注册表；缺失时回退到方案 §4.3 的固定清单
-    from rca.v21.accident_config import ALL_CODES
+    from causalrca.config.accident_config import ALL_CODES
 except Exception:  # pragma: no cover
     ALL_CODES = ["LOCA", "LOCAC", "SLBIC", "SLBOC", "SGATR", "SGBTR",
                  "RW", "RI", "FLB", "MD", "LR", "LLB"]

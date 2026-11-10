@@ -9,7 +9,7 @@ import numpy as np
 from typing import Dict, List, Tuple
 
 from config import BOOTSTRAP_N, F_E_THRESHOLD, S_E_THRESHOLD, RANDOM_SEED
-from core.utils import logger
+from causalrca.io.logging import logger
 from core.data_utils import build_matrix, standardize
 from core.lingam_baseline import fit_lingam
 

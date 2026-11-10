@@ -19,7 +19,7 @@ from config import (
 )
 from accidents.loca.config import LOCA_DIR, PRIOR_VARIABLES, LOCA1_STEADY_START, LOCA1_STEADY_END
 from core.data_utils import slice_window, find_constant_columns
-from core.utils import logger, log_error
+from causalrca.io.logging import logger, log_error
 
 
 def load_loca_trajectory(severity: int) -> pd.DataFrame:

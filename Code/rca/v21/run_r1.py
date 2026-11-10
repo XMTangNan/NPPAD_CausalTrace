@@ -10,21 +10,21 @@ import argparse
 import time
 import numpy as np
 
-from rca.rca_config_v21 import (
+from causalrca.config.constants_v21 import (
     ACCIDENT_TYPES, GROUP_ORDER, MARKERS, LINGAM_N_BOOTSTRAP, GLOBAL_SEED,
     MAIN_WINDOW_START, MAIN_WINDOW_END, LEARN_WINDOW_START, LEARN_WINDOW_END,
     LEARN_WINDOW_POINTS, MAIN_WINDOW_POINTS, ANOMALY_K, ACTIVATION_FRAC,
     GAM_MARKER_N_BOOTSTRAP,
 )
-from rca.v21 import data as D
-from rca.v21.knowledge import build_ontology
-from rca.v21.signatures import (
+from causalrca.data import loader as D
+from causalrca.evidence.knowledge import build_ontology
+from causalrca.causal.signatures import (
     bootstrap_lingam_template, save_signature, load_signature,
     annotate_severity_flip,
 )
 from rca.v21.marker_effects import trajectory_steady_pairs, marker_ca_column
 from rca.v21.inversion import signed_median_z, overlimit_rates, activation_set, build_group_pattern
-from core.utils import logger
+from causalrca.io.logging import logger
 
 
 def _load_template_inputs(manifest, vsets, k, g):

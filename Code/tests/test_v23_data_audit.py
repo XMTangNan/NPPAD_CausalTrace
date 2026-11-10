@@ -12,11 +12,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rca.rca_config_v21 import V23_SUBDIRS
-from rca.v21.data import (
+from causalrca.config.constants_v21 import V23_SUBDIRS
+from causalrca.data.loader import (
     ClassDataMissing, ensure_class_available, list_class_severities,
 )
-from rca.v21.data_audit import (
+from causalrca.data.audit import (
     audit_class_data, cusum_changepoints, pelt_dp_changepoints,
     run_audit, sigma_floor_for, variable_z_profile,
 )
@@ -94,7 +94,7 @@ def test_data_missing_class_raises():
 # ==================== 端到端：三份产物落盘 ====================
 def test_run_audit_loca_writes_three_reports(tmp_path, monkeypatch):
     # 单测不得污染正式产物目录：把 audit 子目录重定向到 tmp_path
-    import rca.v21.data_audit as DA
+    import causalrca.data.audit as DA
     subdirs = dict(V23_SUBDIRS)
     subdirs["audit"] = tmp_path
     monkeypatch.setattr(DA, "V23_SUBDIRS", subdirs)

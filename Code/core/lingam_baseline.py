@@ -5,7 +5,7 @@ Phase 1：LiNGAM 基线 + 矩阵索引方向核对。
 import numpy as np
 from typing import Dict, List
 
-from core.utils import logger, log_error
+from causalrca.io.logging import logger, log_error
 
 
 def verify_matrix_index() -> Dict:

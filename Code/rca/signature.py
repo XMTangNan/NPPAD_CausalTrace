@@ -1,6 +1,7 @@
 """因果签名构建：七组件 (M, A, G^L, G^A, E^cons, C^L, C^A)。"""
 import numpy as np
-from core.utils import logger, save_json
+from causalrca.io.logging import logger
+from causalrca.io.files import save_json
 from core.data_utils import build_matrix, fit_standardizer, standardize
 from core.lingam_baseline import fit_lingam, adjacency_to_edges
 from core.total_effect import compute_total_effects

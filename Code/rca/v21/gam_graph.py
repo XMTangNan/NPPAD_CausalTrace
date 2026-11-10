@@ -22,8 +22,8 @@ from typing import Dict, Generator, List, Optional, Sequence, Tuple
 import numpy as np
 
 from core.nonlinear_baseline import anm_pair_direction
-from rca.rca_config_v21 import GAM_CONSENSUS_MIN
-from core.utils import logger
+from causalrca.config.constants_v21 import GAM_CONSENSUS_MIN
+from causalrca.io.logging import logger
 
 # 常量列判定（标准化后常量列严格为 0；与 anm 内部 _mi 的 1e-12 口径一致）
 CONST_STD_EPS = 1e-12

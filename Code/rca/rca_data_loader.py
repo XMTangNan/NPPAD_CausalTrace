@@ -6,7 +6,7 @@
 import numpy as np, pandas as pd
 from pathlib import Path
 from config import WINDOW_START, WINDOW_END, TIME_STEP, WINDOW_POINTS, RANDOM_SEED, TRAIN_RATIO
-from core.utils import logger, log_error
+from causalrca.io.logging import logger, log_error
 from core.data_utils import slice_window, find_constant_columns, build_matrix, fit_standardizer, standardize, split_trajectories
 from rca.rca_config import (ACCIDENT_TYPES, ACCIDENT_DIRS, VARIABLE_UNION_22,
                             CLASS_VARIABLES, CLASS_TARGETS, CLASS_MARKERS,

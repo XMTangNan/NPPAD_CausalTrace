@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rca.rca_config_v21 import MARKERS, GROUP_ORDER
+from causalrca.config.constants_v21 import MARKERS, GROUP_ORDER
 from rca.v21 import chains as C
 from rca.v21.pipeline import fit_minmax
 

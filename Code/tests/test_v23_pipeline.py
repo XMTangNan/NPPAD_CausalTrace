@@ -13,10 +13,10 @@ import json
 
 import pytest
 
-from rca.v21 import artifact
-from rca.v21 import run_v23_end2end as E2E
-from rca.v21 import run_v23_graphs as GR
-from rca.v21 import severity_aggregation as SA
+from causalrca.io import artifact
+from causalrca.cli import run_v23_end2end as E2E
+from causalrca.reporting import run_v23_graphs as GR
+from causalrca.causal import severity_aggregation as SA
 
 
 def _patch_output(monkeypatch, root):
@@ -167,7 +167,7 @@ def test_two_runs_are_reproducible(tmp_path, monkeypatch):
 
 def test_stability_gate_thresholds():
     """V23-ALGO-001：越界才降级，B_CLIP 不改。"""
-    from rca.v21 import source_tracing as ST
+    from causalrca.causal import source_tracing as ST
 
     ok = ST.stability_gate({"cond_IminusB_after_clip": 3643.0,
                             "n_clipped_edges": 26}, 91)
@@ -187,7 +187,7 @@ def test_stability_gate_thresholds():
 def test_variable_order_permutation_invariance():
     """V23-CODE-023：置换输入变量顺序后稳定边集合与前沿不变。"""
     import numpy as np
-    from rca.v21.signatures import bootstrap_lingam_template
+    from causalrca.causal.signatures import bootstrap_lingam_template
 
     rng = np.random.default_rng(7)
     n = 600
@@ -224,7 +224,7 @@ def test_bootstrap_fits_on_canonical_order(monkeypatch):
     """V23-CODE-023：无论调用方传入何种列序，实际喂给 LiNGAM 的矩阵列序一致。"""
     import numpy as np
     import lingam
-    from rca.v21.signatures import bootstrap_lingam_template
+    from causalrca.causal.signatures import bootstrap_lingam_template
 
     seen = []
     Real = lingam.DirectLiNGAM
@@ -259,7 +259,7 @@ def test_bootstrap_fits_on_canonical_order(monkeypatch):
 # ==================== S1：单产物根（v2.3 registry 优先，v2.1 只读回退）====================
 def test_stage_a_snapshots_three_frozen_inputs(tmp_path, monkeypatch):
     """A 阶段把 split_manifest / shared_baseline / marker_scale 写进 v2.3 registry。"""
-    from rca.v21 import run_variable_selector as VS
+    from causalrca.cli import run_variable_selector as VS
 
     subs = _patch_output(monkeypatch, tmp_path / "s1a")
     VS.snapshot_frozen_inputs("v23a-testrun")

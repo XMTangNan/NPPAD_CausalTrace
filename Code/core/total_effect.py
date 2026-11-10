@@ -9,7 +9,7 @@ Phase 3 / Algorithm 2：总因果效应与上游排序。
 import numpy as np
 from typing import Dict, List
 
-from core.utils import logger
+from causalrca.io.logging import logger
 
 
 def compute_total_effects(B_list: List[np.ndarray], variables: List[str],

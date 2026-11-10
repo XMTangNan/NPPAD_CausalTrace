@@ -12,7 +12,7 @@ from config import (
     WINDOW_START, WINDOW_END, TIME_STEP, WINDOW_POINTS,
     TRAIN_RATIO, RANDOM_SEED,
 )
-from core.utils import logger, log_error
+from causalrca.io.logging import logger, log_error
 
 
 def slice_window(df: pd.DataFrame,

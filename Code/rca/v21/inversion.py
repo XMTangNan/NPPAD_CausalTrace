@@ -10,7 +10,7 @@ import math
 import numpy as np
 from typing import Dict, List, Optional, Sequence
 
-from rca.rca_config_v21 import (
+from causalrca.config.constants_v21 import (
     ANOMALY_K, ACTIVATION_FRAC, E3_FRONTIER_INVERSION_PENALTY,
 )
 

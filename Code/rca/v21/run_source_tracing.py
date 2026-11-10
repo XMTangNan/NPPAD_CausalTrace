@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Dict, List
 
 from causalrca.config.paths import CODE_ROOT
-from rca.v21.graph_visualization import render_graph_html
-from rca.v21.source_tracing import (
+from causalrca.reporting.graph_visualization import render_graph_html
+from causalrca.causal.source_tracing import (
     compute_topology,
     enrich_entity,
     generate_conduction_paths,

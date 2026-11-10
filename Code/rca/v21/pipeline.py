@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from rca.rca_config_v21 import (
+from causalrca.config.constants_v21 import (
     ACCIDENT_TYPES, GROUP_ORDER, MARKERS, MARKER_COLS, PILOT_MARKER_COLS,
     W_FULL, W_MASKED, ANOMALY_K, ACTIVATION_FRAC,
 )

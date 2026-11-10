@@ -1,6 +1,6 @@
 """签名匹配器：E1/E2/E3 证据计算、融合、弃权机制。"""
 import numpy as np
-from core.utils import logger
+from causalrca.io.logging import logger
 from rca.rca_config import CLASS_MARKERS
 
 

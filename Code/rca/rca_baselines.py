@@ -4,7 +4,7 @@
 - B2: 随机猜测 + 弃权率上界
 """
 import numpy as np
-from core.utils import logger
+from causalrca.io.logging import logger
 from rca.signature_matcher import cosine_similarity, spearman_rank_correlation
 from rca.rca_config import ACCIDENT_TYPES
 

@@ -22,15 +22,15 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from rca.rca_config_v21 import (
+from causalrca.config.constants_v21 import (
     ACCIDENT_TYPES, GROUP_ORDER, MARKERS, MARKER_COLS,
     MAIN_WINDOW_START, MAIN_WINDOW_END, ANOMALY_K, XGB_PARAMS, GLOBAL_SEED,
 )
-from rca.v21 import data as D
+from causalrca.data import loader as D
 from rca.v21.inversion import (
     pearson_corr, signed_median_z, assert_no_marker_columns,
 )
-from core.utils import logger
+from causalrca.io.logging import logger
 
 # ==================== 后端：优先 xgboost，失败兜底 sklearn GBDT ====================
 try:
@@ -106,7 +106,7 @@ def signed_median_vthr(block: np.ndarray, cols: Sequence[str],
 
 def load_b1_templates(v_thr: Sequence[str]) -> Dict[Tuple[str, str], np.ndarray]:
     """读 9 个签名 group_pattern.template_d（V_thr 序组中位 z），延迟导入避免循环依赖。"""
-    from rca.v21.signatures import load_signature
+    from causalrca.causal.signatures import load_signature
     templates: Dict[Tuple[str, str], np.ndarray] = {}
     for k in ACCIDENT_TYPES:
         for g in GROUP_ORDER:

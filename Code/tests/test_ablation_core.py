@@ -11,7 +11,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rca.rca_config_v21 import (
+from causalrca.config.constants_v21 import (
     ACCIDENT_TYPES, GROUP_ORDER, PILOT_MARKER_COLS, MARKERS, W_FULL,
 )
 from rca.v21.pipeline import score_trajectory, compute_metrics, apply_minmax

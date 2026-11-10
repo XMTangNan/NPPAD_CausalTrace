@@ -22,7 +22,8 @@ from config import (
     ANOMALY_SIGMA, ANOMALY_ALPHA, ALPHA_GRID, STATIONARY_CV_THRESHOLD,
 )
 from accidents.loca.config import FAULT_SYSTEM_VARS
-from core.utils import logger, save_json
+from causalrca.io.logging import logger
+from causalrca.io.files import save_json
 
 
 def build_thresholds_from_loca1_steady(steady_df, variables: List[str]) -> Tuple[Dict, bool]:

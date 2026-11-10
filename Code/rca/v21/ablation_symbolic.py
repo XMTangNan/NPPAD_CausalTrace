@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from rca.rca_config_v21 import (
+from causalrca.config.constants_v21 import (
     ACCIDENT_TYPES, GROUP_ORDER, MARKERS, MARKER_COLS, W_MASKED,
     ANOMALY_K, ACTIVATION_FRAC, LINGAM_N_BOOTSTRAP, GLOBAL_SEED,
     GAM_MARKER_N_BOOTSTRAP,
@@ -26,9 +26,9 @@ from rca.rca_config_v21 import (
     V21_OUTPUT, PHYSICAL_CANDIDATES, BASELINE_SEVERITIES,
     BASELINE_WINDOW_START, BASELINE_WINDOW_END, SAFETY_STEP_VARS,
 )
-from rca.v21 import data as D
-from rca.v21.knowledge import build_ontology, apply_ontology_constraint
-from rca.v21.signatures import (
+from causalrca.data import loader as D
+from causalrca.evidence.knowledge import build_ontology, apply_ontology_constraint
+from causalrca.causal.signatures import (
     bootstrap_lingam_template, load_signature, save_signature,
     compute_graph_only_scale, transform_graph_block, select_stable_edges,
 )
@@ -41,7 +41,7 @@ from rca.v21.pipeline import (
     observe_main_window, score_template_raw, _nanmax_or_zero,
     apply_minmax, fuse_scores, e1_vector, marker_main_medians,
 )
-from core.utils import logger
+from causalrca.io.logging import logger
 
 NO_ONTOLOGY_SIGNATURE_DIR = V21_OUTPUT / "signatures_no_ontology"
 STRICT_SIGNATURE_DIR = V21_OUTPUT / "signatures_strict"

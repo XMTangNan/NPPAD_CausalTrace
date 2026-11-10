@@ -8,8 +8,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rca.v21.signatures import bfs_frontier, total_effect
-from rca.v21.knowledge import apply_ontology_constraint
+from causalrca.causal.signatures import bfs_frontier, total_effect
+from causalrca.evidence.knowledge import apply_ontology_constraint
 from rca.v21.inversion import (
     e3_base_channel, e3_path_channel, activation_set, should_abstain,
     assert_no_marker_columns, MarkerAccessError, overlimit_rates,

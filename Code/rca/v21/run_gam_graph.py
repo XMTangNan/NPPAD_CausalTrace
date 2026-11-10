@@ -33,17 +33,17 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from rca.rca_config_v21 import (
+from causalrca.config.constants_v21 import (
     ACCIDENT_TYPES, GROUP_ORDER, MARKERS, GAM_FULL_N_BOOTSTRAP, GLOBAL_SEED,
     LEARN_WINDOW_START, LEARN_WINDOW_END,
 )
-from rca.v21 import data as D
+from causalrca.data import loader as D
 from rca.v21.run_r1 import _load_template_inputs
-from rca.v21.signatures import (
+from causalrca.causal.signatures import (
     load_signature, compute_graph_only_scale, transform_graph_block,
 )
 from rca.v21.gam_graph import bootstrap_pair_counts, consensus_classify
-from core.utils import logger
+from causalrca.io.logging import logger
 
 PLAN_PAIR_SECONDS = 0.49     # 方案 13.5.4 估计：0.49s/对
 PLAN_ITER_SECONDS = 93.0     # 方案估计：约 93s/迭代（190 对）

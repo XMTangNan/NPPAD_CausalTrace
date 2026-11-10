@@ -1,7 +1,7 @@
 """v2.1 冻结配置（兼容 shim）。
 
 实现已迁至 `causalrca.config.constants_v21`（唯一实现）；本模块只做**显式 re-export**，
-保持 `from rca.rca_config_v21 import ...` 等旧导入路径可用。
+保持 `from causalrca.config.constants_v21 import ...` 等旧导入路径可用。
 
 刻意不用 `globals().update(vars(_impl))`：动态注入会让 AST 分析、IDE 跳转、
 类型检查全部失效。
@@ -91,7 +91,7 @@ from causalrca.config.constants_v21 import (
     D0_CI_HIGH,
     XGB_PARAMS,
     GLOBAL_SEED,
-    # 旧模块因 `from rca.v21.accident_config import ...` 而存在于本命名空间的名称
+    # 旧模块因 `from causalrca.config.accident_config import ...` 而存在于本命名空间的名称
     ALL_CODES,
     READY_CODES,
     PARTIAL_CODES,

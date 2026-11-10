@@ -9,7 +9,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rca.rca_config_v21 import (
+from causalrca.config.constants_v21 import (
     CF_FAIL_AGREEMENT, CF_DYNAMIC_RANGE_MIN, GCF_PASS, GCF_FAIL,
 )
 from rca.v21.cf_validation import counterfactual_validation

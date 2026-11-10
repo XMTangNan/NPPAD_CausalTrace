@@ -9,7 +9,7 @@ Phase 1.5：本体约束因果发现。
 import numpy as np
 from typing import Dict, List, Tuple
 
-from core.utils import logger
+from causalrca.io.logging import logger
 
 
 def apply_ontology_constraint(B: np.ndarray, variables: List[str],

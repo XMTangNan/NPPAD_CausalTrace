@@ -18,10 +18,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
 
-from rca.v21 import accident_config as AC
-from rca.v21.knowledge import ENTITY_TABLE
+from causalrca.config import accident_config as AC
+from causalrca.evidence.knowledge import ENTITY_TABLE
 from rca import rca_config_v21 as CFG
-from rca.v21 import variable_selector as VS
+from causalrca.features import variable_selector as VS
 
 EXPECTED_ORDER = [
     "LOCA", "LOCAC", "SLBIC", "SLBOC", "SGATR", "SGBTR",

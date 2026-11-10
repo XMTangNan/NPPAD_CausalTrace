@@ -5,7 +5,7 @@ V0–V7 是**变量选取阶段的质量门控编号**，与版本号 v2.1 / v2.
 """
 import pytest
 
-from rca.v21 import variable_selector as VS
+from causalrca.features import variable_selector as VS
 
 
 # ==================== V5：有效集语义 ====================

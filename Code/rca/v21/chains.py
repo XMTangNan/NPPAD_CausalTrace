@@ -27,16 +27,16 @@ from collections import Counter
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from causalrca.config.constants_v23 import RRF_K
-from rca.rca_config_v21 import (
+from causalrca.config.constants_v21 import (
     ACCIDENT_TYPES, GROUP_ORDER, W_FULL, W_MASKED,
     STABLE_F, STABLE_DIR, FRONTIER_MAX_DEPTH,
 )
-from rca.v21.knowledge import ENTITY_TABLE, COMPETITIVE_PAIRS
-from rca.v21.accident_config import ALL_CODES, get_accident
-from rca.v21.signatures import bfs_frontier
+from causalrca.evidence.knowledge import ENTITY_TABLE, COMPETITIVE_PAIRS
+from causalrca.config.accident_config import ALL_CODES, get_accident
+from causalrca.causal.signatures import bfs_frontier
 from rca.v21.marker_effects import effective_marker_map
 from rca.v21.pipeline import apply_minmax
-from core.utils import logger
+from causalrca.io.logging import logger
 
 # 13.10 冻结值 60：RRF 倒数排名融合常数 k_RRF（方案 §5 R5 / §13.10）；
 # 取值统一在 causalrca.config.constants_v23.RRF_K，本模块只做显式取用。

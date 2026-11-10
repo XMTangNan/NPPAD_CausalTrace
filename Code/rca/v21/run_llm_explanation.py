@@ -18,9 +18,9 @@ import json
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from rca.rca_config_v21 import V21_OUTPUT
-from rca.v21 import llm_explanation as LE
-from core.utils import logger
+from causalrca.config.constants_v21 import V21_OUTPUT
+from causalrca.reporting import llm_explanation as LE
+from causalrca.io.logging import logger
 
 CHAIN_DIR = V21_OUTPUT / "chains"
 LLM_DIR = V21_OUTPUT / "chains_llm"

@@ -13,10 +13,10 @@ from __future__ import annotations
 import numpy as np
 from typing import Dict, List, Sequence, Tuple
 
-from rca.rca_config_v21 import (
+from causalrca.config.constants_v21 import (
     GAM_MARKER_N_BOOTSTRAP, GAM_N_SPLINES, GAM_LAM, MARKER_X_SPREAD_MIN,
 )
-from core.utils import logger
+from causalrca.io.logging import logger
 
 
 def trajectory_steady_pairs(blocks_main: List[np.ndarray], gvars: Sequence[str],

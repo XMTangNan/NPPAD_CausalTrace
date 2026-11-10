@@ -8,7 +8,7 @@ import os
 from typing import Dict, List
 
 from accidents.loca.config import FROZEN_RELATIONS, FORBIDDEN_EDGES
-from core.utils import logger
+from causalrca.io.logging import logger
 
 # 子系统分类
 SUBSYSTEM_MAP = {

@@ -22,7 +22,7 @@ from config import (
     LLM_API_KEY_ENV, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT,
     LLM_TEMPERATURE, LLM_TOP_K_INPUT,
 )
-from core.utils import logger, save_text, save_json
+from causalrca.io.logging import logger, save_text, save_json
 
 
 # ==================== 常量 ====================

@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from rca.v21 import llm_explanation as LE
+from causalrca.reporting import llm_explanation as LE
 
 
 def _fake_rec():

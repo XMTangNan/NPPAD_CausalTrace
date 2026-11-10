@@ -13,7 +13,7 @@ import numpy as np
 from typing import Dict, List, Tuple
 
 from config import RANDOM_SEED
-from core.utils import logger, log_error
+from causalrca.io.logging import logger, log_error
 from core.data_utils import build_matrix, standardize
 from core.lingam_baseline import adjacency_to_edges
 

@@ -24,12 +24,12 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
-from rca.rca_config_v21 import (
+from causalrca.config.constants_v21 import (
     CF_N_FOLDS, CF_MIN_GROUP_SIZE, CF_DYNAMIC_RANGE_MIN,
     CF_INCONCLUSIVE_DELTA, CF_FAIL_AGREEMENT, GCF_PASS, GCF_FAIL,
     GAM_N_SPLINES, GAM_LAM, GLOBAL_SEED,
 )
-from core.utils import logger
+from causalrca.io.logging import logger
 
 STATUS_OK = "cf_ok"
 STATUS_NA = "cf_not_applicable"

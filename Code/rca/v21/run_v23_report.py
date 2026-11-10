@@ -1,52 +1,6 @@
-"""V2.3 D7 执行器：一次生成 9 份结构化 RCA 报告（3 类 × 3 组）的 json + txt。
+"""兼容 shim（过渡期）：实现已迁至 `causalrca.cli.run_v23_report`。
 
-只读 output/rca_v23 既有产物（tracing/signatures/reports），不重算因果；
-run_id 默认从 root_candidates 推导，传入 --run-id 时强制同源校验。
-
-用法（cd Code）：
-  PYTHONPATH=. ../.venv/bin/python -m rca.v21.run_v23_report
-  PYTHONPATH=. ../.venv/bin/python -m rca.v21.run_v23_report --classes LOCA --groups mid
+只做显式 re-export（`import *` 依据目标模块的公开名/__all__），禁止 globals().update。
+批 C 会删除本 shim，请改用新路径。
 """
-from __future__ import annotations
-
-import argparse
-from typing import List, Optional
-
-from core.utils import logger
-from rca.v21 import artifact
-from rca.v21 import report_template as RT
-from rca.v21.accident_config import READY_CODES, REGISTRY
-
-
-def main(argv: Optional[List[str]] = None) -> str:
-    ap = argparse.ArgumentParser(description="v2.3 D7 结构化 RCA 报告生成器（9 份）")
-    ap.add_argument("--classes", nargs="+", default=None,
-                    help=f"事故类型，默认 READY_CODES={READY_CODES}")
-    ap.add_argument("--groups", nargs="+", default=None,
-                    help=f"严重度组，默认 {RT.GROUPS}")
-    ap.add_argument("--run-id", default=None, help="只接受该 run_id 的输入，防止混源")
-    ap.add_argument("--no-manifest", action="store_true", help="不刷新 manifest.json")
-    args = ap.parse_args(argv)
-
-    classes = list(args.classes or READY_CODES)
-    unknown = [k for k in classes if k not in REGISTRY]
-    if unknown:
-        raise SystemExit(f"未知 accident_type：{unknown}")
-    groups = list(args.groups or RT.GROUPS)
-
-    done = RT.run_all_reports(classes=classes, groups=groups, run_id=args.run_id)
-    run_id = args.run_id or done[0]["run_id"]
-    mismatched = [d["template"] for d in done if d["run_id"] != run_id]
-    if mismatched:
-        raise SystemExit(f"报告 run_id 不同源：{mismatched} != {run_id}")
-
-    print(f"[D7] run_id={run_id} 生成 {len(done)}/{len(classes) * len(groups)} 份报告")
-    for d in done:
-        print(f"  - {d['template']}: {d['paths']['json']}")
-    if not args.no_manifest:
-        artifact.build_manifest(run_id)
-    return run_id
-
-
-if __name__ == "__main__":
-    main()
+from causalrca.cli.run_v23_report import *  # noqa: F401,F403

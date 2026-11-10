@@ -1,7 +1,7 @@
 """v2.3 产物统一写入口（兼容 shim）。
 
 实现已迁至 `causalrca.io.artifact`（唯一实现）；本模块只做**显式白名单 re-export**，
-保持 `from rca.v21 import artifact` / `from rca.v21.artifact import write_artifact` 可用。
+保持 `from causalrca.io import artifact` / `from causalrca.io.artifact import write_artifact` 可用。
 
 为什么用模块级 `__getattr__` 而不是 `from ... import *` 或 `globals().update(...)`：
 1. 禁止动态注入 —— 它让 AST 分析、IDE 跳转、类型检查全部失效；
