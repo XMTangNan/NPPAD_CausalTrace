@@ -48,6 +48,17 @@ output/
 | `archive/` | 永久只读保留（可复现性证据） | 不删；如确需腾空间，先归档 sha256 清单 |
 | `latest` | 每次 `build_manifest` 成功后自动刷新 | 不要手工编辑（除排障） |
 
+## 产物不可变约定（2026-11-11 起，长期有效）
+
+`output/runs/` 下**已落盘的历史产物一律不回写**：
+
+- 不重算、不覆盖任何文件，**不改 `manifest.json` 的 `path`/`size`/`sha256`**（改 sha256 等于破坏可复现性证据）。
+- 口径变更只做两件事：改**生成代码**（下一 run 生效）+ 在 `error_tracking.md` 记一条台账；历史产物保留旧字段。
+- 旧 run 里与新口径冲突的字段，以台账条目声明"视为已被代码覆盖"（例：`V23-DESIGN-055` 的
+  `task` 字段与 `metrics_template_retrieval.json`），**不为了让历史产物符合新口径而回填**。
+- 需要新口径的数字时，**开新 run**，在新 run 的 `manifest.json` 里体现；旧 run 的 `manifest.json`
+  只描述"当时产出了什么"，不描述"当前口径要求什么"。
+
 ## 如何判断"哪份是权威结果"
 
 1. 读 `output/latest` 得到 run_id；

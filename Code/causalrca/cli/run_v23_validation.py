@@ -1,9 +1,11 @@
-"""V2.3 综合验证报告：对 9 模板运行 v2.2 门控（V2/V3/V4）并与 v2.1 对照。
+"""V2.3 综合验证报告：对 9 模板运行 v2.2 门控（V2/V3）并与 v2.1 对照。
 
 验证门：
   V2 非幅值排序：|cL| 排名 ≠ 根因排名（排除幅值排序嫌疑）
   V3 顶层优先：Top-1 根因 in_degree 最小
-  V4 marker 遮蔽：根因候选不含 marker
+
+取消遮蔽（2026-11-11）：注入变量作为普通候选参与排名，原 V4
+（“根因候选不含 marker”）随遮蔽特例一并删除，不做反向断言。
 
 复用：
 - rca.v21.source_tracing.compute_topology / select_root_candidates
@@ -26,7 +28,7 @@ V21_TRACING_DIR = V21_OUTPUT / "tracing"
 
 
 def validate_template(k: str, g: str) -> Dict:
-    """对单个模板运行 V2/V3/V4 验证。"""
+    """对单个模板运行 V2/V3 验证。"""
     marker = MARKERS[k]
     sig = json.load(open(SIG_DIR / f"signature_{k}_{g}.json"))
     roots_json = json.load(open(TRACING_DIR / f"root_candidates_{k}_{g}.json"))
@@ -41,9 +43,6 @@ def validate_template(k: str, g: str) -> Dict:
     top1_in = root_cands[0]["in_degree"]
     others_in = [c["in_degree"] for c in root_cands[1:5]]
     v3_pass = top1_in <= min(others_in) if others_in else True
-
-    # V4: marker 不在根因候选中
-    v4_pass = all(c["variable"] != marker for c in root_cands)
 
     # V2: |cL| 排名 ≠ 根因排名
     cl_vals = {v: abs(cL.get(v, {}).get("cL", 0.0)) for v in root_vars}
@@ -67,7 +66,6 @@ def validate_template(k: str, g: str) -> Dict:
         "V2_non_amplitude": v2_pass,
         "V2_note": v2_note,
         "V3_top_level": v3_pass,
-        "V4_marker_masked": v4_pass,
     }
 
 
@@ -77,20 +75,18 @@ def main() -> None:
         for g in GROUP_ORDER:
             r = validate_template(k, g)
             results.append(r)
-            logger.info(f"[验证] {k}/{g}: V2={r['V2_non_amplitude']} V3={r['V3_top_level']} V4={r['V4_marker_masked']} | top1={r['top1']}")
+            logger.info(f"[验证] {k}/{g}: V2={r['V2_non_amplitude']} V3={r['V3_top_level']} | top1={r['top1']}")
 
     # 汇总
     v2_pass = sum(1 for r in results if r["V2_non_amplitude"])
     v3_pass = sum(1 for r in results if r["V3_top_level"])
-    v4_pass = sum(1 for r in results if r["V4_marker_masked"])
 
     summary = {
         "templates": results,
         "gates": {
             "V2_non_amplitude": f"{v2_pass}/{len(results)}",
             "V3_top_level": f"{v3_pass}/{len(results)}",
-            "V4_marker_masked": f"{v4_pass}/{len(results)}",
-            "all_pass": v2_pass == v3_pass == v4_pass == len(results),
+            "all_pass": v2_pass == v3_pass == len(results),
         },
     }
     save_json(summary, "v23_validation_report", result_dir=TRACING_DIR)
@@ -98,7 +94,6 @@ def main() -> None:
     logger.info("\n===== V2.3 验证门汇总 =====")
     logger.info(f"V2 非幅值排序: {v2_pass}/{len(results)} PASS")
     logger.info(f"V3 顶层优先: {v3_pass}/{len(results)} PASS")
-    logger.info(f"V4 marker 遮蔽: {v4_pass}/{len(results)} PASS")
     logger.info(f"全部通过: {summary['gates']['all_pass']}")
 
 

@@ -1,7 +1,8 @@
 """D11 留出集评测的守卫（V23-DESIGN-036：事故内、变量级口径）。
 
 覆盖：Wilson 区间、变量级命中指标手算、真值只来自 config/injection_truth.py、
-溯源排序与 root_candidates.rank 一致、遮蔽/去遮蔽两通道的候选差异、
+溯源排序与 root_candidates.rank 一致、取消遮蔽后的统一候选集、
+指标分层（primary 只含稳定性/结构健康度/机理一致性）、
 落盘契约、缺输入必须报错。
 """
 from __future__ import annotations
@@ -101,16 +102,20 @@ def test_causal_ranking_matches_persisted_root_candidates():
     assert checked >= 9
 
 
-def test_production_masks_injection_point_and_unmasked_restores_it():
-    """生产口径遮蔽注入点（total_effect=None、不进候选）；评测模式把它放回候选。"""
+def test_candidate_set_unified_after_unmasking():
+    """取消遮蔽（2026-11-11）：生产列与评测列候选集统一为模板全部节点（含注入变量）。"""
     latest = _latest_run()
     tpl = EV.load_template("LOCA", "high", latest)
     marker = tpl["marker"]
     assert marker == "WLR"
-    assert tpl["nodes"][marker].get("total_effect") is None
-    assert tpl["marker_info"]["rank"] is None
-    assert marker not in EV.causal_ranking(tpl)
-    assert marker in EV.causal_ranking_unmasked(tpl)
+    assert set(EV.causal_ranking(tpl)) == set(tpl["nodes"])
+    assert marker in EV.causal_ranking(tpl)
+    assert set(EV.causal_ranking_unmasked(tpl)) == set(tpl["nodes"])
+    # 落盘 marker_info.rank 取自 root_candidates 榜单（未进 Top-K 时为 None）
+    rc = json.loads((artifact.run_path(latest) / "tracing"
+                     / f"root_candidates_{tpl['k']}_{tpl['g']}.json").read_text(encoding="utf-8"))
+    listed = {c["variable"]: c["rank"] for c in rc["root_candidates"]}
+    assert tpl["marker_info"]["rank"] == listed.get(marker)
 
 
 # ==================== 落盘契约 ====================
@@ -134,8 +139,7 @@ def test_evaluate_writes_metrics_only(monkeypatch, tmp_path):
 
     root = artifact.run_path(run_id)
     assert sorted(p.name for p in (root / "metrics").iterdir()) == [
-        "metrics_LOCA_low.json", "metrics_LOCA_mid.json", "metrics_summary.json",
-        "metrics_template_retrieval.json"]
+        "metrics_LOCA_low.json", "metrics_LOCA_mid.json", "metrics_summary.json"]
     assert not (root / "reports").exists()
 
     tpl = json.loads((root / "metrics" / "metrics_LOCA_low.json").read_text(encoding="utf-8"))
@@ -146,8 +150,11 @@ def test_evaluate_writes_metrics_only(monkeypatch, tmp_path):
     assert "WLR" in gt["variables"] and set(gt["variables"]) <= set(gt["all_registered"])
     assert gt["source"] == "causalrca/config/injection_truth.py::INJECTION_TRUTH"
     assert gt["suspect"] == ["WBK", "MBK"]
-    assert tpl["injection_point_masking"]["masked"] is True
     assert tpl["injection_point_masking"]["variable"] == "WLR"
+    # masked 只是历史标识：与 topology 里 marker 的 total_effect 是否为 None 一致
+    topo = json.loads((root / "tracing" / "topology_LOCA_low.json").read_text(encoding="utf-8"))
+    assert tpl["injection_point_masking"]["masked"] is (
+        topo["nodes"]["WLR"].get("total_effect") is None)
     assert set(tpl["clip_sensitivity"]["clips"]) == {lab for lab, _c in EV.CLIP_VARIANTS}
     assert {"hit1", "hit3", "mrr", "marker_rank_median"} <= set(
         tpl["clip_sensitivity"]["clips"]["clip_off"])
@@ -157,9 +164,10 @@ def test_evaluate_writes_metrics_only(monkeypatch, tmp_path):
         assert tr["accident_type"] == "LOCA"
         assert set(tr["metrics"]) == set(EV.CHANNELS)
         assert tr["gt"] == gt["variables"]
-        # 生产口径遮蔽 WLR → 真值不可能在候选里，命中结构性为 0
-        assert "WLR" not in tr["gt_in_candidate_set"]["causal"]
-        assert tr["metrics"]["causal"]["hit1"] == 0.0
+        # 取消遮蔽后：注入变量进入候选集，生产列与历史评测列（legacy alias）数值等价
+        assert "WLR" in tr["gt_in_candidate_set"]["causal"]
+        assert "WLR" in tr["gt_in_candidate_set"]["causal_unmasked_for_eval"]
+        assert tr["metrics"]["causal"] == tr["metrics"]["causal_unmasked_for_eval"]
         assert 0.0 <= tr["metrics"]["deviation_equal_weight"]["hit3"] <= 1.0
 
     summary = json.loads((root / "metrics" / "metrics_summary.json").read_text(encoding="utf-8"))
@@ -169,7 +177,10 @@ def test_evaluate_writes_metrics_only(monkeypatch, tmp_path):
     assert summary["comparability_with_teacher"]["same_task"] is True
     assert summary["comparability_with_teacher"]["comparable_numbers"] is False
     assert summary["global"]["causal"]["n"] == 14
-    assert summary["global"]["causal"]["hit1"] == 0.0       # 遮蔽 → 结构性 0
+    # 生产列与 legacy 别名同值（取消遮蔽 → 两者等价）
+    assert (summary["global"]["causal"]["hit1"]
+            == summary["global"]["causal_unmasked_for_eval"]["hit1"])
+    assert summary["global"]["causal"]["metric_tier"] == EV.METRIC_TIER_DIAGNOSTIC
     assert set(summary["per_template"]["LOCA_low"]) == set(EV.CHANNELS)
 
 
@@ -215,24 +226,19 @@ def test_deviation_comparability_requires_physical_floor():
     assert src2 == "physical" and floor2 >= 1.0
 
 
-def test_template_retrieval_is_main_metric():
-    """V23-DESIGN-040：模板级检索是主指标，产物必须自洽。"""
-    latest = _latest_run()
-    p = EV.artifact.run_path(latest) / "metrics" / "metrics_template_retrieval.json"
-    d = json.loads(p.read_text(encoding="utf-8"))
-    assert d["n_traces"] == 60 and d["n_templates"] == 9
-    for lvl in ("template_level", "class_level"):
-        blk = d[lvl]
-        assert blk["n"] == 60
-        assert 0.0 <= blk["hit1"] <= blk["hit3"] <= 1.0
-        assert {"mrr", "hit1_wilson95", "hit3_wilson95"} <= set(blk)
-    assert len(d["rows"]) == 60
-    for r in d["rows"]:
-        assert r["template_top1"].rsplit("_", 1)[0] in ("LOCA", "SGATR", "FLB")
-        assert 1 <= r["template_rank"] <= 9 and 1 <= r["class_rank"] <= 3
-    summary = json.loads((EV.artifact.run_path(latest) / "metrics" / "metrics_summary.json")
-                         .read_text(encoding="utf-8"))
-    assert summary["template_retrieval"]["template_level"]["n"] == 60
+def test_template_retrieval_not_emitted(monkeypatch, tmp_path):
+    """V23-DESIGN-055：检索指标是实现侧诊断，不进流水线、不落盘、不进主表。"""
+    run_id = _tmp_run(monkeypatch, tmp_path)
+    EV.evaluate(run_id, classes=["LOCA"], groups=["low"])
+
+    root = artifact.run_path(run_id)
+    assert not (root / "metrics" / "metrics_template_retrieval.json").exists()
+    summary = json.loads((root / "metrics" / "metrics_summary.json").read_text(encoding="utf-8"))
+    blk = summary["template_retrieval"]
+    assert blk["status"] == EV.RETRIEVAL_METRIC_STATUS
+    assert "template_level" not in blk and "class_level" not in blk
+    # 函数本体保留，供需要时手动调用
+    assert callable(EV.evaluate_template_retrieval)
 
 
 def test_evaluate_rejects_missing_topology(monkeypatch, tmp_path):
@@ -240,6 +246,67 @@ def test_evaluate_rejects_missing_topology(monkeypatch, tmp_path):
     (tmp_path / run_id / "tracing" / "topology_LOCA_low.json").unlink()
     with pytest.raises(FileNotFoundError):
         EV.evaluate(run_id, classes=["LOCA"], groups=["low"])
+
+
+# ==================== 指标分层守卫（primary vs diagnostic）====================
+def _nested_keys(obj) -> set:
+    keys = set()
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            keys.add(k)
+            keys |= _nested_keys(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            keys |= _nested_keys(v)
+    return keys
+
+
+def _run_with_tiered_metrics() -> str:
+    """取最新一个带 evaluation_protocol 的 run（未重跑评测的历史 run 没有该字段）。"""
+    runs = sorted(p.name for p in artifact.V23_RUNS.iterdir() if p.is_dir())
+    for rid in reversed(runs):
+        path = artifact.run_path(rid) / "metrics" / "metrics_summary.json"
+        if not path.exists():
+            continue
+        if "evaluation_protocol" in json.loads(path.read_text(encoding="utf-8")):
+            return rid
+    pytest.skip("没有带 evaluation_protocol 的 metrics_summary（先重跑评测）")
+
+
+def test_metric_tiers_keep_accuracy_metrics_out_of_primary_blocks():
+    """守卫：primary 块不得含任何诊断指标键；diagnostic 块必须标 metric_tier=diagnostic。"""
+    rid = _run_with_tiered_metrics()
+    summary = json.loads((artifact.run_path(rid) / "metrics" / "metrics_summary.json")
+                         .read_text(encoding="utf-8"))
+    protocol = summary["evaluation_protocol"]
+    assert tuple(protocol["primary_blocks"]) == EV.PRIMARY_BLOCKS
+    assert tuple(protocol["diagnostic_metrics"]) == EV.DIAGNOSTIC_METRICS
+
+    for name in EV.PRIMARY_BLOCKS:
+        assert name in summary, f"缺 primary 块 {name}"
+        block = summary[name]
+        assert block["metric_tier"] == EV.METRIC_TIER_PRIMARY
+        leaked = _nested_keys(block) & set(EV.DIAGNOSTIC_METRICS)
+        assert not leaked, f"primary 块 {name} 混入诊断指标 {sorted(leaked)}"
+
+    diagnostic_aggs = []
+    diagnostic_aggs.extend(summary["global"].values())
+    diagnostic_aggs.extend(a for cls in summary["per_class"].values() for a in cls.values())
+    diagnostic_aggs.extend(a for tpl in summary["per_template"].values() for a in tpl.values())
+    for clip in summary["clip_sensitivity"]["clips"].values():
+        diagnostic_aggs.append(clip["global"])
+        diagnostic_aggs.extend(clip["per_class"].values())
+        diagnostic_aggs.extend(clip["per_template"].values())
+    assert diagnostic_aggs
+    for agg in diagnostic_aggs:
+        assert agg["metric_tier"] == EV.METRIC_TIER_DIAGNOSTIC
+        assert set(agg["tier"]) == set(EV.DIAGNOSTIC_METRICS)
+        assert all(v == EV.METRIC_TIER_DIAGNOSTIC for v in agg["tier"].values())
+    assert summary["evidence_rank_distribution"]["metric_tier"] == EV.METRIC_TIER_DIAGNOSTIC
+
+    # 统一候选集：legacy 别名与主列数值逐项相同
+    assert summary["global"]["causal"] == summary["global"]["causal_unmasked_for_eval"]
+    assert summary["channels"]["causal_unmasked_for_eval"]["legacy_alias"] is True
 
 
 def test_bootstrap_default_is_reduced_and_latest_still_refreshed(monkeypatch, tmp_path):

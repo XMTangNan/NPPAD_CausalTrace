@@ -308,11 +308,14 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
         "cond_IminusB_after_clip": diag["cond_IminusB_after_clip"],
         "clipped_edges": diag["clipped_edges"],
         "root_candidates": [_root_entry(c) for c in roots],
+        # 历史字段：取消遮蔽（2026-11-11）后仅作标识/兼容既有产物结构；
+        # 名次直接从本榜单里该变量那一条取（未进 Top-K 时为 None）。
         "marker_info": {
             "variable": r["marker"],
             "role": "injection_source",
-            "rank": None,
-            "note": "故障指示器遮蔽，不参与根因排名，仅作传输入口展示",
+            "rank": next((c["rank"] for c in roots
+                          if c["variable"] == r["marker"]), None),
+            "note": "取消遮蔽（2026-11-11），名次正常参与排序；历史字段，仅作标识",
         },
         "method_note": ("排序键=总因果效应 T=(I-B)^-1 对症状端(marker+terminal)的"
                         "|效应| 之和；次级 in_degree ASC/weighted_reach DESC。"

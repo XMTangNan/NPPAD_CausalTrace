@@ -14,19 +14,22 @@ v2.3 不做事故大类匹配，只做「事故内、变量级的根因溯源」
 见该文件 docstring）。真值集按「只剔除数据里不存在的列」处理；真值变量是否落在候选集
 （模板 15 个节点）内单独披露 `gt_in_candidate_set`，用于区分“没找对”和“根本不在候选”。
 
-**候选与四通道（同一批轨迹；偏差基线按配对变量集拆两列）**
-- `causal`（生产口径）：`trace_roots` 原样——候选=模板节点中排除 marker（故障指示器
-  遮蔽），排序键总因果效应 DESC → in_degree ASC → weighted_reach DESC → reach_size DESC
-  → consensus_rate DESC，再按“有传导能力(out_degree>0)优先、孤立节点殿后”分组。
-- `deviation_equal_weight`（纯偏差基线，与去遮蔽通道同 15 节点）与 `deviation_production_set`
-  （纯偏差基线，与生产通道同 14 节点）：同候选集等权，只按该轨迹偏移强度
-  d(v)=max|x−μ_pre|/max(1.4826·MAD_pre, σ_floor(v)) 降序，完全不用因果图。
-  两列基线只为保证「因果 vs 偏差」各自严格同变量集，**不得跨配对比较**。
-- `causal_unmasked_for_eval`（评测模式）：把被遮蔽的注入点放回候选，用**已落盘**
-  `signatures/*.stable_edges` 重算 T=(I−B)⁻¹ 的总效应（纯矩阵运算，不重算 bootstrap、
-  不重新学图），其余排序键与生产口径一致。**只用于评测，不改变生产输出**；
-  没有这一列，注入点结构性不可能被命中（命中率恒 0 只能说明“被遮蔽”，
-  不能回答“根因找对没有”）。
+**候选与四通道（同一批轨迹；取消遮蔽后四通道统一为 15 节点）**
+- `causal`（生产口径）：候选=模板**全部变量（含注入变量 marker）**，排序键总因果效应
+  DESC → in_degree ASC → weighted_reach DESC → reach_size DESC → consensus_rate DESC，
+  再按“有传导能力(out_degree>0)优先、孤立节点殿后”分组。取消遮蔽（2026-11-11）后与落盘
+  `tracing/root_candidates_*.json` 的候选集一致（15 节点）。
+- `causal_unmasked_for_eval`（**历史别名**）：取消遮蔽前它是“把注入点放回候选”的评测专用列；
+  取消遮蔽后与 `causal` 完全等价，仅为兼容旧产物/旧文档保留，产物里标 `legacy_alias=true`。
+- `deviation_equal_weight` 与 `deviation_production_set`：纯偏差基线，同候选集等权，只按该
+  轨迹偏移强度 d(v)=max|x−μ_pre|/max(1.4826·MAD_pre, σ_floor(v)) 降序，完全不用因果图。
+  取消遮蔽后“生产集”=“全集”（同为 15 节点），两列数值因此一致；`deviation_production_set`
+  同样标 `legacy_alias=true` 以兼容旧四通道表。
+
+**指标分层（primary / diagnostic）**
+本工作**不主张准确率**：主表只含 `stability` / `structural_health` / `mechanism_consistency`
+三个 primary 块；`hit1/hit3/mrr/p2/p3/recall3/ap3/jaccard3` 一律为 diagnostic（附录诊断），
+产物中逐块标 `metric_tier`，**不得进结论句、不得作论文数字**。
 
 **B_CLIP 敏感性（V23-DESIGN-038，评测一等公民）**
 总效应是 T=(I−B)⁻¹ 的 |T| 行和，`B_CLIP` 硬截断会改名次：`LOCA_high` 的 `WLR` 在 clip5 下第 1、
@@ -36,7 +39,8 @@ v2.3 不做事故大类匹配，只做「事故内、变量级的根因溯源」
 
 **与老师 accuracy 的关系**
 同任务（事故内变量级 Top-k 命中）、但**不同协议**：我们无人工先验降权、切分严格互斥
-（split_manifest.test_severities）、每 (类,组) 单独建图、且额外给“遮蔽/去遮蔽”两列。
+（split_manifest.test_severities）、每 (类,组) 单独建图、候选含注入变量（取消遮蔽），
+且另给纯偏差基线两列。
 因此数字**不并排比较**，只作脚注引用。
 """
 from __future__ import annotations
@@ -62,6 +66,12 @@ from causalrca.reporting import truth_reachability as TR
 from causalrca.config import role_prior as RP
 ROLE_PRIOR_CHANNEL = "causal_role_prior"
 
+# 评测对象硬规则（V23-DESIGN-055，2026-11-11 用户裁决）：
+# 评测对象只能是「事故内变量级根因溯源」；类别识别/模板识别/模板检索类指标
+# 一律为实现侧诊断，不得进主表、不得进结论句、不得作论文数字。
+EVALUATION_TARGET = "variable_level_in_accident"
+RETRIEVAL_METRIC_STATUS = "not_evaluation_target"
+
 
 def _all_channels() -> tuple:
     """通道全集：基础四通道 + 角色先验通道（B1；成对出现才算合规）。"""
@@ -74,6 +84,23 @@ CHANNELS = ("causal", "causal_unmasked_for_eval",
 # B_CLIP 敏感性（V23-DESIGN-038）：变量级命中对总效应截断阈值敏感，必须并列四列
 CLIP_VARIANTS = (("clip3", 3.0), ("clip5", B_CLIP), ("clip10", 10.0), ("clip_off", None))
 METRIC_KEYS = ("hit1", "hit3", "mrr", "p2", "p3", "recall3", "ap3", "jaccard3")
+
+# ==================== 指标分层（主表 vs 附录诊断）====================
+# 本工作不主张准确率：主表只允许 primary 块；一切命中/排序类指标只作附录诊断。
+# 这两组常量同时是守卫测试的契约（tests/test_v23_evaluation.py）。
+METRIC_TIER_PRIMARY = "primary"          # 主表：稳定性 / 结构健康度 / 机理一致性
+METRIC_TIER_DIAGNOSTIC = "diagnostic"    # 附录：hit@k、MRR、P@k、Recall@k、AP@k、Jaccard@k
+PRIMARY_BLOCKS = ("stability", "structural_health", "mechanism_consistency")
+DIAGNOSTIC_METRICS = ("hit1", "hit3", "mrr", "p2", "p3", "recall3", "ap3", "jaccard3")
+
+
+def _tag_agg(agg: Dict, tier: str = METRIC_TIER_DIAGNOSTIC) -> Dict:
+    """给单个指标聚合块打层级标记；诊断块另给 8 个键的 `tier` 映射。"""
+    out = dict(agg)
+    out["metric_tier"] = tier
+    if tier == METRIC_TIER_DIAGNOSTIC:
+        out["tier"] = {key: METRIC_TIER_DIAGNOSTIC for key in METRIC_KEYS}
+    return out
 
 
 # ==================== 工具 ====================
@@ -173,10 +200,10 @@ def _production_order(tpl: Dict, total_effect: Dict[str, float],
 
 
 def causal_ranking(tpl: Dict, role_prior: bool = False) -> List[str]:
-    """生产口径：marker 遮蔽（不进候选），效应取 topology 节点已落盘 total_effect。"""
+    """生产口径（取消遮蔽后）：候选=模板全部节点（含注入变量），
+    效应取 topology 节点已落盘 total_effect（不重算 T、不改产物）。"""
     eff = {v: (nd.get("total_effect") or 0.0) for v, nd in tpl["nodes"].items()}
-    return _production_order(tpl, eff, exclude=[tpl["marker"]] if tpl["marker"] else [],
-                             role_prior=role_prior)
+    return _production_order(tpl, eff, role_prior=role_prior)
 
 
 def unmasked_total_effect(tpl: Dict, clip: Optional[float] = B_CLIP) -> Dict[str, float]:
@@ -197,7 +224,10 @@ def unmasked_total_effect(tpl: Dict, clip: Optional[float] = B_CLIP) -> Dict[str
 
 
 def causal_ranking_unmasked(tpl: Dict, clip: Optional[float] = B_CLIP) -> List[str]:
-    """评测模式排序：候选含注入点，其余排序键与生产口径一致。"""
+    """历史别名（取消遮蔽后与 `causal_ranking` 等价）：按 |B| 截断上限重算 T 后排序。
+
+    保留只为兼容旧产物/旧文档与 B_CLIP 敏感性（clip≠B_CLIP 时仍需重算）。
+    """
     return _production_order(tpl, unmasked_total_effect(tpl, clip=clip))
 
 
@@ -328,7 +358,7 @@ def _summarize(rows: Sequence[Dict]) -> Dict:
             agg[f"{key}_n"] = k
             agg[f"{key}_wilson95"] = [None if lo is None else round(lo, 4),
                                       None if hi is None else round(hi, 4)]
-        out[ch] = agg
+        out[ch] = _tag_agg(agg)
     return out
 
 
@@ -348,7 +378,7 @@ def _summarize_clip(rows: Sequence[Dict], label: str) -> Dict:
     ranks = [r["clip_sensitivity"][label]["marker_rank"] for r in rows
              if r["clip_sensitivity"][label]["marker_rank"]]
     agg["marker_rank_median"] = round(float(np.median(ranks)), 2) if ranks else None
-    return agg
+    return _tag_agg(agg)
 
 
 def _clip_flip_note(per_tpl_clips: Dict[str, Dict[str, Dict]]) -> Dict[str, object]:
@@ -369,7 +399,318 @@ def _clip_flip_note(per_tpl_clips: Dict[str, Dict[str, Dict]]) -> Dict[str, obje
     }
 
 
-# ==================== 模板级检索（主指标，V23-DESIGN-040）====================
+# ==================== primary 块 1：稳定性 ====================
+def _average_ranks(values: Sequence[float]) -> List[float]:
+    """秩变换（并列取平均秩），供自实现的 Spearman 使用。"""
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    ranks = [0.0] * len(values)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        avg = (i + j) / 2.0 + 1.0
+        for t in range(i, j + 1):
+            ranks[order[t]] = avg
+        i = j + 1
+    return ranks
+
+
+def _spearman(x: Sequence[float], y: Sequence[float]) -> Optional[float]:
+    """Spearman 秩相关（自实现：平均秩 + Pearson；无方差返回 None，不引新依赖）。"""
+    if len(x) != len(y) or len(x) < 2:
+        return None
+    rx = _average_ranks([float(a) for a in x])
+    ry = _average_ranks([float(b) for b in y])
+    mx, my = float(np.mean(rx)), float(np.mean(ry))
+    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
+    dx = sum((a - mx) ** 2 for a in rx)
+    dy = sum((b - my) ** 2 for b in ry)
+    if dx <= 0 or dy <= 0:
+        return None
+    return float(num / math.sqrt(dx * dy))
+
+
+def _template_rankings(run_id: str) -> Dict[str, Dict[str, Dict]]:
+    """{类: {组: {ranking, persisted_top, n_nodes}}}：只读本 run 已落盘产物。
+
+    `ranking` = 15 变量完整生产口径名次（读 topology 的 total_effect，不重算 T、不重学图）；
+    `persisted_top` = `root_candidates_*.json` 里榜内变量的顺序（用于校验口径一致）。
+    """
+    out: Dict[str, Dict[str, Dict]] = {}
+    for p in sorted((artifact.run_path(run_id) / "tracing").glob("root_candidates_*.json")):
+        k, g = p.stem.replace("root_candidates_", "").rsplit("_", 1)
+        tpl = load_template(k, g, run_id)
+        with open(p, encoding="utf-8") as f:
+            doc = json.load(f)
+        persisted = [c["variable"] for c in
+                     sorted(doc.get("root_candidates") or [], key=lambda c: c.get("rank") or 10 ** 6)]
+        out.setdefault(k, {})[g] = {"ranking": causal_ranking(tpl),
+                                   "persisted_top": persisted,
+                                   "n_nodes": len(tpl["nodes"])}
+    return out
+
+
+def stability_block(run_id: str) -> Dict:
+    """稳定性（primary）：同一类内 low/mid/high 三组榜单的一致程度。
+
+    名次全部取自本 run 落盘产物；不跑 bootstrap、不重学图、不改任何生产输出。
+    """
+    by_class = _template_rankings(run_id)
+    per_class: Dict[str, Dict] = {}
+    for k, groups_all in by_class.items():
+        gs = [g for g in GROUP_ORDER if g in groups_all]
+        if len(gs) < 2:
+            per_class[k] = {"groups": gs, "status": "not_applicable",
+                            "reason": "可用严重度组少于 2 个，无法比较组间一致性"}
+            continue
+        ranks = {g: {v: i + 1 for i, v in enumerate(groups_all[g]["ranking"])} for g in gs}
+        variables = sorted({v for r in ranks.values() for v in r})
+        n_nodes = max(groups_all[g]["n_nodes"] for g in gs)
+
+        std_per_var = {v: round(float(np.std([ranks[g][v] for g in gs if v in ranks[g]])), 4)
+                       for v in variables if sum(1 for g in gs if v in ranks[g]) >= 2}
+        std_vals = list(std_per_var.values())
+        rank_std = {
+            "per_variable": std_per_var,
+            "median": round(float(np.median(std_vals)), 4) if std_vals else None,
+            "max": max(std_vals) if std_vals else None,
+            "max_variable": (max(std_per_var, key=lambda v: std_per_var[v])
+                             if std_per_var else None),
+            "n_variables": len(std_vals),
+        }
+
+        k_top = min(5, n_nodes)
+        top_sets = {g: set(groups_all[g]["ranking"][:k_top]) for g in gs}
+        jac: Dict[str, Optional[float]] = {}
+        rho: Dict[str, Optional[float]] = {}
+        for i in range(len(gs)):
+            for j in range(i + 1, len(gs)):
+                a, b = gs[i], gs[j]
+                pair = f"{a}-{b}"
+                union = top_sets[a] | top_sets[b]
+                jac[pair] = (round(len(top_sets[a] & top_sets[b]) / len(union), 4)
+                             if union else None)
+                common = [v for v in variables if v in ranks[a] and v in ranks[b]]
+                r = _spearman([ranks[a][v] for v in common],
+                              [ranks[b][v] for v in common])
+                rho[pair] = None if r is None else round(r, 4)
+        jac_vals = [v for v in jac.values() if v is not None]
+        rho_vals = [v for v in rho.values() if v is not None]
+
+        if len(gs) == 3:
+            mono: Dict[str, Dict] = {}
+            for v in variables:
+                seq = [ranks[g][v] for g in gs]
+                mono[v] = {"ranks": seq,
+                           "monotone": bool(all(x < y for x, y in zip(seq, seq[1:]))
+                                            or all(x > y for x, y in zip(seq, seq[1:])))}
+            n_mono = sum(1 for m in mono.values() if m["monotone"])
+            monotonicity = {
+                "status": "computed",
+                "group_severity_order": gs,
+                "ratio": round(n_mono / len(variables), 4) if variables else None,
+                "n_monotone": n_mono,
+                "n_variables": len(variables),
+                "per_variable": mono,
+                "rule": "三组严重度 low<mid<high；某变量三组名次严格递增或严格递减即计为单调",
+            }
+        else:
+            monotonicity = {"status": "not_applicable",
+                            "reason": f"仅 {len(gs)} 组可用（{gs}），无法判定随严重度单调"}
+
+        per_class[k] = {
+            "groups": gs,
+            "group_severity_order": gs,
+            "n_variables": len(variables),
+            "persisted_top_matches_ranking": all(
+                groups_all[g]["ranking"][:len(groups_all[g]["persisted_top"])]
+                == groups_all[g]["persisted_top"] for g in gs),
+            "rank_std_across_groups": rank_std,
+            "topk_jaccard_across_groups": {"k": k_top, "pairs": jac,
+                                           "mean": (round(float(np.mean(jac_vals)), 4)
+                                                    if jac_vals else None)},
+            "cross_group_consistency": {"measure": "spearman_rank_correlation",
+                                        "pairs": rho,
+                                        "mean": (round(float(np.mean(rho_vals)), 4)
+                                                 if rho_vals else None)},
+            "monotonicity": monotonicity,
+        }
+
+    return {
+        "metric_tier": METRIC_TIER_PRIMARY,
+        "source": ("tracing/root_candidates_*.json + tracing/topology_*.json（只读落盘；"
+                   "不重学图、不重算 T、不跑 bootstrap）"),
+        "definition": {
+            "rank": "变量在类内某严重度组的完整生产口径名次（1=榜首，越小越靠前）",
+            "rank_std_across_groups": "同一变量在类内各组名次的标准差（总体标准差，ddof=0）",
+            "topk_jaccard_across_groups": f"各组 Top-{5} 集合两两 Jaccard（k=5）",
+            "cross_group_consistency": "各组完整名次向量的 Spearman 秩相关（自实现）",
+            "monotonicity": "三组严重度有序时，名次随组别严格单调的变量占比",
+        },
+        "per_class": per_class,
+        "bootstrap_flip_rate": {
+            "status": "not_computed",
+            "reason": "逐次 bootstrap 排名未落盘",
+            "required_bootstrap": ">=20 次并逐次落盘 top-k",
+        },
+        "meaning": ("稳定性衡量：同一事故类型在不同严重度组下，根因榜（名次/Top-k 集合）"
+                    "是否一致，以及有多少变量名次随严重度系统性移动。"),
+        "reading": ("rank_std 小、Jaccard/Spearman 高 = 跨组榜单一致（结论不随严重度漂移）；"
+                    "monotonicity 高 = 名次随严重度单向移动，需在报告中说明其物理含义。"
+                    "这些都是“结果是否稳定/可复现”的描述，不是“是否更准”。"
+                    "bootstrap_flip_rate 未计算：本 run 只落最终 stable_edges，"
+                    "未逐次落盘排名，故不声称 bootstrap 翻转率。"),
+    }
+
+
+# ==================== primary 块 2：结构健康度 ====================
+def _vif_for_class(k: str, run_id: str) -> Dict:
+    """类级 VIF（变量选择阶段产物，模板按类共享同一入模变量集）。"""
+    path = artifact.run_path(run_id) / "variable_sets" / f"selection_report_{k}.json"
+    if not path.exists():
+        return {"status": "not_available",
+                "reason": f"缺 {path.name}（VIF 只在变量选择阶段计算，本步不重算）"}
+    with open(path, encoding="utf-8") as f:
+        doc = json.load(f)
+    vifs = doc.get("final_vif") or doc.get("vif_all") or {}
+    vals = [(v, float(x)) for v, x in vifs.items() if x is not None and math.isfinite(float(x))]
+    if not vals:
+        return {"status": "not_available", "reason": "selection_report 无可用 VIF 数值"}
+    top_var, top_val = max(vals, key=lambda t: t[1])
+    return {
+        "status": "computed",
+        "source": f"variable_sets/selection_report_{k}.json::final_vif",
+        "n_vars": len(vals),
+        "max_vif": round(top_val, 4),
+        "max_vif_variable": top_var,
+        "median_vif": round(float(np.median([x for _v, x in vals])), 4),
+        "max_vif_all_stage1": doc.get("max_vif_all"),
+        "threshold": doc.get("vif_max_threshold"),
+        "scope": "类级（该类的 low/mid/high 三组共用同一入模变量集）",
+    }
+
+
+def structural_health_block(run_id: str) -> Dict:
+    """结构健康度（primary）：共线性/病态程度/图的稀疏度/结果对 B_CLIP 的敏感度。"""
+    per_template: Dict[str, Dict] = {}
+    vif_cache: Dict[str, Dict] = {}
+    for p in sorted((artifact.run_path(run_id) / "tracing").glob("root_candidates_*.json")):
+        k, g = p.stem.replace("root_candidates_", "").rsplit("_", 1)
+        with open(p, encoding="utf-8") as f:
+            doc = json.load(f)
+        tpl = load_template(k, g, run_id)
+        n_nodes = int(doc.get("n_nodes") or len(tpl["nodes"]))
+        n_edges = int(doc.get("n_stable_edges") or 0)
+        n_possible = n_nodes * (n_nodes - 1)
+        if k not in vif_cache:
+            vif_cache[k] = _vif_for_class(k, run_id)
+        tops = {label: causal_ranking_unmasked(tpl, clip=clip)[:min(5, n_nodes)]
+                for label, clip in CLIP_VARIANTS}
+        unique_sets = {frozenset(v) for v in tops.values()}
+        per_template[f"{k}_{g}"] = {
+            "n_nodes": n_nodes,
+            "n_stable_edges": n_edges,
+            "stable_edge_ratio": round(n_edges / n_possible, 4) if n_possible else None,
+            "condition_number": {
+                "b_clip": doc.get("b_clip"),
+                "before_clip": doc.get("cond_IminusB"),
+                "after_clip": doc.get("cond_IminusB_after_clip"),
+            },
+            "vif": vif_cache[k],
+            "clip_top5": tops,
+            "n_unique_top5_sets": len(unique_sets),
+            "clip_flip": len(unique_sets) > 1,
+            "stability_label": (doc.get("stability") or {}).get("label"),
+        }
+
+    templates = list(per_template.values())
+    cond_before = [t["condition_number"]["before_clip"] for t in templates
+                   if t["condition_number"]["before_clip"] is not None]
+    cond_after = [t["condition_number"]["after_clip"] for t in templates
+                  if t["condition_number"]["after_clip"] is not None]
+    ratios = [t["stable_edge_ratio"] for t in templates if t["stable_edge_ratio"] is not None]
+    vif_max = [v["max_vif"] for v in vif_cache.values() if v.get("status") == "computed"]
+    vif_med = [v["median_vif"] for v in vif_cache.values() if v.get("status") == "computed"]
+
+    labels = [lab for lab, _c in CLIP_VARIANTS]
+    pair_flip: Dict[str, Optional[float]] = {}
+    for i in range(len(labels)):
+        for j in range(i + 1, len(labels)):
+            a, b = labels[i], labels[j]
+            n_diff = sum(1 for t in templates
+                         if set(t["clip_top5"][a]) != set(t["clip_top5"][b]))
+            pair_flip[f"{a}-{b}"] = round(n_diff / len(templates), 4) if templates else None
+    n_flip = sum(1 for t in templates if t["clip_flip"])
+
+    return {
+        "metric_tier": METRIC_TIER_PRIMARY,
+        "source": ("tracing/root_candidates_*.json（cond/n_stable_edges）+ "
+                   "variable_sets/selection_report_*.json（VIF）+ 已落盘 stable_edges"
+                   "（仅为 clip_off 重算 |T|，纯矩阵、无 bootstrap）"),
+        "definition": {
+            "vif": "变量选择阶段入模变量集的 VIF（类级；max 与中位数）",
+            "condition_number": "cond(I−B)：B 为稳定边直接效应矩阵；before_clip 为不截断时、"
+                                "after_clip 为 |B|≤B_CLIP 截断后的条件数",
+            "stable_edge_ratio": "n_stable_edges / (n_nodes×(n_nodes−1))，即稳定有向边占"
+                                 "全部可能有向边的比例（有向图密度，不含自环）",
+            "clip_sensitivity_flip": "同一模板在 clip3/clip5/clip10/clip_off 下 Top-5 集合"
+                                     "是否变化；flip_ratio = 发生变化的模板数 / 模板总数",
+        },
+        "per_class_vif": {k: v for k, v in vif_cache.items()},
+        "per_template": per_template,
+        "global": {
+            "n_templates": len(templates),
+            "condition_number": {
+                "before_clip_max": round(max(cond_before), 4) if cond_before else None,
+                "before_clip_median": round(float(np.median(cond_before)), 4) if cond_before else None,
+                "after_clip_max": round(max(cond_after), 4) if cond_after else None,
+                "after_clip_median": round(float(np.median(cond_after)), 4) if cond_after else None,
+            },
+            "vif": {
+                "max_over_classes": max(vif_max) if vif_max else None,
+                "median_over_classes": (round(float(np.median(vif_med)), 4) if vif_med else None),
+                "n_classes": len(vif_max),
+            },
+            "stable_edge_ratio": {
+                "mean": round(float(np.mean(ratios)), 4) if ratios else None,
+                "median": round(float(np.median(ratios)), 4) if ratios else None,
+                "min": min(ratios) if ratios else None,
+                "max": max(ratios) if ratios else None,
+            },
+            "clip_sensitivity_flip": {
+                "k": 5,
+                "clips": labels,
+                "n_flipped": n_flip,
+                "flip_ratio": round(n_flip / len(templates), 4) if templates else None,
+                "pairwise": pair_flip,
+                "flipped_templates": [n for n, t in per_template.items() if t["clip_flip"]],
+            },
+        },
+        "meaning": ("结构健康度衡量：学到的图是否良态（条件数）、是否近似共线（VIF）、"
+                    "是否稠密到不可解释（边密度），以及结论是否依赖 B_CLIP 这一人为阈值。"),
+        "reading": ("cond 与 VIF 只说明数值/共线状况：越大表示线性代数越接近病态，"
+                    "结论对该图的依赖越不可靠（不是“越大越准/越不准”）；"
+                    "stable_edge_ratio 越大表示图越稠密、可解释性越差；"
+                    "flip_ratio 越大表示 Top-5 结论越依赖 clip 阈值，单列数字不得作结论。"),
+    }
+
+
+# ==================== primary 块 3：机理一致性（占位）====================
+def mechanism_consistency_block() -> Dict:
+    """机理一致性（primary，占位）：无专家输入时不产出任何数值，也不允许拿诊断指标顶替。"""
+    return {
+        "status": "not_available",
+        "metric_tier": METRIC_TIER_PRIMARY,
+        "violation_rate": None,
+        "coverage": None,
+        "protocol": ("排除性判据：专家给出『某部件必然先响应』『某部件不可能先响应』两类清单，"
+                     "据此算违反率与覆盖率"),
+        "note": "当前无专家输入；不得用现有 hit@k/MRR 或任何数字替代",
+    }
+
+
+# ==================== 模板级检索（诊断工具，V23-DESIGN-040）====================
 RETRIEVAL_WINDOW = (300.0, 1500.0)
 
 
@@ -448,7 +789,13 @@ def template_ranking(df, templates: Dict[str, Dict], cfg: Dict) -> List[str]:
 
 def evaluate_template_retrieval(traces: Sequence[Dict], templates: Dict[str, Dict],
                                 registry: Dict[str, Dict]) -> Dict:
-    """模板级（9 个）与事故类级（3 个）检索：Hit@1/Hit@3/MRR + 逐类 + 混淆 Top-1。"""
+    """【诊断工具，非评测对象（V23-DESIGN-055）】模板级（9 个）与事故类级（3 个）检索：
+    Hit@1/Hit@3/MRR + 逐类 + 混淆 Top-1。
+
+    本函数**不在** `evaluate()` 内自动调用，流水线不产出 `metrics_template_retrieval.json`；
+    只在需要排查"模板能不能被认出来"时手动调用。结果不得进主表、结论句或论文数字——
+    v2.3 的评测对象是事故内变量级根因溯源（V23-DESIGN-036），类别/模板识别不是任务。
+    """
     rows = []
     for tr in traces:
         k, sev = tr["accident_type"], tr["severity"]
@@ -554,12 +901,13 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
         if not d:
             raise ValueError(f"{k}/{sev}: 偏移强度为空，无法评测")
         rank_c = causal_ranking(tpl)
-        rank_u = causal_ranking_unmasked(tpl)
+        # 取消遮蔽（2026-11-11）后 causal 已含注入变量 → 评测列与生产列完全等价，
+        # rank_u 作为历史别名直接复用同一份名次，保证两列数值逐项相同。
+        rank_u = rank_c
         rank_p = causal_ranking(tpl, role_prior=True) if prior_on else None
         rank_d = deviation_ranking(list(tpl["nodes"]), d)
-        # 偏差基线第二列：与生产通道**同变量集**（不含被遮蔽的注入点）
-        rank_d_prod = deviation_ranking(
-            [v for v in tpl["nodes"] if v != tpl["marker"]], d)
+        # 偏差基线第二列（历史别名）：取消遮蔽后生产集=全集（同 15 节点），故与 rank_d 相同
+        rank_d_prod = rank_d
         # B_CLIP 敏感性：同一候选集，只改 |B| 的截断上限（clip5 = 生产默认）
         clip_rows: Dict[str, Dict] = {}
         for label, clip in CLIP_VARIANTS:
@@ -628,20 +976,21 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
             },
             "candidate_set": {
                 "source": f"tracing/topology_{tpl['k']}_{tpl['g']}.json（n_nodes={len(tpl['nodes'])}）",
-                "causal_order": "生产口径：排除 marker；total_effect DESC → in_degree ASC → weighted_reach DESC → reach_size DESC → consensus_rate DESC；有传导者优先、孤立节点殿后",
-                "deviation_order": "同候选集等权，按 d(v) DESC（无因果图）；两列基线分别对应 15 节点（含注入点）与 14 节点（生产集）",
-                "unmasked_note": "评测模式：注入点放回候选，用已落盘 stable_edges 重算 T=(I−B)⁻¹（不重算 bootstrap、不改生产输出）",
+                "causal_order": "生产口径（取消遮蔽）：候选=全部节点（含注入变量）；total_effect DESC → in_degree ASC → weighted_reach DESC → reach_size DESC → consensus_rate DESC；有传导者优先、孤立节点殿后",
+                "deviation_order": "同候选集等权，按 d(v) DESC（无因果图）；取消遮蔽后两列偏差基线同为 15 节点",
+                "unmasked_note": "causal_unmasked_for_eval 为历史别名：取消遮蔽后与 causal 等价（同一 15 节点、同一名次），仅为兼容旧产物/旧文档",
             },
             "injection_point_masking": {
                 "variable": marker, "masked": masked,
                 "total_effect_production": (tpl["nodes"].get(marker) or {}).get("total_effect"),
                 "total_effect_unmasked_for_eval": round(eff_unmasked.get(marker, 0.0), 6),
                 "root_candidates_rank_production": tpl["marker_info"].get("rank"),
-                "note": tpl["marker_info"].get("note"),
+                "note": ("取消遮蔽（2026-11-11）后的 run：masked 恒为 False（注入变量已作为普通候选"
+                         "参与排名）；旧产物可能仍为 True。本字段只作历史标识"),
             },
             "method_note": tpl["method_note"],
             "clip_sensitivity": {
-                "channel": "causal_unmasked（注入点放回候选；只改 |B| 的截断上限，其余不变）",
+                "channel": "causal（含注入变量；只改 |B| 的截断上限，其余不变）",
                 "note": ("变量级命中对 B_CLIP 敏感：clip5 是本仓库生产默认值，"
                          "引用命中率必须并列四列，单列 clip5 不得当结论"),
                 "clips": tpl_clips,
@@ -673,12 +1022,14 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
                  "次数未达正式口径时不得声称边稳定性、不得引用 consistency_rate 作结论；"
                  "citable 不再由次数自动推导，需人工显式声明"),
     }
-    retrieval = evaluate_template_retrieval(traces, templates, registry)
+    # 检索指标已断开流水线自动调用（V23-DESIGN-055，2026-11-11）：类别/模板检索是实现侧
+    # 诊断工具，不是评测对象；需要时手动调用 evaluate_template_retrieval()，其结果不得进
+    # 主表/结论句/论文数字。流水线因此不再产出 metrics_template_retrieval.json。
     truth_reach = TR.audit_run(run_id, [k for k in classes
                                         if any(r["accident_type"] == k for r in rows)])
-    written.append(Path(artifact.write_artifact(
-        "metrics_template_retrieval", {"run_id": run_id, "bootstrap": bootstrap, **retrieval},
-        "metrics", run_id=run_id, source="signatures/ + tracing/")).name)
+    stability = stability_block(run_id)
+    structural = structural_health_block(run_id)
+    mechanism = mechanism_consistency_block()
     summary = {
         "n_traces": len(rows),
         "n_templates": len(by_template),
@@ -686,7 +1037,25 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
         "report_header": (f"n_bootstrap={boots}（正式口径 {N_BOOTSTRAP_SPEC}；run_mode={run_mode}）"
                           + ("" if bootstrap["stability_claims_allowed"] else
                              " —— 缩减次数执行：不得声称边稳定性、不得引用 consistency_rate 作结论")),
+        "evaluation_protocol": {
+            "statement": ("本工作不主张准确率：主表只含稳定性(stability) / 结构健康度"
+                          "(structural_health) / 机理一致性(mechanism_consistency) 三个 primary 块；"
+                          "hit@k、MRR、P@k、Recall@k、AP@k、Jaccard@k 等全部为附录诊断"
+                          "(diagnostic)，不得进结论句、不得作论文数字。"),
+            "primary_blocks": list(PRIMARY_BLOCKS),
+            "primary_metric_tier": METRIC_TIER_PRIMARY,
+            "diagnostic_metrics": list(DIAGNOSTIC_METRICS),
+            "diagnostic_metric_tier": METRIC_TIER_DIAGNOSTIC,
+            "diagnostic_blocks": ["global", "per_class", "per_template",
+                                  "clip_sensitivity.clips.*", "evidence_rank_distribution"],
+            "rule": ("primary 块内不得出现任何 diagnostic 指标键；"
+                     "diagnostic 块必须标 metric_tier='diagnostic' 并给出 tier 映射"),
+        },
+        "stability": stability,
+        "structural_health": structural,
+        "mechanism_consistency": mechanism,
         "evidence_rank_distribution": {
+            "metric_tier": METRIC_TIER_DIAGNOSTIC,
             "definition": "真值名次分布（B3/V23-DESIGN-045）：rank_hist + 中位/均值名次 + 归一化名次 + 真值覆盖率",
             "why": "Hit@1 只反映头部；名次分布可区分'差一点'与'完全不可达'，且归一化名次消除候选集大小差异",
             "global": rank_distribution(rows),
@@ -710,9 +1079,13 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
             "note": ("开启时必须同时报告'有先验/无先验'两版排序与两套指标；"
                      "只有一版出现即视为不合规"),
         },
-        "task": ("主指标=模板级检索（事故类×严重度组，见 template_retrieval）；"
-                 "变量级=可辨识性诊断（候选=模板节点，看始发变量能否进 Top-1/Top-3），"
-                 "按方案 B 只作诊断、不作准确率主张"),
+        "task": ("评测对象=事故内变量级根因溯源（候选=该模板 15 节点，含注入变量；"
+                 "真值=类级注入变量集）；主表只含 stability/structural_health/"
+                 "mechanism_consistency，Hit@k/MRR 等一律为附录诊断；"
+                 "类别/模板识别指标（template_retrieval）仅为实现侧诊断，"
+                 "status=not_evaluation_target，流水线不再自动计算/落盘，需要时手动调用，"
+                 "不得进主表或结论句（V23-DESIGN-055）"),
+        "evaluation_target": EVALUATION_TARGET,
         "ground_truth": {
             "definition": "该事故类型的始发（注入）事件变量集",
             "source": "causalrca/config/injection_truth.py::INJECTION_TRUTH",
@@ -723,21 +1096,32 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
             "scope": "class_level（NPPAD 数据只给严重度=文件名，无逐样本注入字段）",
         },
         "channels": {
-            "causal": "生产口径（注入点被遮蔽、候选=14 节点）",
-            "causal_unmasked_for_eval": "评测模式（注入点放回候选=15 节点；其余同生产口径）",
-            "deviation_equal_weight": "纯偏差基线（15 节点，与 causal_unmasked_for_eval 同变量集）",
-            "deviation_production_set": "纯偏差基线（14 节点，与 causal 同变量集）",
+            "causal": "生产口径（取消遮蔽：候选=模板全部节点，含注入变量，共 15 节点）",
+            "causal_unmasked_for_eval": {
+                "description": "历史别名：取消遮蔽后与 causal 等价（同一 15 节点、同一名次）",
+                "legacy_alias": True,
+                "note": "仅为兼容旧产物/旧文档保留；数值与 causal 逐项相同，不得据此另作比较",
+            },
+            "deviation_equal_weight": "纯偏差基线（15 节点，与 causal 同变量集）",
+            "deviation_production_set": {
+                "description": ("历史别名：取消遮蔽后“生产集”=“全集”，与 deviation_equal_weight "
+                                "等价（同为 15 节点）"),
+                "legacy_alias": True,
+                "note": "仅为兼容旧四通道表保留；不得据此另作比较",
+            },
         },
         "pairing": {
-            "因果 vs 偏差（评测模式）": "causal_unmasked_for_eval ↔ deviation_equal_weight（同 15 节点）",
-            "因果 vs 偏差（生产口径）": "causal ↔ deviation_production_set（同 14 节点）",
-            "note": "两列偏差基线的差别只在候选集是否含被遮蔽的注入点；不得跨配对比较",
+            "因果 vs 偏差": "causal ↔ deviation_equal_weight（同 15 节点，严格同变量集）",
+            "历史别名": ("causal_unmasked_for_eval 与 causal 等价；deviation_production_set 与 "
+                        "deviation_equal_weight 等价；旧四通道表按这两对映射回当前两列"),
+            "note": ("取消遮蔽（2026-11-11）后 15/14 两套候选集合并为一套（15 节点），"
+                     "四通道只余“因果 vs 偏差”两组真正不同的排序；不得跨配对比较"),
         },
         "test_selection": {k: {g: ((split["classes"].get(k) or {}).get("groups", {})
                                    .get(g, {}) or {}).get("test_severities")
                                for g in groups} for k in classes},
         "clip_sensitivity": {
-            "channel": "causal_unmasked（注入点放回候选；只改 |B| 的截断上限）",
+            "channel": "causal（含注入变量；只改 |B| 的截断上限）",
             "why": ("总效应 = |T| 行和，T=(I−B)⁻¹；B_CLIP 硬截断会改变名次，"
                     "因此变量级命中必须并列 clip3/clip5/clip10/clip_off 四列"),
             "clips": {
@@ -748,19 +1132,28 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
                         for k in classes if any(r["accident_type"] == k for r in rows)},
                     "per_template": {
                         name: {kk: by_template_clips[name][label][kk]
-                               for kk in ("hit1", "hit3", "mrr", "marker_rank_median", "n")}
+                               for kk in ("hit1", "hit3", "mrr", "marker_rank_median", "n",
+                                          "metric_tier", "tier")}
                         for name in by_template_clips},
                 } for label, _clip in CLIP_VARIANTS},
             "flips": _clip_flip_note(by_template_clips),
         },
         "per_class": per_class,
-        "template_retrieval": retrieval,
+        "template_retrieval": {
+            "status": RETRIEVAL_METRIC_STATUS,
+            "evaluation_target": EVALUATION_TARGET,
+            "note": ("诊断工具，非评测对象（V23-DESIGN-055）：流水线不再自动计算/落盘，"
+                     "需要时手动调用 evaluate_template_retrieval；结果不得进主表、"
+                     "结论句或论文数字"),
+        },
         "per_template": {name: {ch: {kk: s[ch][kk] for kk in
-                                     ("hit1", "hit3", "mrr", "p2", "p3", "recall3", "ap3", "n")}
+                                     ("hit1", "hit3", "mrr", "p2", "p3", "recall3", "ap3", "n",
+                                      "metric_tier", "tier")}
                                 for ch in CHANNELS}
                          for name, s in by_template.items()},
         "global": global_summary,
         "metric_definition": {
+            "metric_tier": METRIC_TIER_DIAGNOSTIC,
             "hit1": "始发变量排第 1", "hit3": "始发变量进前 3",
             "mrr": "1/首个始发变量名次", "p2/p3": "前 2/前 3 中始发变量占比",
             "recall3": "前 3 覆盖的始发变量数/真值集大小",
@@ -774,7 +1167,7 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
             "same_task": True,
             "comparable_numbers": False,
             "reason": ("同任务（事故内变量级 Top-k 命中）但不同协议：我们无人工先验降权、"
-                       "切分严格互斥、每 (类,组) 单独建图、另有遮蔽/去遮蔽两列；"
+                       "切分严格互斥、每 (类,组) 单独建图、候选含注入变量（取消遮蔽）；"
                        "引用老师 0.4368/0.5800 只能作脚注，不得并排"),
         },
         "leakage_note": ("只用 test_severities 轨迹；候选与排序全部读本 run 已落盘产物；"

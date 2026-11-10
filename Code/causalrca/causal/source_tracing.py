@@ -3,7 +3,7 @@
 核心约束（与论文 Algorithm 2 对齐）：
 - 排序主依据 = 总因果效应矩阵 T = (I−B)⁻¹ 中，候选变量对效应变量的总影响
 - 拓扑指标（in_degree/reach_size/consensus_rate）作为次级排序键和兜底
-- marker 遮蔽：不参与根变量排名
+- 取消遮蔽（2026-11-11）：注入变量（marker）作为普通候选参与排名
 - 不用幅值 |cL|/|cA| 作为排序依据
 """
 from __future__ import annotations
@@ -252,7 +252,7 @@ def select_root_candidates(
     主排序键：total_effect_score（候选变量对所有效应变量的总因果效应绝对值之和）
     效应变量 = terminal 节点（out_degree=0）+ marker（症状/异常端）
     次级排序键：in_degree ASC, weighted_reach DESC, reach_size DESC, consensus_rate DESC
-    marker 遮蔽：不参与根变量排名。
+    取消遮蔽（2026-11-11）：注入变量作为普通候选参与排名。
     """
     return trace_roots(topology, marker, stable_edges, variables,
                        top_k=top_k)["root_candidates"]
@@ -271,6 +271,7 @@ def trace_roots(
 
     `role_prior`（B1，默认关闭）：命中外部响应变量名单者，**排序键**乘 0.30；
     不改 `B`、不改 `T`，`total_effect` 字段仍存原始值，另记 `ranking_score`。
+    取消遮蔽（2026-11-11）：注入变量（marker）作为普通候选参与排名。
     返回 {"root_candidates": [...], "total_effect": {v: score}, "diagnostics": {...}}
     """
     from causalrca.config import role_prior as RP
@@ -289,8 +290,6 @@ def trace_roots(
 
     candidates: List[Dict] = []
     for v, info in topology.items():
-        if v == marker:
-            continue
         # 总因果效应得分 = 该变量对所有效应变量的 |T| 之和
         j = idx[v]
         total_effect = float(np.sum(np.abs(T[effect_idx, j]))) if effect_idx else 0.0
@@ -310,7 +309,8 @@ def trace_roots(
             "tracing_score": tracing_score,
             "_ranking_score": ranking_score,
             "role": classify_role(info["in_degree"], info["out_degree"]),
-            "is_marker": False,
+            # 历史字段（原遮蔽标记）：取消遮蔽后仅作标识，不参与任何判定
+            "is_marker": bool(v == marker),
         })
 
     # 主排序：总因果效应 DESC（开启先验时用乘子后的排序键；total_effect 字段不变）

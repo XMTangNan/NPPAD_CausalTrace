@@ -125,7 +125,8 @@ REGISTRY: Dict[str, Dict] = {
         key_responses=["PSGA", "PSGB", "WFWA", "WFWB", "TAVG"],
         severity_unit="% of 100 cm²", n_design=100, marker_type="process",
         status="data_missing", n_trajectories=0,
-        notes=_NOTE_NO_DATA + "marker 为过程量（方案 §4.3 组2：无专用指示器）。",
+        notes=_NOTE_NO_DATA + "marker 为过程量（方案 §4.3 组2：无专用指示器）；"
+                             "真值表无对应项（no_truth，见 injection_truth.py），禁止用代理真值。",
     ),
     "SLBOC": _record(
         code="SLBOC", name_cn="安全壳外蒸汽管道破裂", group=2, marker="WSTA",
@@ -133,7 +134,8 @@ REGISTRY: Dict[str, Dict] = {
         key_responses=["PSGA", "PSGB", "WFWA", "WFWB", "TAVG"],
         severity_unit="% of 100 cm²", n_design=100, marker_type="process",
         status="data_missing", n_trajectories=0,
-        notes=_NOTE_NO_DATA + "marker 为过程量（方案 §4.3 组2）；与 SLBIC 靠安全壳隔离响应区分。",
+        notes=_NOTE_NO_DATA + "marker 为过程量（方案 §4.3 组2）；与 SLBIC 靠安全壳隔离响应区分；"
+                             "真值表无对应项（no_truth，见 injection_truth.py），禁止用代理真值。",
     ),
     "SGATR": _record(
         code="SGATR", name_cn="蒸汽发生器A传热管破裂", group=3, marker="WTRA",

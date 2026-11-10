@@ -158,7 +158,6 @@ Code/
     │       ├── graphs/graph_all_summary.html
     │       ├── metrics/metrics_{K}_{g}.json   # 第 10 步：事故内变量级命中（三通道，含纯偏差基线）
     │       ├── metrics/metrics_summary.json   # 每类/全局汇总 + Wilson 95% + 真值表 + 与老师不可并排
-    │       ├── metrics/metrics_template_retrieval.json  # 主指标：模板级检索（类别级/模板级 Hit@1/Hit@3/MRR）
     │       ├── reports/summary_{K}.json
     │       ├── reports/diff_{K}.json
     │       ├── reports/deviation_{K}_{g}.json
@@ -357,7 +356,7 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
   clip5=第 5、clip_off=第 3）。
 - **口径定稿为方案 B（V23-DESIGN-039）**：生产口径**维持遮蔽**（`trace_roots` 的 marker 跳过分支不动），
   `causal` 列 0 是候选集定义使然、不是排序失败；去遮蔽列与 `clip_sensitivity` 降级为**可辨识性诊断**，
-  不进主表、不作准确率主张；**主指标为模板级检索**（事故类 × 严重度组）。受控实验另存
+  不进主表、不作准确率主张；**检索指标已停用**（见 V23-DESIGN-055）。受控实验另存
   `Code/experiments/ranking_diagnosis_v23-20261110T150726/`（非主链产物，`.gitignore` 已忽略）：7 种排序量下 Hit@1 上限
   0.1000，Hit@3 0.3167→0.7000 全来自 `RESPONSE_VARS` 0.30 人工先验，孤立节点殿后使 V2c 0.7000→0.3167。
   **偏差基线两列已修复、可引用（V23-CODE-029 → 030）**：`sigma_robust<=0` 或低于该变量量纲可分辨
@@ -365,12 +364,11 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
   补 13 个物理下限 `by_variable`；实测 60 条留出 `n_not_comparable=0`）。修复后 `deviation_equal_weight`
   仍为 Hit@1 0 / Hit@3 0.0167 / MRR 0.1866（修复前 0 / 0 / 0.1746）——**"偏差基线不能定位始发变量"
   的结论不变，且不再由 σ 病态造成**。
-- **主指标为模板级检索（V23-DESIGN-040）**：`metrics/metrics_template_retrieval.json`。对每条留出轨迹，
-  用该模板 `stable_edges` 的相对 SEM 残差给 9 个模板打分（`r_t = mean_v[ mean|z_v−Σ_u w_uv z_u| / mean|z_v| ]`，
-  z 按注入前基线标准化、窗口固定 `[300,1500]`），类别榜取该类三组最小 r。实测：类别级 Hit@1 0.9000
-  （54/60，Wilson [0.7985,0.9534]）/ MRR 0.9417；模板级 Hit@1 0.3667（22/60，[0.2562,0.4932]）/
-  Hit@3 0.5500 / MRR 0.5224。**类别级 Hit@3≡1.0 在 3 类下恒真、无信息量，不报**；类内三组严重度同构
-  → 模板级天然难分（逐类 0.30/0.50/0.30）；n=60 未做显著性检验；候选仅 9 个模板。
+- **检索指标已停用（V23-DESIGN-055，2026-11-11）**：`evaluate_template_retrieval`（相对 SEM 残差
+  给 9 个模板打分）保留为**手动诊断工具**，`evaluate()` 不再自动调用，流水线不再产出
+  `metrics/metrics_template_retrieval.json`；`metrics_summary.template_retrieval` 只剩状态声明。
+  历史 run（`v23-20261110T150726`）里的旧 json 与旧数字**不回填**，只能作"实现侧诊断"引用：
+  类别级 Hit@1 0.9000 / 模板级 0.3667 不得进主表、结论句或论文数字。
 - 落 `metrics/metrics_{K}_{g}.json`（逐例四通道明细 + 模板汇总 + `clip_sensitivity` 四列 + 遮蔽披露）与
   `metrics/metrics_summary.json`（三层汇总 + 真值表 + `clip_sensitivity`/`flips` + `comparability_with_teacher`）。
 - **与老师数字不并排**：同任务（事故内变量级 Top-k 命中）但不同协议——我们无人工先验降权、
@@ -428,4 +426,4 @@ PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归
 | D | D8 Alg3 | `cf_validation.py` | 复用，不改口径 |
 | D | D9 偏离度 | `deviation.py` 接入图/榜单 | 9 份 deviation + 图内着色 |
 | D | D10 端到端 | `run_v23_all.py` | 全链一次重算，manifest 可核对 |
-| D | D11 变量级评测 | `evaluation.py` | 60 条留出 × 9 模板：变量级 Hit@1/Hit@3/MRR/P@2/P@3/Recall@3/AP@3，四通道（生产/去遮蔽/两条偏差基线）同表、`B_CLIP` 四列并列（diagnostic）；口径定稿方案 B，偏差两列已修复（V23-CODE-030）；主指标另落 `metrics/metrics_template_retrieval.json`（V23-DESIGN-040）；与老师 0.4368/0.5800 不并排 |
+| D | D11 变量级评测 | `evaluation.py` | 60 条留出 × 9 模板：变量级 Hit@1/Hit@3/MRR/P@2/P@3/Recall@3/AP@3，四通道（生产/去遮蔽/两条偏差基线）同表、`B_CLIP` 四列并列（diagnostic）；口径定稿方案 B，偏差两列已修复（V23-CODE-030）；检索指标已断开自动调用、不再落盘（V23-DESIGN-055，手动诊断）；与老师 0.4368/0.5800 不并排 |

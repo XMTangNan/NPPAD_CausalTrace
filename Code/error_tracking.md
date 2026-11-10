@@ -1190,7 +1190,9 @@
 - **回收旧表述**：`LOCA_high` 的"1.000"只能写成"**clip5 下 1.000、去截断下第 3（Hit@1=0）**"。
 - 状态：✅ 已解决（pytest 155 passed + 1 条与本轮无关的架构守卫失败，见下）。
 
-**V23-DESIGN-039（closed）· 遮蔽口径定稿为方案 B + 受控实验两条结论入册**
+**V23-DESIGN-039（superseded 2026-11-11，被 V23-DESIGN-056 取代）· 遮蔽口径定稿为方案 B + 受控实验两条结论入册**
+
+> **已被取代（2026-11-11 用户裁决）**：取消遮蔽，见 `V23-DESIGN-056`。本条"维持遮蔽"与"去遮蔽列降级为诊断"的结论随之失效；文中数字只作历史记录，不得再作口径依据。
 
 - 裁决：**维持遮蔽**（`trace_roots` 的 `if v == marker: continue` 不动）；去遮蔽列
   `causal_unmasked_for_eval` 降级为**可辨识性诊断**（不进主表、不作准确率主张）；方案 A/C 只留否决理由。
@@ -1263,7 +1265,9 @@
   文档串与失败信息显式要求"实验产物放 Code/experiments/"；`output/README.md` 增同条规则。
 - 状态：✅ 已解决；`pytest` 157 passed。
 
-**V23-DESIGN-040（closed）· 主指标定为模板级检索（相对 SEM 残差）**
+**V23-DESIGN-040（superseded 2026-11-11）· 主指标定为模板级检索（相对 SEM 残差）**
+
+> **作废**：本条把实现层自增的 9 模板检索追认为"主指标"，与 V23-DESIGN-036（任务=事故内变量级溯源）冲突。2026-11-11 用户裁决作废，改为实现侧诊断；根因与影响面见 V23-DESIGN-055。原文保留如下仅供追溯。
 
 - 定义与结果见方案 §5.17；产物 `metrics/template_retrieval.json`，并并入 `metrics_summary.template_retrieval`。
 - 类别级 Hit@1 0.9000（54/60）、MRR 0.9417；模板级 Hit@1 0.3667、Hit@3 0.5500、MRR 0.5224。
@@ -1468,6 +1472,70 @@
   60 条遮蔽指标 0.0000/0.1000/0.0661/0.0333 全部一致），不是换图比较。
 - 影响面：**纯文档，不改代码、不重跑**；产物 `Code/experiments/c57_total_effect_v23-20261110T150726/{c57_unmasked.py,unmasked/}`。
 - 结果：方案 §9.4.1 N2 行、§9.4.4 C57 条、§9.5 已同步；结项报告 §0/§1/§7/§10 已同步。
+
+**V23-DESIGN-055（closed）· 主指标误设更正：9 模板检索作废，评测对象回归变量级（2026-11-11 用户裁决）**
+
+- 事实：`EV.evaluate()` 内部自增 `evaluate_template_retrieval`（候选=9 模板、真值=该类_严重度组、命中=名次第 1），
+  并非任务要求；V23-DESIGN-040 在文档层把它追认为"主指标"，方案 §5.17 报类别级 Hit@1 0.9000、模板级 0.3667，
+  再被 §5.13 末句、§5.16、结项报告 §0 放大为"可引用主指标"。
+- 根因（文档层追认 vs 任务定义）：任务定义 V23-DESIGN-036 / 方案 §5.12 明确"不做事故大类匹配、不把 9 个模板
+  当检索池、不允许出现事故类型分类准确率"；040 未回到任务定义做一致性检查，把实现侧多算的一个诊断指标
+  写成了主指标，形成"同一份定稿两套口径"。
+- 影响面：**所有引用类别级 0.9000 / 模板级 0.3667 作为主指标或性能结论的表述作废**（含结项报告 §0/§6、
+  方案 §5.13/§5.16/§5.17、对外汇报口径）；数字本身保留，仅可作"实现侧诊断，非评测对象"引用。
+- 处置：§5.17 整节标作废（原文保留 + 作废说明）；§0.2 新增第 11 条硬规则；§5.13 末句加更正；
+  `evaluation.py` 新增 `EVALUATION_TARGET` / `RETRIEVAL_METRIC_STATUS`，`task` 字段统一为变量级；
+  **断开 `evaluate()` 内对 `evaluate_template_retrieval` 的自动调用**（函数本体保留为手动诊断工具），
+  流水线不再产出 `metrics_template_retrieval.json`；`metrics_summary.template_retrieval` 改为状态声明；
+  `tests/test_v23_evaluation.py` 由"检索是主指标"改为"不落盘、不进主表"契约；结项报告 §0 两行改写。
+- 边界：**未改遮蔽逻辑**（`if v == marker: continue` 原样，历史命名）、未重跑、未改历史产物。
+- 产物不可变（长期约定）：`output/runs/` 下历史产物一律不回写、不覆盖、**不改 `manifest.json` 的
+  `path`/`size`/`sha256`**；旧 `task` 字段与旧 `metrics_template_retrieval.json` 按本条视为已被代码覆盖，
+  以后不做任何"为了让历史产物符合新口径"的回填（同 `Code/output/README.md`「产物不可变约定」）。
+- 状态：✅ 已解决。
+
+**V23-DESIGN-056（closed）· 取消遮蔽（2026-11-11 用户裁决，取代 V23-DESIGN-039）**
+
+- 决定：取消遮蔽。`trace_roots` 不再跳过注入变量，候选集回到全部节点（15），名次正常赋值；
+  `is_marker` / `marker_info` 降为**历史字段**（仅标识与结构兼容，不参与任何判定）。
+- 依据（取证）：NPPAD 数据集只给事故类别目录、严重度单位与发生时间、变量清单
+  （`nppad_repo/README.md` 表 1 / 表 2；在线仓库同构），12 类全部没有逐条"哪个变量被扰动"的标注；
+  `injection_truth.py` 的 `SOURCE` 亦写明真值为人工整理。既然注入变量是本项目按机理指定的假设，
+  "建图算它、排名摘它"所依赖的"客观外生边界"前提不成立，特例撤销。
+- 影响面：① **所有变量级历史数字作废**（候选集 14→15，前后不可比）；② 依赖遮蔽的断言与字段
+  （V4 断言、`is_marker=False`、`marker_info.rank=null`）清理或降为兼容字段；③ 结项报告、对比稿、
+  方案 §5.13/§5.16 需同步；④ `V23-DESIGN-053/054` 关于 C57"遮蔽空结果"的归因只作历史记录。
+- 结果：新 run `v23-20261111T015705`（5 次档 `reduced`/测试档；`latest` 未刷新，`citable=null`，
+  **不得作论文数字**）；只重排未重学图（签名产物逐字节复制，源 run `v23-20261110T174721` 的 162 个
+  文件 sha256 全量比对无差异）。15 候选口径 Hit@1 = 0.1000（6/60）、Hit@3 = 0.2000（12/60）、
+  MRR = 0.2349；注入变量名次序列 14,14,2,14,14,14,8,4,1（第 1 名 1/9、前 3 名 2/9）。
+- 边界：未跑 100 次档、未回填历史产物、未改图门控 / `B_CLIP` / 角色先验。
+- 状态：✅ 已解决。
+
+**V23-DESIGN-057（closed）· 评价协议重写：指标分层（本工作不主张准确率）**
+
+- 决定：主表只允许 primary 三块——`stability`（稳定性）、`structural_health`（结构健康度）、
+  `mechanism_consistency`（机理一致性，`status=not_available` 占位）。hit@1/3、MRR、P@2/3、Recall@3、
+  AP@3、Jaccard@3、偏差通道、名次分布、检索指标、clip 翻转全部标 `metric_tier=diagnostic`，
+  不得进主表、结论句或论文数字。
+- 依据：真值不是数据标注（056、§5.18），hit@k/MRR 只测"排序是否吻合这套假设"，且与教师侧共享同一套
+  假设，不构成独立验证；用户裁决"没有明确真值，很多指标没有存在意义"。
+- 实现：`evaluation.py` 新增 `METRIC_TIER_PRIMARY/DIAGNOSTIC`、`PRIMARY_BLOCKS`、`DIAGNOSTIC_METRICS`；
+  `metrics_summary.json` 新增 `evaluation_protocol` 与三个 primary 块；`causal` 与
+  `causal_unmasked_for_eval` 统一为 15 候选（后者 `legacy_alias`）；`deviation_production_set` 与
+  `deviation_equal_weight` 等价（`legacy_alias`，配对约束需要）。
+- 结果（run `v23-20261111T015705`，5 次档，**不可引用**）：稳定性 rank_std 中位 2.16–2.94、
+  Top-5 Jaccard 均值 0.217–0.369、Spearman 均值 −0.001–0.414；结构健康度 `cond(I−B)` clip 前
+  max 2.14e9 → clip 后 max 1.06e3、VIF 类级 max 2314.56、`stable_edge_ratio` 均值 0.2688、
+  clip Top-5 翻转 8/9；`bootstrap_flip_rate` 未计算（需 ≥20 次且逐次落盘 top-k）；机理一致性
+  `not_available`（`violation_rate`/`coverage` 均为 `null`）。
+- 守卫：`tests/test_v23_evaluation.py` 新增
+  `test_metric_tiers_keep_accuracy_metrics_out_of_primary_blocks`（primary 块出现诊断指标即 fail）；
+  `pytest tests` 162 passed。
+- 边界：未跑 100 次档、未刷新 `latest`、未回填历史产物、未编造任何专家判据。
+- 状态：✅ 已解决（机理一致性为**显式暂缺**，不是"已完成"）。
+
+
 
 
 

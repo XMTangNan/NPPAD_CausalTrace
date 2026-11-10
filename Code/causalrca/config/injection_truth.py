@@ -51,6 +51,13 @@ SUSPECT = {
 }
 
 
+# 登记一致性（2026-11-11 补漏，显式标注，不沉默）：
+# - LOF / TT：真值表有，注册表无配置 → not_configured，不参与任何计算。
+# - SLBIC / SLBOC：注册表有配置，真值表无对应项 → no_truth，禁止用代理真值。
+NOT_CONFIGURED: tuple[str, ...] = ("LOF", "TT")
+NO_TRUTH: tuple[str, ...] = ("SLBIC", "SLBOC")
+
+
 def truth_for(accident_type: str) -> tuple[str, ...]:
     if accident_type not in INJECTION_TRUTH:
         raise KeyError(f"{accident_type} 未登记始发变量真值，禁止用代理代替")
