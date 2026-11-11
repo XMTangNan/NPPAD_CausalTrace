@@ -283,6 +283,8 @@ def report_to_text(report: Dict) -> str:
              f"被截断边 {g2['n_clipped_edges']} 条。")
     L.append("  条件数 cond(I−B)：已撤出结果层（阈值 10000 无来源、实测 9/9 全过，"
              "不具区分能力；原值见 json 的 2_graph_summary 字段，仅内部留档）。")
+    L.append("  VIF 门（阈值 500）与条件数门（阈值 10000）**仅作记录，不构成通过判定**："
+             "两者都不提供质量合格证，引用时只说“数值多大”，不得写“通过/稳定”。")
     stab = g2.get("stability") or {}
     if stab:
         L.append("  数值稳定性判词（stability_label）已撤出结果层：它由 cond 门与截断比阈值"

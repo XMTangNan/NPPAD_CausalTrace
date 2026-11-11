@@ -800,16 +800,18 @@ def structural_health_block(run_id: str) -> Dict:
         },
         "gates": {
             "vif": {**_withdrawn_fields(["vif_gate"]),
-                    "gate_status": "cannot_fail",
+                    "gate_status": "record_only_no_pass",
                     "why": ("VIF_MAX=500 同时是迭代停止条件：循环在“非保护 max<500”时退出，"
                             "classify_v3 再把同一条件复述一遍；高 VIF 全落在保护集，"
                             "非保护 max 恰为 489.6/490.0/276.3，对残留高 VIF 无告警能力"),
-                    "use": "只可作描述性原始量（含保护变量的 max/median），不得写“通过/失败”"},
+                    "use": ("仅作记录，不构成通过判定（不是质量合格证）；"
+                            "只可作描述性原始量（含保护变量的 max/median），不得写“通过/失败”")},
             "condition_number": {**_withdrawn_fields(["cond_gate"]),
-                                 "gate_status": "cannot_fail",
+                                 "gate_status": "record_only_no_pass",
                                  "why": ("阈值 10000 无来源；实测截断后最高 1054.8，9/9 全过；"
                                          "截断前最高 2.38e9，“变好”是截断产物"),
-                                 "use": "只可陈述“多大”，不得据此声称“数值稳定”"},
+                                 "use": ("仅作记录，不构成通过判定（不是质量合格证）；"
+                                         "只可陈述“多大”，不得据此声称“数值稳定”")},
         },
         "result_layer": {
             "reported": False,
