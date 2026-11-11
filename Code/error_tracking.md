@@ -1906,7 +1906,8 @@ gitignore），`pytest` 161 passed。
 - 提交（分支 `scaffold`，代码与文档分开）：
   ① `16b3e91` feat(v2.3)：第八步模型判定报告 + 正向机理条目 + 指标撤出结果层（代码、知识、测试）；
   ② `74d549e` docs(v2.3)：方案 §0.5/§7.10/§7.11 + 对外版 + 台账 060–078（文档、submit、台账）。
-  `git status` 已无未提交的代码/文档改动；另有 1 份 `submit/量级核查-…md` 属分析会话，未纳入本次提交。
+  `git status` 已无未提交的代码/文档改动；另有 1 份 `submit/量级核查-…md` 属分析会话，未纳入本次提交
+  （该文件随后在工作区被删除，转入 `issues/` 时已不存在，见 V23-DESIGN-080）。
 - 推送：**失败**。命令 `git push origin scaffold`（HTTPS remote），退出信息原文：
   `remote: No anonymous write access.`
   `fatal: Authentication failed for 'https://github.com/XMTangNan/NPPAD_CausalTrace.git/'`
@@ -1914,3 +1915,20 @@ gitignore），`pytest` 161 passed。
 - 已按纪律执行：**只重试一次**；未改用 SSH、未使用 token、未 force、未改写远端历史。
 - 远端状态：`refs/heads/scaffold = 38f70e8`（未同步），本地领先 37 个提交。
 - 状态：⏳ 待用户在 WSL 配置 GitHub 凭据后重推；台账与回执已如实记录。
+
+**V23-DESIGN-080（closed）·【用户要求】新建 `issues/`：问题取证文档与交付目录分离**
+
+- 决定内容：仓库根新建 `issues/`（与 `submit/`、`方案/` 平级），只放"记录问题"的文档；
+  方案、对外版、对比稿、LLM 解释机制方案、机理一致性评审表草案、产物入口页**不迁**，留在原处。
+- 依据：用户要求——问题类产物不应混在 `submit/` 等交付目录里。
+- 迁移结果：
+  - `issues/指标可靠性审查-v23-20261111T022417-2026-11-11.md`（自 `submit/`）
+  - `issues/方向体检-前五角色-行列和-v23-20261111T022417-2026-11-11.md`（自 `submit/`）
+  - `submit/量级核查-v23-20261111T022417-2026-11-11.md`：**迁移时该文件已不在工作区、也从未入库**
+    （曾为未跟踪文件，已被其它会话删除），无法迁入；本条如实记录，不重建、不凭记忆补写。
+  - `submit/LLM解释机制方案-2026-11-11.md`、`submit/机理一致性评审表-草案-2026-11-11.md`
+    按"留在原处"从 HEAD 恢复到 `submit/`（此前工作区缺失，属误删）。
+- 引用修复：`submit/产物入口-20261111T022417.html` 的"指标可靠性审查"链接改为
+  `../issues/…`；`方案/README.md` 新增 `../issues/` 索引小节；台账本行与 1909 行路径同步。
+- 新增：`issues/README.md`（收录标准、排除项、命名规则 `<主题>-<run_id 或日期>.md`、历史迁入不改内容）。
+- 状态：✅ 完成；未改文档内容，只改位置与引用；未动 `output/`。
