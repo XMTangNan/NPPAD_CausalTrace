@@ -275,8 +275,8 @@ def step_ab_variable_selection(run_id: str):
     return "A/B 对照完成"
 
 
-def step_manifest(run_id: str):
-    path = artifact.build_manifest(run_id)
+def step_manifest(run_id: str, refresh_latest: bool = True):
+    path = artifact.build_manifest(run_id, refresh_latest=refresh_latest)
     return str(path)
 
 
@@ -290,7 +290,8 @@ def _plan_steps(with_ab: bool) -> List[Dict]:
 
 def _step_fns(run_id: str, classes: List[str], groups: List[str],
               n_bootstrap: int, backend: str,
-              role_prior: Optional[bool] = None) -> Dict[str, object]:
+              role_prior: Optional[bool] = None,
+              refresh_latest: bool = True) -> Dict[str, object]:
     """步骤名 → 执行函数（参数已绑定，含本链 run_id）。"""
     return {
         "variable_sets": lambda: step_variable_sets(run_id),
@@ -303,7 +304,7 @@ def _step_fns(run_id: str, classes: List[str], groups: List[str],
         "explanation_reports": lambda: step_explanation_reports(run_id, classes, groups, backend),
         "evaluation": lambda: step_evaluation(run_id, classes, groups, role_prior),
         "ab_variable_selection": lambda: step_ab_variable_selection(run_id),
-        "manifest": lambda: step_manifest(run_id),
+        "manifest": lambda: step_manifest(run_id, refresh_latest),
     }
 
 
@@ -341,7 +342,19 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="全链重跑原因（方案 §6.4 强制）：必须命中 E-R1/E-R2/E-R3/E-R4 并写清具体项")
     ap.add_argument("--citable", action="store_true",
                     help="显式声明本次产物可引用（仅 n_bootstrap 达正式口径/spec 档允许；缩减档直接报错）")
+    ap.add_argument("--normalization", default="current",
+                    choices=["current", "unified", "unified_keep_injection"],
+                    help="学图归一化口径（V23-DESIGN-085）：current=生产三路（默认，逐字不变）；"
+                         "unified=全部按训练段池化 mean/std；"
+                         "unified_keep_injection=其余统一但注入变量仍走平台尺度")
+    ap.add_argument("--no-latest", action="store_true",
+                    help="不刷新 output/latest（实验档专用；生产默认刷新）")
+    ap.add_argument("--run-prefix", default="v23",
+                    help="run_id 前缀，默认 v23（实验档可换前缀避免与生产 run 混淆）")
     args = ap.parse_args(argv)
+
+    from causalrca.causal import signatures as SIG
+    SIG.set_normalization_mode(args.normalization)
 
     classes = list(args.classes or READY_CODES)
     unknown = [k for k in classes if k not in REGISTRY]
@@ -366,7 +379,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "必须命中 E-R1 出对外数字 / E-R2 影响数值 / E-R3 产物结构或契约 / "
             "E-R4 跨阶段对不上，并写清具体项。未声明原因的重跑视为违规，产物不得引用。")
 
-    run_id = artifact.new_run_id("v23")
+    run_id = artifact.new_run_id(args.run_prefix)
     run_mode = run_mode_for(args.n_bootstrap)
     if args.citable and run_mode != RUN_MODE_SPEC:
         raise SystemExit(
@@ -383,7 +396,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     steps = _plan_steps(args.with_ab)
     fns = _step_fns(run_id, classes, groups, args.n_bootstrap, backend,
-                    getattr(args, "role_prior", None))
+                    getattr(args, "role_prior", None),
+                    refresh_latest=not args.no_latest)
     results: List[Dict] = []
     for i, step in enumerate(steps, start=1):
         entry = _run_step(i, step, fns[step["name"]], results, len(steps))
@@ -404,6 +418,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                        "stability_claims_allowed": stability_claims_allowed(args.n_bootstrap),
                        "citable": citable,
                        "role_prior": bool(getattr(args, "role_prior", None)),
+                       "normalization": args.normalization,
+                       "refresh_latest": not args.no_latest,
+                       "run_prefix": args.run_prefix,
                        "explanation_backend": backend,
                        "note": llm_note},
         "steps": results,
@@ -424,7 +441,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     summary_path = artifact.write_artifact("run_v23_all_summary", summary, "reports",
                                            run_id=run_id, source="causalrca/cli/run_v23_all.py")
     if manifest_ok:  # summary 落盘后刷新 manifest，使其纳入本次 summary
-        artifact.build_manifest(run_id, citable=citable)
+        artifact.build_manifest(run_id, citable=citable,
+                                refresh_latest=not args.no_latest)
 
     print("=" * 78)
     print(f"[D10] run_id={run_id} steps={summary['n_steps_ok']}/{len(steps)} ok "

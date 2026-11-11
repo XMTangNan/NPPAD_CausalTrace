@@ -214,7 +214,8 @@ def _probe_n_bootstrap(root: Path) -> Optional[int]:
 
 def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.png", "*.html", "*.md", "*.txt"),
                    skip: Iterable[str] = ("manifest.json",),
-                   citable: Optional[bool] = None) -> Path:
+                   citable: Optional[bool] = None,
+                   refresh_latest: bool = True) -> Path:
     """扫描本 run 根下全量产物，写 <run 根>/manifest.json（path/size/sha256/lineage）。
 
     `path` 一律是相对本 run 根的 POSIX 路径，便于迁移/比对与禁止跨 run 串源。
@@ -276,8 +277,10 @@ def build_manifest(run_id: str, include: Iterable[str] = ("*.json", "*.csv", "*.
         logger.warning(f"[v23] n_bootstrap={n_bootstrap}（未达正式口径 {N_BOOTSTRAP_SPEC}）："
                        f"报告中必须打印实际次数，不得声称边稳定性、不得引用 consistency_rate 作结论")
     # latest 正常刷新：默认即 5 次，若按旧规则拒刷会让工程链不可用（V23-DESIGN-044）
-    doc["latest_updated"] = True
-    set_latest(run_id)
+    # refresh_latest=False 仅供实验档显式关闭（V23-DESIGN-085），生产默认不变。
+    doc["latest_updated"] = bool(refresh_latest)
+    if refresh_latest:
+        set_latest(run_id)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False, indent=2)
     logger.info(f"[v23] manifest -> {path} ({len(entries)} files, run_mode={run_mode}, "

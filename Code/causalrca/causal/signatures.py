@@ -100,21 +100,70 @@ def select_stable_edges(edge_stats: Dict, f_thr: float = STABLE_F,
             if e["f_e"] >= f_thr and e["dir_e"] >= dir_thr]
 
 
+# ==================== 归一化口径（V23-DESIGN-085，默认三路原样）====================
+NORMALIZATION_CURRENT = "current"
+NORMALIZATION_UNIFIED = "unified"
+NORMALIZATION_UNIFIED_KEEP_INJECTION = "unified_keep_injection"
+NORMALIZATION_MODES = (NORMALIZATION_CURRENT, NORMALIZATION_UNIFIED,
+                       NORMALIZATION_UNIFIED_KEEP_INJECTION)
+_NORMALIZATION_MODE = NORMALIZATION_CURRENT
+
+
+def set_normalization_mode(mode: str) -> str:
+    """设置进程级学图归一化口径；默认 current（生产三路，逐字不变）。
+
+    仅由显式 CLI 参数（run_v23_all --normalization）调用；默认路径不触碰。
+    """
+    global _NORMALIZATION_MODE
+    if mode not in NORMALIZATION_MODES:
+        raise ValueError(f"未知 normalization={mode!r}，只允许 {NORMALIZATION_MODES}")
+    _NORMALIZATION_MODE = mode
+    return _NORMALIZATION_MODE
+
+
+def get_normalization_mode() -> str:
+    return _NORMALIZATION_MODE
+
+
+def compute_unified_scale(blocks: List[np.ndarray],
+                          variables: List[str]) -> Dict[str, Tuple[float, float]]:
+    """统一口径尺度：模板训练段（全部训练轨迹学图窗）池化 mean/std(ddof=0)。"""
+    pool = np.vstack(blocks)
+    return {v: (float(pool[:, p].mean()), float(pool[:, p].std()))
+            for p, v in enumerate(variables)}
+
+
 # ==================== 数据变换 ====================
 def transform_graph_block(block: np.ndarray, variables: List[str], marker: str,
                           mu: Dict[str, float], sigma: Dict[str, float],
                           median_platform: float,
-                          graph_only_scale: Dict[str, Tuple[float, float]]) -> np.ndarray:
-    """原始块 -> 学图矩阵：V_thr 用共享 mu/sigma；marker 用平台尺度；图专用变量模板内尺度。"""
+                          graph_only_scale: Dict[str, Tuple[float, float]],
+                          normalization: Optional[str] = None,
+                          unified_scale: Optional[Dict[str, Tuple[float, float]]] = None
+                          ) -> np.ndarray:
+    """原始块 -> 学图矩阵。
+
+    normalization=None 时取进程级口径（默认 current）：
+      - current：V_thr 用共享 mu/sigma；marker 用平台尺度；图专用变量模板内尺度；
+      - unified：全部建模变量用训练段池化 mean/std（替代三路）；
+      - unified_keep_injection：除 marker 仍走平台尺度外，其余同 unified。
+    """
+    mode = normalization or _NORMALIZATION_MODE
     Z = np.empty_like(block, dtype=float)
     for p, v in enumerate(variables):
         x = block[:, p]
-        if v == marker:
+        if mode == NORMALIZATION_CURRENT:
+            if v == marker:
+                Z[:, p] = x / median_platform
+            elif v in mu:
+                Z[:, p] = (x - mu[v]) / sigma[v]
+            else:
+                m_v, s_v = graph_only_scale[v]
+                Z[:, p] = (x - m_v) / s_v if s_v > 1e-12 else 0.0
+        elif mode == NORMALIZATION_UNIFIED_KEEP_INJECTION and v == marker:
             Z[:, p] = x / median_platform
-        elif v in mu:
-            Z[:, p] = (x - mu[v]) / sigma[v]
         else:
-            m_v, s_v = graph_only_scale[v]
+            m_v, s_v = unified_scale[v]
             Z[:, p] = (x - m_v) / s_v if s_v > 1e-12 else 0.0
     return Z
 
@@ -165,6 +214,8 @@ def bootstrap_lingam_template(blocks: List[np.ndarray], variables: List[str],
 
     rng = np.random.default_rng(seed)
     graph_only = compute_graph_only_scale(blocks, variables, marker, mu)
+    unified = (compute_unified_scale(blocks, variables)
+               if _NORMALIZATION_MODE != NORMALIZATION_CURRENT else None)
     n_traj = len(blocks)
 
     B_list: List[np.ndarray] = []
@@ -174,7 +225,8 @@ def bootstrap_lingam_template(blocks: List[np.ndarray], variables: List[str],
         sampled = rng.integers(0, n_traj, size=n_traj)
         raw = np.vstack([blocks[i] for i in sampled])
         Z = transform_graph_block(raw, variables, marker, mu, sigma,
-                                  median_platform, graph_only)
+                                  median_platform, graph_only,
+                                  unified_scale=unified)
         model = DirectLiNGAM()
         model.fit(Z)
         B_c, rep = apply_ontology_constraint(model.adjacency_matrix_, variables,
@@ -197,6 +249,7 @@ def bootstrap_lingam_template(blocks: List[np.ndarray], variables: List[str],
         "variables": variables, "marker": marker,
         "n_train_trajectories": n_traj, "n_bootstrap": n_bootstrap,
         "median_platform": float(median_platform),
+        "normalization": _NORMALIZATION_MODE,
         "stable_edges": sorted(stable, key=lambda e: (-e["f_e"], e["from"], e["to"])),
         "all_edges": stats["edges"],
         "cL": stats["cL"],
@@ -239,9 +292,12 @@ def fit_single_template(blocks: List[np.ndarray], variables: List[str],
     """
     from lingam import DirectLiNGAM
     graph_only = compute_graph_only_scale(blocks, variables, marker, mu)
+    unified = (compute_unified_scale(blocks, variables)
+               if _NORMALIZATION_MODE != NORMALIZATION_CURRENT else None)
     raw = np.vstack(blocks)
     Z = transform_graph_block(raw, variables, marker, mu, sigma,
-                              median_platform, graph_only)
+                              median_platform, graph_only,
+                              unified_scale=unified)
     model = DirectLiNGAM()
     model.fit(Z)
     B_c, rep = apply_ontology_constraint(model.adjacency_matrix_, variables,
@@ -253,6 +309,7 @@ def fit_single_template(blocks: List[np.ndarray], variables: List[str],
         "variables": variables, "marker": marker,
         "n_train_trajectories": len(blocks), "n_bootstrap": 1,
         "median_platform": float(median_platform),
+        "normalization": _NORMALIZATION_MODE,
         "stable_edges": sorted(stable, key=lambda e: (-e["f_e"], e["from"], e["to"])),
         "all_edges": stats["edges"],
         "cL": stats["cL"],
