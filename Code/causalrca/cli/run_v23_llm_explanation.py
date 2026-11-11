@@ -21,6 +21,7 @@ from typing import Dict, List, Optional
 from causalrca.io.logging import logger
 from causalrca.io import artifact
 from causalrca.reporting import llm_explanation as LE
+from causalrca.reporting import explanation_verdict as EV
 from causalrca.config.accident_config import READY_CODES, REGISTRY
 
 GROUPS: List[str] = ["low", "mid", "high"]
@@ -49,6 +50,14 @@ def explain_one(k: str, g: str, backend: str = "rule") -> Dict:
         source=(f"tracing/root_candidates_{k}_{g}.json;"
                 f"signatures/signature_{k}_{g}.json;"
                 f"reports/summary_{k}.json;reports/diff_{k}.json"))
+    # V23-DESIGN-062：判定式解释为可开关附加产物，默认关闭；失败不影响规则稿
+    if EV.verdict_enabled():
+        try:
+            verdict = EV.run_template_verdict(payload["run_id"], k, g)
+            vpath = EV.write_verdict(verdict, k, g)
+            logger.info(f"[D6] 判定式解释已落盘：{vpath}（mode={verdict['explanation_mode']}）")
+        except Exception as exc:                              # noqa: BLE001 - 附加路径不得中断主链
+            logger.warning(f"[D6] 判定式解释失败，保留规则稿：{type(exc).__name__}: {exc}")
     return {
         "template": f"{k}_{g}",
         "path": str(path),

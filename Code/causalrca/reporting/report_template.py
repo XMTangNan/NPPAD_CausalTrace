@@ -7,6 +7,12 @@
      故障模板 K3 / 偏离度 / 局限性 / 复现信息），json 与 txt 结构一一对应；
   3. 数据缺失写“未产出（原因：…）”，绝不输出空表假装完整；
   4. LLM 解释若未通过忠实性校验，报告正文顶部警示。
+
+**结果层撤出（V23-DESIGN-063）**：本渲染器不再展示已判定不可信的评价指标——
+跨组 Jaccard/重叠数值、条件数门结论、VIF 门结论、偏差通道 d 的档位计数。
+这些量仍在 json 的 `sections` 里对应字段中（带 `reported=false`），但正文只写
+“已撤出结果层（原因见方案 §7.10）”，不打印数值。依据：跨组一致性实测与随机不可区分，
+VIF 门/条件数门结构上不会失败，d 跨变量不可比。
 """
 from __future__ import annotations
 
@@ -37,7 +43,7 @@ SECTION_TITLES: Dict[str, str] = {
     "3_cross_group": "跨组一致性",
     "4_physics_k2": "物理一致性 K2（三态）",
     "5_fault_template_k3": "故障模板 K3（覆盖率/反向边）",
-    "6_deviation": "通道偏移强度（模板内相对分位，4 级计数；≠根因）",
+    "6_deviation": "通道偏移强度（已撤出结果层；≠根因）",
     "7_limitations": "局限性",
     "8_reproducibility": "复现信息",
 }
@@ -116,6 +122,15 @@ def generate_rca_report(k: str, g: str, run_id: Optional[str] = None) -> Dict:
         "consensus_available": payload["consensus_available"],
         "n_consensus": payload["n_consensus"],
         "baseline_coverage": payload["baseline_coverage"],
+        # cond(I−B) 与 VIF 门已撤出结果层（V23-DESIGN-063）：阈值无来源、9/9 全过，
+        # 数值仅留档；正文只写“已撤出”，不打印数字。
+        "result_layer": {
+            "reported": False,
+            "reliability": "unsupported",
+            "metric_status": "known_unusable",
+            "withdrawn_metrics": ["cond_gate", "vif_gate"],
+            "disposition": "处置待定 2026-11-12",
+        },
     }
 
     cross = payload["cross_group"]
@@ -137,13 +152,34 @@ def generate_rca_report(k: str, g: str, run_id: Optional[str] = None) -> Dict:
             "n_edge_count_diffs": cdiff.get("n_edge_count_diffs"),
             "transitions": cdiff.get("transitions"),
         },
+        # 跨组一致性数值（重叠/Jaccard/秩相关）已撤出结果层：实测与随机不可区分
+        # （Jaccard 0.2632 vs 随机 0.2144，三对均值≥实测的概率 0.30；名次标准差
+        # 1.89–2.87 vs 3.22–3.40；单调占比 1/15–5/15 vs 0.27–0.33）。
+        "result_layer": {
+            "reported": False,
+            "reliability": "unsupported",
+            "metric_status": "known_unusable",
+            "withdrawn_metrics": ["topk_jaccard_across_groups",
+                                  "cross_group_consistency",
+                                  "rank_std_across_groups", "monotonicity"],
+            "disposition": "处置待定 2026-11-12",
+        },
     }
 
     sections["4_physics_k2"] = dict(payload["k2"])
     sections["5_fault_template_k3"] = dict(payload["k3"])
     sections["6_deviation"] = {**payload["deviation"],
                                "note": ("偏离度 ≠ 根因；档位为本模板内相对分位"
-                                        "（p50/p70/p85），跨模板不可比绝对量")}
+                                        "（p50/p70/p85），跨模板不可比绝对量"),
+                               # d 跨变量不可比（量纲与各自噪声/下限归一，d_raw 到 1.67e5）：
+                               # 档位计数已撤出结果层，仅内部留档。
+                               "result_layer": {
+                                   "reported": False,
+                                   "reliability": "unsupported",
+                                   "metric_status": "known_unusable",
+                                   "withdrawn_metrics": ["deviation_channel"],
+                                   "disposition": "处置待定 2026-11-12",
+                               }}
     sections["7_limitations"] = {"items": list(payload.get("limitations") or [])}
     sections["8_reproducibility"] = {
         "run_id": payload["run_id"],
@@ -188,6 +224,22 @@ def generate_rca_report(k: str, g: str, run_id: Optional[str] = None) -> Dict:
         "run_id": payload["run_id"],
         "section_order": list(SECTION_KEYS),
         "sections": sections,
+        # 报告级指标口径（V23-DESIGN-063）：已撤出的评价指标不在正文出现，
+        # 数值只留在对应 section 的字段里供内部核对。
+        "metrics_policy": {
+            "reported": False,
+            "reliability": "unsupported",
+            "metric_status": "known_unusable",
+            "withdrawn_metrics": ["hit1", "hit3", "mrr", "p2", "p3", "recall3", "ap3",
+                                  "jaccard3", "wilson95", "rank_distribution",
+                                  "topk_jaccard_across_groups", "cross_group_consistency",
+                                  "rank_std_across_groups", "monotonicity",
+                                  "vif_gate", "cond_gate", "clip_flip", "deviation_channel"],
+            "premises": ["P1 无独立真值", "P2 样本不独立（n_eff=9，不是 60）",
+                         "P3 门槛不可失败"],
+            "disposition": "处置待定 2026-11-12",
+            "see": "方案 §7.10",
+        },
         "llm_explanation": llm_info,
         "warning": warning,
     }
@@ -203,6 +255,10 @@ def report_to_text(report: Dict) -> str:
         L.append("")
         L.append(f"[{report['warning']}]")
     L.append("")
+    L.append("[指标口径] 已判定不可信的评价指标一律不在本报告展示（hit@k / MRR / 跨组 Jaccard /"
+             " 名次标准差 / 条件数门 / VIF 门 / 偏差 d 档位）：它们与随机不可区分，或作为门"
+             "结构上不会失败。数值仅留档在 json 对应字段（`reported=false`），"
+             "原因见方案 §7.10（V23-DESIGN-063，处置待定 2026-11-12）。")
 
     # 一、结论
     L.append(f"一、{SECTION_TITLES['1_conclusion_top5']}")
@@ -225,13 +281,12 @@ def report_to_text(report: Dict) -> str:
              f"bootstrap {g2['n_bootstrap']} 次。")
     L.append(f"  稳定边 {g2['n_stable_edges']} 条；B 截断阈值 {_f(g2['b_clip'])}，"
              f"被截断边 {g2['n_clipped_edges']} 条。")
-    L.append(f"  条件数 cond(I−B)：截断前 {_f(g2['cond_IminusB'])}，"
-             f"截断后 {_f(g2['cond_IminusB_after_clip'])}。")
+    L.append("  条件数 cond(I−B)：已撤出结果层（阈值 10000 无来源、实测 9/9 全过，"
+             "不具区分能力；原值见 json 的 2_graph_summary 字段，仅内部留档）。")
     stab = g2.get("stability") or {}
     if stab:
-        L.append(f"  数值稳定性：{stab.get('label', '未记录')}"
-                 f"（截断比 {_f(stab.get('clip_ratio'))}；"
-                 + ("；".join(stab.get("reasons") or []) or "未触发门控") + "）。")
+        L.append("  数值稳定性判词（stability_label）已撤出结果层：它由 cond 门与截断比阈值"
+                 "合成，9/9 全部通过、无失败样例，不具区分能力；仅内部留档。")
     L.append(f"  共识：n_consensus={'null' if g2['n_consensus'] is None else g2['n_consensus']}"
              f"（单引擎口径，稳定边不构成多引擎共识）。")
     baseline = g2.get("baseline_coverage") or {}
@@ -247,13 +302,12 @@ def report_to_text(report: Dict) -> str:
     if g3["available"]:
         t1 = g3.get("top1_by_group") or {}
         L.append("  三组 Top-1：" + "，".join(f"{gn}={t1.get(gn)}" for gn in t1) + "。")
-        L.append(f"  Top-1 跨组稳定：{'是' if g3.get('top1_stable') else '否'}；"
-                 f"三组共同入榜变量 {g3.get('n_vars_in_all_groups')} 个；"
-                 f"相邻组平均 Top-5 重叠 {_f(g3.get('mean_pairwise_overlap'))}。")
-        for p in g3.get("pairwise") or []:
-            pair = p.get("pair") or ["", ""]
-            L.append(f"  组对 {pair[0]}→{pair[1]}：重叠 {p.get('overlap')} 个，"
-                     f"Jaccard {_f(p.get('jaccard'))}。")
+        L.append(f"  Top-1 跨组是否相同：{'是' if g3.get('top1_stable') else '否'}；"
+                 f"三组共同入榜变量 {g3.get('n_vars_in_all_groups')} 个。")
+        L.append("  跨组一致性数值（Top-5 重叠 / Jaccard / Spearman / 名次标准差 / 单调占比）"
+                 "已撤出结果层：实测与随机不可区分（Jaccard 0.2632 vs 随机 0.2144、"
+                 "名次标准差 1.89–2.87 vs 3.22–3.40、单调占比 1/15–5/15 vs 0.27–0.33），"
+                 "原值仅内部留档，不得读作“稳定”。")
         d = g3["diff"]
         if d["available"]:
             L.append(f"  差异报告：Top-1 切换 {d['n_top1_switches']} 次，"
@@ -299,9 +353,10 @@ def report_to_text(report: Dict) -> str:
     g6 = s["6_deviation"]
     L.append(f"六、{SECTION_TITLES['6_deviation']}")
     if g6.get("available"):
-        lc = g6.get("level_counts") or {}
-        L.append(f"  变量 {g6.get('n_variables')} 个：正常 {lc.get('normal')}、"
-                 f"中等 {lc.get('moderate')}、较大 {lc.get('large')}、严重 {lc.get('severe')}。")
+        L.append(f"  偏离通道 d（{g6.get('n_variables')} 个变量）的档位计数已撤出结果层："
+                 "d 的分母是各变量自己的噪声/物理下限，量纲不同（pcm / dk/k / CPM / m3），"
+                 "跨变量比较无物理含义（d_raw 到 1.67e5），只能同变量内沿时间看；"
+                 "原值仅内部留档。")
         L.append(f"  来源：{g6.get('source')}；{g6.get('note')}")
     else:
         L.append(f"  {_miss(g6.get('reason') or '偏离度产物缺失')}")

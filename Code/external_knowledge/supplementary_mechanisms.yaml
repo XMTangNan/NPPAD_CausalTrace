@@ -1,0 +1,92 @@
+schema: "causaltrace/supplementary_mechanisms/v1"
+source: "本次人工审核补充（2026-11-11，台账 V23-DESIGN-061）"
+note: >-
+  只标注“变量在具体事故中的角色与方向”，不新增数值约束、不改 K2 数值口径、不改 K3 expected_chain。
+  字段风格与 physics_relations.yaml / fault_templates.yaml 对齐（id/name_cn/applicable_accidents/
+  expected_direction/basis/source），但独立成文件：K2 的 5 条与代码
+  physics_constraints.PHYSICS_RELATIONS 一一对应（yaml 自称“禁止在此改动”），直接加条会破坏
+  一致性校验；故补充条目在此登记，供解释层引用，**排序融合本轮不启用**。
+  审核结论：本节 5 条均为“响应量/响应兼传导”标注，can_be_root 一律 false；
+  作为根因，这 5 个变量在本轮均为“无机理支撑”，不得为了填满而升格为驱动量。
+n_entries: 5
+entries:
+  - id: S1_LOCA_P_response
+    kind: response_role
+    variable: P
+    name_cn: 一回路压力
+    unit: bar
+    subsystem: 一回路热工
+    applicable_accidents: [LOCA]
+    expected_direction: neg
+    role_in_accident: response_conduction
+    can_be_root: false
+    asserted_edges: []
+    basis: "破口后一回路装量与温度下降，饱和压力随之降低；压力低信号再触发安注，故 P 是破口的结果、可作为传导节点，但不是根因。"
+    conflicts_with: []
+    source: "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: S2_LOCA_LVPZ_response
+    kind: response_role
+    variable: LVPZ
+    name_cn: 稳压器水位
+    unit: "%"
+    subsystem: 一回路热工
+    applicable_accidents: [LOCA]
+    expected_direction: neg
+    role_in_accident: response
+    can_be_root: false
+    asserted_edges: []
+    basis: "稳压器水位由一回路装量与汽腔压力决定，持续失水后总体下降（初期可能因闪蒸短时波动），属装量损失的表征而非驱动。"
+    conflicts_with: []
+    source: "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: S3_LOCA_PRB_response
+    kind: response_role
+    variable: PRB
+    name_cn: 安全壳压力
+    unit: bar
+    subsystem: 安全壳
+    applicable_accidents: [LOCA]
+    expected_direction: pos
+    role_in_accident: response
+    can_be_root: false
+    asserted_edges: []
+    basis: "破口介质排入安全壳使壳内压力上升，PRB 是LOCA 的环境后果指标，不参与一回路侧的因果链。"
+    conflicts_with: []
+    source: "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: S4_LOCA_TRB_response
+    kind: response_role
+    variable: TRB
+    name_cn: 安全壳温度
+    unit: degC
+    subsystem: 安全壳
+    applicable_accidents: [LOCA]
+    expected_direction: pos
+    role_in_accident: response
+    can_be_root: false
+    asserted_edges: []
+    basis: "高温介质与蒸汽排入安全壳使壳内温度上升，TRB 与 PRB 同属壳内环境响应，不能作为破口类根因。"
+    conflicts_with: []
+    source: "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: S5_LOCA_RHMT_response
+    kind: response_role
+    variable: RHMT
+    name_cn: 慢化剂温度反应性
+    unit: dk/k
+    subsystem: 反应性与功率
+    applicable_accidents: [LOCA]
+    expected_direction: mixed
+    role_in_accident: response
+    can_be_root: false
+    asserted_edges: []
+    basis: "慢化剂温度反应性由温度反馈系数决定，失水降温使其朝正方向变化，但符号与幅度随初始工况与硼浓度而变，不构成单向驱动量。"
+    conflicts_with: []
+    source: "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）"
+    date: "2026-11-11"
+    verification: pending_expert

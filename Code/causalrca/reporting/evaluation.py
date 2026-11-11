@@ -31,6 +31,16 @@ v2.3 不做事故大类匹配，只做「事故内、变量级的根因溯源」
 三个 primary 块；`hit1/hit3/mrr/p2/p3/recall3/ap3/jaccard3` 一律为 diagnostic（附录诊断），
 产物中逐块标 `metric_tier`，**不得进结论句、不得作论文数字**。
 
+**结果层撤出（V23-DESIGN-063，2026-11-11 用户裁决）**
+上述 diagnostic 指标，加上稳定性块的推断量（跨组 Jaccard / Spearman / 单调占比 / 名次标准差 /
+bootstrap 翻转率）、VIF 门与条件数门的通过结论、截断翻转、偏差通道 `d` 排序，
+**一律不再进入结果层**：字段与数值仍留在产物 json 里（复算与审计需要），但逐块标
+`reported=false` / `reliability="unsupported"` / `metric_status="known_unusable"`
+（语义是“已知不可用”，不是“待完善”），并在 `metrics_summary.result_layer_policy`
+汇总三条系统性前提（P1 无独立真值 / P2 样本不独立 / P3 门槛不可失败）。
+渲染层（`report_template`、类级汇总、`submit/` 页面与结果列表）不得展示这些数字。
+处置待定 2026-11-12。
+
 **B_CLIP 敏感性（V23-DESIGN-038，评测一等公民）**
 总效应是 T=(I−B)⁻¹ 的 |T| 行和，`B_CLIP` 硬截断会改名次：`LOCA_high` 的 `WLR` 在 clip5 下第 1、
 去截断（clip_off）下第 3。因此每个模板与汇总都必须并列 `clip3 / clip5 / clip10 / clip_off`
@@ -94,12 +104,97 @@ PRIMARY_BLOCKS = ("stability", "structural_health", "mechanism_consistency")
 DIAGNOSTIC_METRICS = ("hit1", "hit3", "mrr", "p2", "p3", "recall3", "ap3", "jaccard3")
 
 
+# ==================== 结果层撤出（V23-DESIGN-063，2026-11-11 用户裁决）====================
+# 三条系统性前提（完整表述见方案 §7.10）：
+#   P1 无独立真值：命中类真值是按机理人工指定的假设，且与我方候选集存在构造关联；
+#   P2 样本不独立：同模板 20 条轨迹共享同一张图，因果通道全 run 只有 9 个不同排序；
+#   P3 门槛不可失败：VIF 门 / 条件数门 / 跨组一致性 / 偏差通道 d。
+# 处置：以下指标**不再进入结果层**。字段仍保留在产物 json 里（历史与复算需要），
+# 但一律 reported=false、reliability=unsupported、metric_status=known_unusable——
+# 语义是「已知不可用」，不是「待完善」。生成函数保留、仅作内部计算留档，
+# 不得进正文、结论句、图注或论文数字；是否彻底删除等用户 2026-11-12 裁决。
+METRIC_STATUS_KNOWN_UNUSABLE = "known_unusable"
+METRIC_STATUS_PENDING_EXPERT = "pending_expert"
+METRIC_STATUS_DESCRIPTIVE = "descriptive"
+RELIABILITY_UNSUPPORTED = "unsupported"
+RELIABILITY_DESCRIPTIVE = "descriptive"
+RESULT_LAYER_WITHDRAWN_AT = "2026-11-11"
+WITHDRAWAL_DISPOSITION = "处置待定 2026-11-12"
+
+# 逐指标留档：前提（P1/P2/P3）、为何不可解读、若要用需补什么。文档 §7.10 与产物共用此表。
+UNSUPPORTED_METRICS: Dict[str, Dict[str, str]] = {
+    "hit1": {"premise": "P1+P2", "why": "真值为人工假设且与候选集构造关联；因果通道 n_eff=9 而非 60",
+             "needs": "独立真值 + 按模板聚类的有效 n + 随机基线（15 选 1 = 0.0667）"},
+    "hit3": {"premise": "P1+P2", "why": "同上；随机基线 0.20，实测低于随机",
+             "needs": "同上；按 9 模板分层后重算"},
+    "mrr": {"premise": "P1+P2", "why": "真值不可达时上限被结构性截断；随机期望 0.2212，实测低于随机",
+            "needs": "独立真值 + 有效 n + 名次分布"},
+    "p2": {"premise": "P1", "why": "真值集大小 1 vs 3 跨类不可比", "needs": "按真值集大小分层 + 随机基线"},
+    "p3": {"premise": "P1", "why": "同上；随机基线随真值集大小变化", "needs": "同上"},
+    "recall3": {"premise": "P1", "why": "LOCA 真值 3 个仅 1 个在候选内，上限即 1/3",
+                "needs": "只在可达真值上算，或并列「可达真值召回」与「全集召回」"},
+    "ap3": {"premise": "P1", "why": "同 Recall@3；真值不可达时被结构性压低", "needs": "同 Recall@3 + 有效 n"},
+    "jaccard3": {"premise": "P1", "why": "真值集大小不可比，不可达真值使分母虚高", "needs": "按真值集大小分层"},
+    "wilson95": {"premise": "P2", "why": "按 n=60/20 计算，区间被系统性压窄（n_eff=9/3）",
+                 "needs": "按模板聚类的有效 n 或 cluster bootstrap，并打印 n_eff"},
+    "rank_distribution": {"premise": "P1+P2", "why": "22% 真值不可达（coverage 0.7778）；27/60 落在同一名次",
+                          "needs": "只在可达真值上统计 + 按模板分层"},
+    "topk_jaccard_across_groups": {"premise": "P2+P3",
+                                   "why": "实测 0.2632 vs 随机基线 0.2144，三对均值≥实测的概率 0.30",
+                                   "needs": "置换零分布 + 按类 CI"},
+    "cross_group_consistency": {"premise": "P3", "why": "无零分布；三组来自同一套选变量/建图流程，不独立",
+                                "needs": "置换零分布 + 按类 CI"},
+    "rank_std_across_groups": {"premise": "P3", "why": "实测中位 1.89–2.87 vs 随机期望 3.22–3.40，与随机不可区分",
+                               "needs": "随机基线 + CI"},
+    "monotonicity": {"premise": "P3", "why": "实测 1/15–5/15 vs 随机 0.27–0.33，不超过随机",
+                     "needs": "置换基线 + 预设物理方向"},
+    "vif_gate": {"premise": "P3", "why": "500 既是阈值又是迭代停止条件；非保护 max 恰为 489.6/490.0/276.3",
+                 "needs": "报告含保护变量的 max VIF，或取消通过/失败语义"},
+    "cond_gate": {"premise": "P3", "why": "阈值 10000 无来源，实测截断后最高 1054.8，9/9 全过",
+                  "needs": "阈值来源 + 失败样例 + 与排序稳定性的联合判据"},
+    "clip_flip": {"premise": "P3", "why": "无预设容差、无 5/6 名 margin、B_CLIP 无物理依据",
+                  "needs": "容差 + 翻转分解 + |B| 在 5 附近的分布"},
+    "deviation_channel": {"premise": "P3",
+                          "why": "d 跨变量不可比（量纲与各自噪声/下限归一，d_raw 到 1.67e5）",
+                          "needs": "共同物理/影响量纲；在此之前禁止跨变量排序"},
+}
+
+
+def _withdrawn_fields(metrics: Sequence[str] = ()) -> Dict:
+    """结果层撤出的统一标记（字段保留、数值保留，但显式声明不进结果）。"""
+    out: Dict[str, object] = {
+        "reported": False,
+        "reliability": RELIABILITY_UNSUPPORTED,
+        "metric_status": METRIC_STATUS_KNOWN_UNUSABLE,
+        "not_in_result_layer": True,
+        "withdrawn_at": RESULT_LAYER_WITHDRAWN_AT,
+        "disposition": WITHDRAWAL_DISPOSITION,
+    }
+    if metrics:
+        out["withdrawn_metrics"] = list(metrics)
+        out["withdrawn_reason"] = {m: UNSUPPORTED_METRICS.get(m, {}) for m in metrics
+                                   if m in UNSUPPORTED_METRICS}
+    return out
+
+
+def _withdraw(block: Dict, metrics: Sequence[str]) -> Dict:
+    """给任意子块补“结果层撤出”标记：数值不动，只加 reported=false 一类字段。
+
+    用途：这些量仍留在产物里供内部复算/审计，但任何渲染层（报告、汇总页、
+    结果列表）都不得把它们当结果展示（V23-DESIGN-063）。
+    """
+    out = dict(block)
+    out.update(_withdrawn_fields(metrics))
+    return out
+
+
 def _tag_agg(agg: Dict, tier: str = METRIC_TIER_DIAGNOSTIC) -> Dict:
-    """给单个指标聚合块打层级标记；诊断块另给 8 个键的 `tier` 映射。"""
+    """给单个指标聚合块打层级标记；诊断块另给 8 个键的 `tier` 映射与撤出标记。"""
     out = dict(agg)
     out["metric_tier"] = tier
     if tier == METRIC_TIER_DIAGNOSTIC:
         out["tier"] = {key: METRIC_TIER_DIAGNOSTIC for key in METRIC_KEYS}
+        out.update(_withdrawn_fields(METRIC_KEYS))
     return out
 
 
@@ -526,15 +621,19 @@ def stability_block(run_id: str) -> Dict:
             "persisted_top_matches_ranking": all(
                 groups_all[g]["ranking"][:len(groups_all[g]["persisted_top"])]
                 == groups_all[g]["persisted_top"] for g in gs),
-            "rank_std_across_groups": rank_std,
-            "topk_jaccard_across_groups": {"k": k_top, "pairs": jac,
-                                           "mean": (round(float(np.mean(jac_vals)), 4)
-                                                    if jac_vals else None)},
-            "cross_group_consistency": {"measure": "spearman_rank_correlation",
-                                        "pairs": rho,
-                                        "mean": (round(float(np.mean(rho_vals)), 4)
-                                                 if rho_vals else None)},
-            "monotonicity": monotonicity,
+            # 以下四块已撤出结果层（V23-DESIGN-063）：数值仍在，但不得进正文/结论。
+            # 撤出依据：实测与随机基线不可区分（Jaccard 0.2632 vs 0.2144、名次标准差
+            # 1.89–2.87 vs 3.22–3.40、单调占比 1/15–5/15 vs 0.27–0.33）。
+            "rank_std_across_groups": _withdraw(rank_std, ["rank_std_across_groups"]),
+            "topk_jaccard_across_groups": _withdraw(
+                {"k": k_top, "pairs": jac,
+                 "mean": (round(float(np.mean(jac_vals)), 4) if jac_vals else None)},
+                ["topk_jaccard_across_groups"]),
+            "cross_group_consistency": _withdraw(
+                {"measure": "spearman_rank_correlation", "pairs": rho,
+                 "mean": (round(float(np.mean(rho_vals)), 4) if rho_vals else None)},
+                ["cross_group_consistency"]),
+            "monotonicity": _withdraw(monotonicity, ["monotonicity"]),
         }
 
     return {
@@ -549,18 +648,30 @@ def stability_block(run_id: str) -> Dict:
             "monotonicity": "三组严重度有序时，名次随组别严格单调的变量占比",
         },
         "per_class": per_class,
-        "bootstrap_flip_rate": {
-            "status": "not_computed",
-            "reason": "逐次 bootstrap 排名未落盘",
-            "required_bootstrap": ">=20 次并逐次落盘 top-k",
+        "bootstrap_flip_rate": {**_withdrawn_fields(["bootstrap_flip_rate"]),
+                                "status": "not_computed",
+                                "reason": "逐次 bootstrap 排名未落盘",
+                                "required_bootstrap": ">=20 次并逐次落盘 top-k"},
+        "result_layer": {
+            "reported": False,
+            "reliability": RELIABILITY_UNSUPPORTED,
+            "metric_status": METRIC_STATUS_KNOWN_UNUSABLE,
+            "withdrawn_metrics": ["rank_std_across_groups", "topk_jaccard_across_groups",
+                                  "cross_group_consistency", "monotonicity",
+                                  "bootstrap_flip_rate"],
+            "reason": ("跨组一致性数值与随机不可区分：Jaccard 0.2632 vs 随机 0.2144"
+                       "（三对均值≥实测的概率 0.30）、名次标准差 1.89–2.87 vs 3.22–3.40、"
+                       "单调占比 1/15–5/15 vs 0.27–0.33；bootstrap 翻转率从未计算"),
+            "disposition": WITHDRAWAL_DISPOSITION,
         },
         "meaning": ("稳定性衡量：同一事故类型在不同严重度组下，根因榜（名次/Top-k 集合）"
-                    "是否一致，以及有多少变量名次随严重度系统性移动。"),
-        "reading": ("rank_std 小、Jaccard/Spearman 高 = 跨组榜单一致（结论不随严重度漂移）；"
-                    "monotonicity 高 = 名次随严重度单向移动，需在报告中说明其物理含义。"
-                    "这些都是“结果是否稳定/可复现”的描述，不是“是否更准”。"
-                    "bootstrap_flip_rate 未计算：本 run 只落最终 stable_edges，"
-                    "未逐次落盘排名，故不声称 bootstrap 翻转率。"),
+                    "是否一致，以及有多少变量名次随严重度系统性移动。"
+                    "**该块的推断量已全部撤出结果层**（与随机不可区分），"
+                    "只保留为内部留档，不得进正文、结论句或论文数字。"),
+        "reading": ("本块不产出可解读数字。若将来要恢复：先给随机/置换零分布与按类 CI，"
+                    "再按模板聚类的有效 n（n_eff=9/3）重算；在此之前任何"
+                    "“稳定/不稳定”的判词都没有依据。bootstrap_flip_rate 需 ≥20 次"
+                    "逐次落盘 top-k 才能计算。"),
     }
 
 
@@ -678,14 +789,36 @@ def structural_health_block(run_id: str) -> Dict:
                 "min": min(ratios) if ratios else None,
                 "max": max(ratios) if ratios else None,
             },
-            "clip_sensitivity_flip": {
+            "clip_sensitivity_flip": _withdraw({
                 "k": 5,
                 "clips": labels,
                 "n_flipped": n_flip,
                 "flip_ratio": round(n_flip / len(templates), 4) if templates else None,
                 "pairwise": pair_flip,
                 "flipped_templates": [n for n, t in per_template.items() if t["clip_flip"]],
-            },
+            }, ["clip_flip"]),
+        },
+        "gates": {
+            "vif": {**_withdrawn_fields(["vif_gate"]),
+                    "gate_status": "cannot_fail",
+                    "why": ("VIF_MAX=500 同时是迭代停止条件：循环在“非保护 max<500”时退出，"
+                            "classify_v3 再把同一条件复述一遍；高 VIF 全落在保护集，"
+                            "非保护 max 恰为 489.6/490.0/276.3，对残留高 VIF 无告警能力"),
+                    "use": "只可作描述性原始量（含保护变量的 max/median），不得写“通过/失败”"},
+            "condition_number": {**_withdrawn_fields(["cond_gate"]),
+                                 "gate_status": "cannot_fail",
+                                 "why": ("阈值 10000 无来源；实测截断后最高 1054.8，9/9 全过；"
+                                         "截断前最高 2.38e9，“变好”是截断产物"),
+                                 "use": "只可陈述“多大”，不得据此声称“数值稳定”"},
+        },
+        "result_layer": {
+            "reported": False,
+            "reliability": RELIABILITY_UNSUPPORTED,
+            "metric_status": METRIC_STATUS_KNOWN_UNUSABLE,
+            "withdrawn_metrics": ["vif_gate", "cond_gate", "clip_flip"],
+            "kept_as": "描述性原始量（n_nodes / n_stable_edges / stable_edge_ratio / "
+                       "cond 原值 / VIF 原值）可陈述“多大/多密”，不得推出“通过/稳定”",
+            "disposition": WITHDRAWAL_DISPOSITION,
         },
         "meaning": ("结构健康度衡量：学到的图是否良态（条件数）、是否近似共线（VIF）、"
                     "是否稠密到不可解释（边密度），以及结论是否依赖 B_CLIP 这一人为阈值。"),
@@ -702,6 +835,10 @@ def mechanism_consistency_block() -> Dict:
     return {
         "status": "not_available",
         "metric_tier": METRIC_TIER_PRIMARY,
+        "reported": False,
+        "reliability": RELIABILITY_UNSUPPORTED,
+        # 与“已知不可用”区分：这一块是缺专家输入（pending_expert），不是数值不可解读。
+        "metric_status": METRIC_STATUS_PENDING_EXPERT,
         "violation_rate": None,
         "coverage": None,
         "protocol": ("排除性判据：专家给出『某部件必然先响应』『某部件不可能先响应』两类清单，"
@@ -1037,11 +1174,37 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
         "report_header": (f"n_bootstrap={boots}（正式口径 {N_BOOTSTRAP_SPEC}；run_mode={run_mode}）"
                           + ("" if bootstrap["stability_claims_allowed"] else
                              " —— 缩减次数执行：不得声称边稳定性、不得引用 consistency_rate 作结论")),
+        "result_layer_policy": {
+            "withdrawn_at": RESULT_LAYER_WITHDRAWN_AT,
+            "disposition": WITHDRAWAL_DISPOSITION,
+            "reported": False,
+            "rule": ("下列指标不进结果层：字段保留在 json、数值照算，但不得出现在逐模板解读报告、"
+                     "类级汇总、submit 入口页与结果列表类文档里（V23-DESIGN-063）。"),
+            "withdrawn": {k: v for k, v in UNSUPPORTED_METRICS.items()},
+            "premises": {
+                "P1_无独立真值": ("命中类指标的真值是按机理人工指定的假设，且与我方候选集存在构造关联；"
+                                  "因此只能称“与假设的一致度”，不能称准确率"),
+                "P2_样本不独立": ("同一模板下 20 条轨迹共享同一张图、同一组稳定边；因果通道全 run 只有 "
+                                  "9 个不同排序。按 n=60 算的区间被系统性压窄："
+                                  "n=60 → [0.0466, 0.2015]；n_eff=9 → [0.0199, 0.4350]；"
+                                  "每类 n_eff=3 → [0.0615, 0.7923]"),
+                "P3_门槛不可失败": ("VIF 门（500 既是阈值又是迭代停止条件，非保护 max 恰为 "
+                                    "489.6/490.0/276.3）；条件数门（阈值 10000、实测截断后最高 1054.8、"
+                                    "9/9 全过）；跨组一致性（Jaccard 0.2632 vs 随机 0.2144、"
+                                    "名次标准差 1.89–2.87 vs 3.22–3.40、单调占比 1/15–5/15 vs "
+                                    "0.27–0.33）；偏差通道 d 跨变量不可比（d_raw 到 1.67e5）"),
+            },
+            "kept_in_result_layer": ["结构健康度描述性原始量（节点数/稳定边数/边密度/cond 原值/VIF 原值）",
+                                     "Top-5 变量榜与其排序键（total_effect 等）",
+                                     "K2 三态关系检查与 K3 模板覆盖率（机理检查，非统计成绩）"],
+        },
         "evaluation_protocol": {
-            "statement": ("本工作不主张准确率：主表只含稳定性(stability) / 结构健康度"
-                          "(structural_health) / 机理一致性(mechanism_consistency) 三个 primary 块；"
-                          "hit@k、MRR、P@k、Recall@k、AP@k、Jaccard@k 等全部为附录诊断"
-                          "(diagnostic)，不得进结论句、不得作论文数字。"),
+            "statement": ("本工作不主张准确率；自 2026-11-11 起把已判定不可信的评价指标整体撤出结果层"
+                          "（V23-DESIGN-063）：hit@k / MRR / P@k / Recall@k / AP@k / Jaccard@k、"
+                          "名次分布与 Wilson 区间、跨组一致性（Jaccard/Spearman/单调占比/名次标准差）、"
+                          "VIF 门与条件数门的通过结论、截断翻转、偏差通道 d 排序一律 reported=false，"
+                          "字段保留在 json 仅作内部留档。结果层只保留：结构健康度描述性原始量、"
+                          "Top-5 变量榜与排序键、K2/K3 机理检查。处置待定 2026-11-12。"),
             "primary_blocks": list(PRIMARY_BLOCKS),
             "primary_metric_tier": METRIC_TIER_PRIMARY,
             "diagnostic_metrics": list(DIAGNOSTIC_METRICS),
@@ -1056,6 +1219,7 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
         "mechanism_consistency": mechanism,
         "evidence_rank_distribution": {
             "metric_tier": METRIC_TIER_DIAGNOSTIC,
+            **_withdrawn_fields(["rank_distribution"]),
             "definition": "真值名次分布（B3/V23-DESIGN-045）：rank_hist + 中位/均值名次 + 归一化名次 + 真值覆盖率",
             "why": "Hit@1 只反映头部；名次分布可区分'差一点'与'完全不可达'，且归一化名次消除候选集大小差异",
             "global": rank_distribution(rows),
@@ -1102,12 +1266,17 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
                 "legacy_alias": True,
                 "note": "仅为兼容旧产物/旧文档保留；数值与 causal 逐项相同，不得据此另作比较",
             },
-            "deviation_equal_weight": "纯偏差基线（15 节点，与 causal 同变量集）",
+            "deviation_equal_weight": {
+                "description": "纯偏差基线（15 节点，与 causal 同变量集）",
+                **_withdrawn_fields(["deviation_channel"]),
+                "why": "d 跨变量不可比（量纲与各自噪声/下限归一，d_raw 到 1.67e5）",
+            },
             "deviation_production_set": {
                 "description": ("历史别名：取消遮蔽后“生产集”=“全集”，与 deviation_equal_weight "
                                 "等价（同为 15 节点）"),
                 "legacy_alias": True,
-                "note": "仅为兼容旧四通道表保留；不得据此另作比较",
+                **_withdrawn_fields(["deviation_channel"]),
+                "note": "仅为兼容旧四通道表保留；不得据此另作比较（d 本身也不得跨变量排序）",
             },
         },
         "pairing": {

@@ -1,0 +1,258 @@
+schema: "causaltrace/supplementary_mechanisms/v1"
+source: "本次补充（正向机理，2026-11-11）"
+note: >-
+  本文件只放**正向**机理条目（“谁先动、经哪条路径传递”），与否定性条目
+  `supplementary_mechanisms.yaml`（S1–S5）分开管理。字段与 S 系列一致，另加
+  `assertion: starts_chain | not_start | ambiguous` 区分方向（允许写“不是起点”）。
+  依据只用守恒关系、因果次序或公开教材的通用结论，不写页码与引文；有争议的直接标 ambiguous。
+  不新增数值约束、不改 K2 数值口径、不改 K3 expected_chain、不参与排序融合。
+  全部条目 verification 为 pending_expert。根因定义见方案 §0.5。
+n_entries: 14
+entries:
+  - id: P1_LOCA_WLR_injection
+    kind: positive_mechanism
+    variable: WLR
+    name_cn: 破口流量（注入指示）
+    unit: kg/s
+    subsystem: 一回路热工
+    applicable_accidents: [LOCA]
+    expected_direction: pos
+    role_in_accident: injection
+    can_be_root: true
+    assertion: starts_chain
+    asserted_edges:
+      - {from: WLR, to: P}
+      - {from: WLR, to: VOL}
+    basis: "破口流量是 LOCA 的注入起点：冷却剂经破口外流，先造成一回路装量与压力下降，再经安注与传热反馈传递到其余变量；按“最先动起来的变量”定义，它是本类事故的根因候选。"
+    conflicts_with: []
+    source: "本次补充（正向机理，2026-11-11）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: P2_LOCA_VOL_inventory
+    kind: positive_mechanism
+    variable: VOL
+    name_cn: 一回路装量
+    unit: "%"
+    subsystem: 一回路热工
+    applicable_accidents: [LOCA]
+    expected_direction: neg
+    role_in_accident: response_conduction
+    can_be_root: false
+    assertion: not_start
+    asserted_edges:
+      - {from: VOL, to: P}
+      - {from: VOL, to: LVPZ}
+    basis: "装量下降先于压力与稳压器水位的变化，是破口之后最早的装量级响应；可作传导节点，但最终驱动仍是破口本身（WLR），故不升格为根因。"
+    conflicts_with: []
+    source: "本次补充（正向机理，2026-11-11）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: P3_SGATR_WTRA_leak
+    kind: positive_mechanism
+    variable: WTRA
+    name_cn: SG-A 传热管破裂流量
+    unit: t/h
+    subsystem: 故障指示器
+    applicable_accidents: [SGATR]
+    expected_direction: pos
+    role_in_accident: injection
+    can_be_root: true
+    assertion: starts_chain
+    asserted_edges:
+      - {from: WTRA, to: NSGA}
+      - {from: WTRA, to: RM2}
+    basis: "一次侧压力高于二次侧，传热管破裂后一回路冷却剂经破口流入二次侧；破口流量是质量传递的起点，二次侧水位与蒸汽管线辐射都随它变化。按“最先动起来”定义，它是本类事故的根因候选。"
+    conflicts_with: []
+    source: "本次补充（正向机理，2026-11-11）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: P4_SGATR_NSGA_level_rise
+    kind: positive_mechanism
+    variable: NSGA
+    name_cn: SG-A 窄量程水位
+    unit: "%"
+    subsystem: 二回路SG
+    applicable_accidents: [SGATR]
+    expected_direction: pos
+    role_in_accident: response_conduction
+    can_be_root: false
+    assertion: not_start
+    asserted_edges:
+      - {from: NSGA, to: QMGB}
+    basis: "二次侧水位上升的直接原因是高压一回路冷却剂经破口进入二次侧，属质量守恒下的响应；水位本身不驱动破口流量，故不是起点。"
+    conflicts_with: []
+    source: "本次补充（正向机理，2026-11-11）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: P5_SGATR_LSGA_level_rise
+    kind: positive_mechanism
+    variable: LSGA
+    name_cn: SG-A 宽量程水位
+    unit: m
+    subsystem: 二回路SG
+    applicable_accidents: [SGATR]
+    expected_direction: pos
+    role_in_accident: response_conduction
+    can_be_root: false
+    assertion: not_start
+    asserted_edges: []
+    basis: "宽量程水位与窄量程水位同源：破口流入导致二次侧装量增加。宽量程只在超出窄量程时才有读数变化，响应次序更晚，不能作为起点。"
+    conflicts_with: []
+    source: "本次补充（正向机理，2026-11-11）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: P6_SGATR_RM2_radiation
+    kind: positive_mechanism
+    variable: RM2
+    name_cn: 蒸汽管线辐射监测
+    unit: CPM
+    subsystem: 辐射监测
+    applicable_accidents: [SGATR]
+    expected_direction: pos
+    role_in_accident: response_indicator
+    can_be_root: false
+    assertion: not_start
+    asserted_edges: []
+    basis: "一回路冷却剂中的活化产物（如 N-16 与裂变产物）随破口进入二次侧，蒸汽管线辐射计数随之上升；它是泄漏的早期指示，但计数上升不是泄漏的原因。争议点：若破裂由二次侧向一次侧反向发生，方向与读数含义不同，故仅作指示量。"
+    conflicts_with: []
+    source: "本次补充（正向机理，2026-11-11）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: P7_SGATR_PSGA_ambiguous
+    kind: positive_mechanism
+    variable: PSGA
+    name_cn: SG-A 压力
+    unit: bar
+    subsystem: 二回路SG
+    applicable_accidents: [SGATR]
+    expected_direction: mixed
+    role_in_accident: response_state
+    can_be_root: false
+    assertion: ambiguous
+    asserted_edges: []
+    basis: "二次侧压力有两个相反作用：高压一回路流体闪蒸会抬高压力，蒸汽排放/凝结又会降低压力，净方向取决于破口流量与蒸汽负荷之比。学界没有“先升后降”的统一次序结论，故标 ambiguous，不写成支持或反对。"
+    conflicts_with: []
+    source: "本次补充（正向机理，2026-11-11）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: P8_SGATR_HTR_pressure_response
+    kind: positive_mechanism
+    variable: HTR
+    name_cn: 稳压器电加热功率
+    unit: KW
+    subsystem: 一回路热工
+    applicable_accidents: [SGATR]
+    expected_direction: pos
+    role_in_accident: response_control
+    can_be_root: false
+    assertion: not_start
+    asserted_edges: []
+    basis: "一回路压力因破口失水下降后，稳压器压力控制投入电加热以维持压力；电加热是控制系统的动作，随压力偏差变化，不是事故链条的起点。"
+    conflicts_with: []
+    source: "本次补充（正向机理，2026-11-11）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: P9_FLB_WFLB_break
+    kind: positive_mechanism
+    variable: WFLB
+    name_cn: 给水/蒸汽管道破裂流量（指示器）
+    unit: t/h
+    subsystem: 故障指示器
+    applicable_accidents: [FLB]
+    expected_direction: pos
+    role_in_accident: injection
+    can_be_root: true
+    assertion: starts_chain
+    asserted_edges:
+      - {from: WFLB, to: NSGA}
+      - {from: WFLB, to: PSGA}
+    basis: "给水管道破裂后，给水经破口外泄，二次侧给水装量与流量首先改变，随后才出现水位、压力与一回路温度的变化；破口流量是质量损失的起点，按定义为本类事故的根因候选。"
+    conflicts_with: []
+    source: "本次补充（正向机理，2026-11-11）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: P10_FLB_NSGA_level_drop
+    kind: positive_mechanism
+    variable: NSGA
+    name_cn: SG-A 窄量程水位
+    unit: "%"
+    subsystem: 二回路SG
+    applicable_accidents: [FLB]
+    expected_direction: neg
+    role_in_accident: response_conduction
+    can_be_root: false
+    assertion: not_start
+    asserted_edges: []
+    basis: "给水流失后二次侧装量减少，水位下降是质量守恒的直接结果；水位不改变破口流量，故不是起点，只能作传导节点。"
+    conflicts_with: []
+    source: "本次补充（正向机理，2026-11-11）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: P11_FLB_QMGB_heat_transfer
+    kind: positive_mechanism
+    variable: QMGB
+    name_cn: SG-B 排热功率
+    unit: MW
+    subsystem: 二回路SG
+    applicable_accidents: [FLB]
+    expected_direction: mixed
+    role_in_accident: response_state
+    can_be_root: false
+    assertion: ambiguous
+    asserted_edges: []
+    basis: "A 侧给水丧失后 A 侧排热下降，B 侧承担更多负荷、排热功率可能上升；若破口导致二次侧整体降压，排热又可能下降。净方向取决于破口规模与两列负荷分配，故标 ambiguous。"
+    conflicts_with: []
+    source: "本次补充（正向机理，2026-11-11）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: P12_FLB_WRCA_flow
+    kind: positive_mechanism
+    variable: WRCA
+    name_cn: 一回路流量A（主泵）
+    unit: t/h
+    subsystem: 一回路流量
+    applicable_accidents: [FLB]
+    expected_direction: mixed
+    role_in_accident: response_state
+    can_be_root: false
+    assertion: not_start
+    asserted_edges: []
+    basis: "二次侧排热变化改变一回路平均温度与冷却剂密度，环路流量随之漂移；流量是排热变化的响应，不是给水破口的原因。"
+    conflicts_with: []
+    source: "本次补充（正向机理，2026-11-11）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: P13_FLB_WCHG_charging
+    kind: positive_mechanism
+    variable: WCHG
+    name_cn: 上充流量
+    unit: t/h
+    subsystem: 一回路热工
+    applicable_accidents: [FLB]
+    expected_direction: pos
+    role_in_accident: response_control
+    can_be_root: false
+    assertion: not_start
+    asserted_edges: []
+    basis: "一回路因排热恶化而膨胀/压力变化后，上充与下泄的平衡由化学容积控制系统调整；上充流量是控制动作，随一回路压力与水位偏差变化，不是起点。"
+    conflicts_with: []
+    source: "本次补充（正向机理，2026-11-11）"
+    date: "2026-11-11"
+    verification: pending_expert
+  - id: P14_FLB_WUP_porv
+    kind: positive_mechanism
+    variable: WUP
+    name_cn: 稳压器 PORV/安全阀排放流量
+    unit: t/h
+    subsystem: 一回路热工
+    applicable_accidents: [FLB]
+    expected_direction: pos
+    role_in_accident: response_control
+    can_be_root: false
+    assertion: not_start
+    asserted_edges: []
+    basis: "排热下降使一回路压力上升，压力超过整定值后 PORV/安全阀开启排放；排放是压力超限的结果，不是事故起点。"
+    conflicts_with: []
+    source: "本次补充（正向机理，2026-11-11）"
+    date: "2026-11-11"
+    verification: pending_expert

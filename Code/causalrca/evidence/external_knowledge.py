@@ -25,7 +25,7 @@ from causalrca.evidence.knowledge import ENTITY_TABLE
 EXT_KNOWLEDGE_DIR: Path = CODE_ROOT / "external_knowledge"
 
 YAML_FILES = ("variable_dictionary", "physics_relations", "fault_templates",
-              "forbidden_edges", "tolerance_overrides")
+              "forbidden_edges", "tolerance_overrides", "supplementary_mechanisms")
 
 REQUIRED_VAR_FIELDS = ("subsystem", "meaning", "unit")
 REQUIRED_TEMPLATE_FIELDS = ("code", "name_cn", "trigger", "expected_chain",
@@ -33,6 +33,12 @@ REQUIRED_TEMPLATE_FIELDS = ("code", "name_cn", "trigger", "expected_chain",
                             "applicable_group", "source", "verification")
 REQUIRED_RELATION_FIELDS = ("id", "name", "lhs", "rhs", "rhs_operator",
                             "expected_sign", "applicable_accidents", "missing_terms")
+# V23-DESIGN-061：人工审核补充的“变量-事故角色”条目（不改 K2 数值口径、不改 K3 链）
+REQUIRED_SUPPLEMENT_FIELDS = ("id", "kind", "variable", "name_cn",
+                              "applicable_accidents", "expected_direction",
+                              "role_in_accident", "can_be_root", "basis",
+                              "source", "date")
+SUPPLEMENT_DIRECTIONS = ("pos", "neg", "mixed", "trigger")
 DEFAULT_FALLBACK_RATIO = 0.01
 # 退化零通道判据（V23-CODE-033）：正常工况带展小于本通道动态区间的 25% 视为“无展布”；
 # 参考带与 σ 小于本轨迹最大幅值的 0.1%（千分之一）视为“实质为 0”。
@@ -88,6 +94,32 @@ def load_tolerance_overrides() -> Dict[str, Any]:
     return {"by_unit": dict(doc.get("by_unit") or {}),
             "by_variable": dict(doc.get("by_variable") or {}),
             "fallback": dict(doc.get("fallback") or {})}
+
+
+def load_positive_mechanisms() -> Dict[str, Any]:
+    """返回**正向**机理条目（"谁先动、经哪条路径传递"，2026-11-11 补充）。
+
+    与否定性的 `supplementary_mechanisms.yaml` 分开管理：本层只登记物理上站得住的起点/传导
+    条目，全部 `verification: pending_expert`，不参与排序，只供解释证据包引用。
+    文件缺失时返回空集。
+    """
+    try:
+        doc = load_yaml("positive_mechanisms")
+    except FileNotFoundError:
+        return {"entries": [], "n_entries": 0}
+    return doc
+
+
+def load_supplementary_mechanisms() -> Dict[str, Any]:
+    """返回人工审核补充的变量-事故角色条目（V23-DESIGN-061）。
+
+    文件缺失时返回空集（补充知识是可选层，不阻断主链）。
+    """
+    try:
+        doc = load_yaml("supplementary_mechanisms")
+    except FileNotFoundError:
+        return {"entries": [], "n_entries": 0}
+    return doc
 
 
 def validate_against_entity_table(et: Dict[str, Dict[str, str]] | None = None) -> Dict[str, Any]:
@@ -176,6 +208,42 @@ def validate_against_entity_table(et: Dict[str, Dict[str, str]] | None = None) -
             errors.append(f"tolerance_overrides: 未知变量 {var}")
         elif not isinstance(floor, (int, float)) or floor <= 0:
             errors.append(f"tolerance_overrides: {var} 的下限非法 {floor!r}")
+
+    # ---- L5 人工审核补充机理（V23-DESIGN-061）----
+    # 纪律：只标角色，不许把响应量升格为根因；不得断言任何变量→marker（K1 R1/R2/R3）。
+    marker_vars = set(fdoc.get("markers") or []) | set(fdoc.get("non_pilot_markers") or [])
+    exceptions = {tuple(pair) for pair in (fdoc.get("exceptions") or [])}
+    seen_sup: set = set()
+    for fname, sdoc in (("supplementary_mechanisms", load_supplementary_mechanisms()),
+                        ("positive_mechanisms", load_positive_mechanisms())):
+        for ent in sdoc.get("entries") or []:
+            sid = ent.get("id")
+            if not sid:
+                errors.append(f"{fname}: 条目缺 id")
+                continue
+            if sid in seen_sup:
+                errors.append(f"{fname}: 重复 id {sid}")
+            seen_sup.add(sid)
+            missing = [f for f in REQUIRED_SUPPLEMENT_FIELDS if f not in ent]
+            if missing:
+                errors.append(f"{fname}: {sid} 缺字段 {missing}")
+                continue
+            var = ent.get("variable")
+            if var not in et:
+                errors.append(f"{fname}: {sid} 的变量 {var} 不在 ENTITY_TABLE")
+            if ent.get("expected_direction") not in SUPPLEMENT_DIRECTIONS:
+                errors.append(f"{fname}: {sid} 的 expected_direction 非法 "
+                              f"{ent.get('expected_direction')!r}")
+            if (ent.get("role_in_accident") or "").startswith("response") and ent.get("can_be_root"):
+                errors.append(f"{fname}: {sid} 为响应量，can_be_root 必须为 false")
+            for edge in ent.get("asserted_edges") or []:
+                src = edge.get("from") if isinstance(edge, dict) else None
+                dst = edge.get("to") if isinstance(edge, dict) else None
+                if src not in et or dst not in et:
+                    errors.append(f"{fname}: {sid} 的断言边端点未知 {src!r}->{dst!r}")
+                elif dst in marker_vars and (src, dst) not in exceptions:
+                    errors.append(f"{fname}: {sid} 断言 {src}->{dst} "
+                                  f"与 K1 禁边规则冲突（不得指向始发事件指示器）")
 
     return {"ok": not errors, "errors": errors, "warnings": warnings}
 

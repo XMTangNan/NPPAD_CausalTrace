@@ -27,7 +27,7 @@ from causalrca.config.constants_v23 import (
     LLM_TIMEOUT_S as V23_LLM_TIMEOUT_S,
 )
 from causalrca.config.paths import (
-    LLM_API_KEY_ENV, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT,
+    CODE_ROOT, LLM_API_KEY_ENV, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT,
     LLM_TEMPERATURE,
 )
 from causalrca.io.logging import logger
@@ -320,14 +320,17 @@ def _degrade(rec: Dict, reason: str) -> Dict:
 #   1. 只读本 run 下的 tracing/root_candidates_*、signatures/、
 #      reports/summary|diff|deviation_*，不重算因果、不读旧 rca_v21/v22 产物；
 #   2. rule 后端纯离线、确定性，输出的每个数字与变量名都必须能在 payload 找到；
-#   3. llm 后端只在 CAUSALTRACE_LLM_BASE_URL 与 CAUSALTRACE_LLM_API_KEY 同时存在时启用，
-#      任何失败都降级为 rule 并写 degraded_reason，绝不静默成功；
-#   4. llm 输出不忠实 → backend 仍记 "llm"、faithful=False，并把 unsupported 列表落盘。
+#   3. llm 后端凭据按优先级解析（V23-DESIGN-060）：CAUSALTRACE_LLM_API_KEY（进程环境）
+#      > DEEPSEEK_API_KEY（进程环境）> Code/.env / 仓库根 .env 里的上述任一键；
+#      base_url 同理，未设置时用 DeepSeek 默认端点。解析结果只记录“来源标签”，绝不打印密文；
+#   4. 任何失败都降级为 rule 并写 degraded_reason，绝不静默成功；
+#   5. llm 输出不忠实 → backend 仍记 "llm"、faithful=False，并把 unsupported 列表落盘。
 # ==================================================================
 V23_LLM_BASE_URL_ENV = "CAUSALTRACE_LLM_BASE_URL"
 V23_LLM_API_KEY_ENV = "CAUSALTRACE_LLM_API_KEY"
 V23_LLM_MODEL_ENV = "CAUSALTRACE_LLM_MODEL"
 V23_LLM_MODEL_DEFAULT = "deepseek-chat"
+V23_LLM_BASE_URL_DEFAULT = "https://api.deepseek.com"   # DeepSeek 默认端点
 # V23_LLM_TIMEOUT_S / FAITHFUL_DECIMALS 取自 causalrca.config.constants_v23
 # （LLM_TIMEOUT_S=30、LLM_FAITHFUL_DECIMALS=2，测试仍可 monkeypatch 本模块同名变量）
 K2_SIGNATURE_KEYS = ("physics", "physics_constraint", "physics_constraints",
@@ -724,8 +727,8 @@ def build_payload(k: str, g: str, run_id: Optional[str] = None) -> Dict:
         limitations.append(
             "数值不稳定、结论降级：" + "；".join(stab.get("reasons") or []) +
             "（V23-ALGO-001 门控，排名仅供参考）")
-    if summary is not None and not (summary.get("cross_group") or {}).get("top1_stable"):
-        limitations.append("跨组不稳定：三组 Top-1 不一致，单组结论不能外推为类级结论")
+    # 跨组一致性类推断量已整体取消（用户裁决 2026-11-11）：不再输出“三组 Top-1 是否相同”
+    # 这类表述，也不再据此写“不稳定”的局限。稳定性一节不再产出推断量（见方案 §7.10）。
     if not k2["available"]:
         limitations.append("物理一致性未被检验：K2 残差三态未产出")
     if k3["available"] and k3["coverage"] < 1.0:
@@ -927,12 +930,74 @@ def render_rule_explanation(payload: Dict) -> str:
 
 
 # ==================== llm 后端（可选，OpenAI 兼容） ====================
+def _repo_root() -> Path:
+    return Path(CODE_ROOT).parent
+
+
+def _read_env_file_keys(names: Sequence[str]) -> Optional[tuple]:
+    """从 Code/.env、仓库根 .env 读首个命中的键值。
+
+    返回 (value, "相对位置:键名") 或 None；**永不打印 value**（V23-DESIGN-060）。
+    """
+    for base in (Path(CODE_ROOT), _repo_root()):
+        env_path = base / ".env"
+        if not env_path.is_file():
+            continue
+        try:
+            lines = env_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            s = line.strip()
+            if not s or s.startswith("#") or "=" not in s:
+                continue
+            k, _, v = s.partition("=")
+            k = k.strip()
+            if k.startswith("export "):
+                k = k[7:].strip()
+            if k in names and v.strip():
+                try:
+                    rel = env_path.relative_to(_repo_root()).as_posix()
+                except ValueError:
+                    rel = env_path.name
+                return v.strip().strip('"').strip("'"), f"file:{rel}:{k}"
+    return None
+
+
+def resolve_llm_credentials() -> Dict[str, Any]:
+    """解析 v2.3 llm 后端凭据（V23-DESIGN-060）。
+
+    优先级：CAUSALTRACE_LLM_*（进程环境）> DEEPSEEK_API_KEY（进程环境）
+            > Code/.env / 仓库根 .env 中的上述任一键（CAUSALTRACE_LLM_API_KEY 优先）。
+    base_url 未显式设置时回落到 DeepSeek 默认端点；model 未设置时用 V23_LLM_MODEL_DEFAULT。
+    返回值含 api_key，仅供调用使用；日志/产物只允许记录 key_source。
+    """
+    key = os.environ.get(V23_LLM_API_KEY_ENV, "").strip()
+    key_source = "env:" + V23_LLM_API_KEY_ENV if key else ""
+    if not key:
+        key = os.environ.get(LLM_API_KEY_ENV, "").strip()
+        key_source = "env:" + LLM_API_KEY_ENV if key else ""
+    if not key:
+        hit = _read_env_file_keys((V23_LLM_API_KEY_ENV, LLM_API_KEY_ENV))
+        if hit:
+            key, key_source = hit
+    base = (os.environ.get(V23_LLM_BASE_URL_ENV, "").strip()
+            or V23_LLM_BASE_URL_DEFAULT)
+    model = (os.environ.get(V23_LLM_MODEL_ENV, "").strip()
+             or V23_LLM_MODEL_DEFAULT)
+    return {"base_url": base, "api_key": key, "model": model,
+            "key_source": key_source or "missing",
+            "base_url_source": ("env:" + V23_LLM_BASE_URL_ENV
+                                if os.environ.get(V23_LLM_BASE_URL_ENV, "").strip()
+                                else "default")}
+
+
 def llm_unavailable_reason() -> Optional[str]:
-    """llm 后端启用条件：BASE_URL 与 API_KEY 同时存在；否则返回原因文本。"""
-    missing = [n for n in (V23_LLM_BASE_URL_ENV, V23_LLM_API_KEY_ENV)
-               if not os.environ.get(n, "").strip()]
-    if missing:
-        return f"未设置环境变量 {'/'.join(missing)}，llm 后端不可用"
+    """llm 后端启用条件：能解析到 key（环境变量或 Code/.env）；否则返回原因文本。"""
+    cred = resolve_llm_credentials()
+    if not cred["api_key"]:
+        return (f"未找到 LLM key：{V23_LLM_API_KEY_ENV}/{LLM_API_KEY_ENV} "
+                f"在进程环境与 Code/.env 中均为空（只报存在性，不回显内容）")
     return None
 
 
@@ -948,16 +1013,21 @@ def _build_v23_prompt(payload: Dict) -> str:
 
 def _call_chat_completions(prompt: str, timeout: Optional[float] = None,
                            system_prompt: str = V23_SYSTEM_PROMPT) -> str:
-    """OpenAI 兼容 chat/completions（标准库 urllib，超时默认 30s，失败抛异常）。"""
-    base = os.environ.get(V23_LLM_BASE_URL_ENV, "").strip().rstrip("/")
-    key = os.environ.get(V23_LLM_API_KEY_ENV, "").strip()
+    """OpenAI 兼容 chat/completions（标准库 urllib，超时默认 30s，失败抛异常）。
+
+    凭据来自 resolve_llm_credentials()（V23-DESIGN-060）；日志只记录 key 来源标签。
+    """
+    cred = resolve_llm_credentials()
+    base = str(cred["base_url"]).rstrip("/")
+    key = str(cred["api_key"])
     if not base or not key:
-        raise RuntimeError("llm 后端环境变量缺失")
+        raise RuntimeError("llm 后端凭据缺失（环境变量与 Code/.env 均未提供）")
+    logger.info(f"[D6] llm 凭据来源={cred['key_source']}，base={cred['base_url_source']}")
     url = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
     body = json.dumps({
-        "model": os.environ.get(V23_LLM_MODEL_ENV, V23_LLM_MODEL_DEFAULT),
+        "model": cred["model"],
         "messages": [
-            {"role": "system", "content": V23_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.0,
@@ -1194,9 +1264,10 @@ def render_rule_class_summary(payload: Dict) -> str:
     if cross.get("available"):
         t1 = cross.get("top1_by_group") or {}
         L.append("  三组 Top-1：" + "，".join(f"{gname}={t1.get(gname)}" for gname in t1) + "。")
-        L.append(f"  Top-1 跨组稳定：{'是' if cross.get('top1_stable') else '否'}；"
-                 f"三组共同入榜变量 {cross.get('n_vars_in_all_groups')} 个；"
-                 f"相邻组平均 Top-5 重叠 {_f(cross.get('mean_pairwise_overlap'))}。")
+        L.append(f"  Top-1 跨组是否相同：{'是' if cross.get('top1_stable') else '否'}；"
+                 f"三组共同入榜变量 {cross.get('n_vars_in_all_groups')} 个。")
+        L.append("  跨组一致性数值（Top-5 重叠 / Jaccard / Spearman）已撤出结果层："
+                 "实测与随机不可区分，不得读作“稳定”（V23-DESIGN-063，见方案 §7.10）。")
         d = payload["cross_group_diff"] or {}
         if d.get("available"):
             L.append(f"  差异报告：Top-1 切换 {d['n_top1_switches']} 次，"
@@ -1220,10 +1291,8 @@ def render_rule_class_summary(payload: Dict) -> str:
     for t in tpls:
         dev = t["deviation"]
         if dev.get("available"):
-            lc = dev.get("level_counts") or {}
-            L.append(f"  {t['template']}：{dev.get('n_variables')} 个变量 "
-                     f"正常 {lc.get('normal')}/中等 {lc.get('moderate')}/"
-                     f"较大 {lc.get('large')}/严重 {lc.get('severe')}。")
+            L.append(f"  {t['template']}：偏离通道 d 的档位计数已撤出结果层"
+                     "（d 跨变量不可比，只能同变量内沿时间看；V23-DESIGN-063）。")
         else:
             L.append(f"  {t['template']}：偏离度未产出。")
     L.append("")
