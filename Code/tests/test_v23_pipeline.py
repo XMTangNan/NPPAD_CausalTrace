@@ -259,6 +259,7 @@ def test_bootstrap_fits_on_canonical_order(monkeypatch):
     """V23-CODE-023：无论调用方传入何种列序，实际喂给 LiNGAM 的矩阵列序一致。"""
     import numpy as np
     import lingam
+    from causalrca.causal import signatures as SIG
     from causalrca.causal.signatures import bootstrap_lingam_template
 
     seen = []
@@ -273,17 +274,24 @@ def test_bootstrap_fits_on_canonical_order(monkeypatch):
 
     rng = np.random.default_rng(3)
     n = 200
-    # 每列加不同偏置，便于核对列序（mu=0/sigma=1 时偏置原样保留）
+    # 每列加不同偏置，便于核对列序（current 口径下 mu=0/sigma=1 时偏置原样保留）
     X = np.column_stack([rng.normal(size=n) + 10 * k for k in range(4)])
     variables = ["VOID", "P", "TAVG", "WLD"]  # 字母序 = P, TAVG, VOID, WLD
     kw = dict(marker="P", ontology={"forbidden": [], "competitive": [], "allowed": []},
               mu={v: 0.0 for v in variables}, sigma={v: 1.0 for v in variables},
               median_platform=1.0, n_bootstrap=2, seed=5, use_ontology=False)
 
-    bootstrap_lingam_template([X[:100], X[100:]], variables, **kw)
-    perm = [2, 0, 3, 1]
-    bootstrap_lingam_template([X[:100][:, perm], X[100:][:, perm]],
-                              [variables[i] for i in perm], **kw)
+    # 该用例只验证列序（V23-CODE-023），需固定到可保留偏置的 current 口径；
+    # 默认口径切换为 unified 后由训练段均值中心化，偏置不再可直接读出。
+    prev = SIG.get_normalization_mode()
+    SIG.set_normalization_mode(SIG.NORMALIZATION_CURRENT)
+    try:
+        bootstrap_lingam_template([X[:100], X[100:]], variables, **kw)
+        perm = [2, 0, 3, 1]
+        bootstrap_lingam_template([X[:100][:, perm], X[100:][:, perm]],
+                                  [variables[i] for i in perm], **kw)
+    finally:
+        SIG.set_normalization_mode(prev)
 
     canonical = [variables.index(v) for v in sorted(variables)]
     for z in seen:  # 两次调用的列序都等于字母序（按列偏置核对）

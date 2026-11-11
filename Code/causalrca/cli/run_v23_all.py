@@ -213,7 +213,7 @@ def step_deviation(run_id: str, classes: List[str], groups: List[str]) -> Dict:
 
 
 def step_explanation_reports(run_id: str, classes: List[str], groups: List[str],
-                             backend: str) -> Dict:
+                             backend: str, run_note: Optional[str] = None) -> Dict:
     """D6 解释 + D7 报告：模板级固定 rule；类级汇总 ×N + 全局结论 ×1（V23-DESIGN-020）。"""
     from causalrca.cli.run_v23_llm_explanation import (
         explain_one, explain_class, explain_global,
@@ -237,7 +237,8 @@ def step_explanation_reports(run_id: str, classes: List[str], groups: List[str],
     except Exception as exc:  # noqa: BLE001
         exploerr.append(f"global: {type(exc).__name__}: {exc}")
     try:
-        reports = RT.run_all_reports(classes=classes, groups=groups, run_id=run_id)
+        reports = RT.run_all_reports(classes=classes, groups=groups, run_id=run_id,
+                                     banner_note=run_note)
         rep_err: List[str] = []
     except Exception as exc:  # noqa: BLE001
         reports, rep_err = [], [f"{type(exc).__name__}: {exc}"]
@@ -291,7 +292,8 @@ def _plan_steps(with_ab: bool) -> List[Dict]:
 def _step_fns(run_id: str, classes: List[str], groups: List[str],
               n_bootstrap: int, backend: str,
               role_prior: Optional[bool] = None,
-              refresh_latest: bool = True) -> Dict[str, object]:
+              refresh_latest: bool = True,
+              run_note: Optional[str] = None) -> Dict[str, object]:
     """步骤名 → 执行函数（参数已绑定，含本链 run_id）。"""
     return {
         "variable_sets": lambda: step_variable_sets(run_id),
@@ -301,7 +303,8 @@ def _step_fns(run_id: str, classes: List[str], groups: List[str],
         "graphs": lambda: step_graphs(run_id, classes, groups),
         "aggregation": lambda: step_aggregation(run_id, classes, groups),
         "deviation": lambda: step_deviation(run_id, classes, groups),
-        "explanation_reports": lambda: step_explanation_reports(run_id, classes, groups, backend),
+        "explanation_reports": lambda: step_explanation_reports(run_id, classes, groups,
+                                                                backend, run_note),
         "evaluation": lambda: step_evaluation(run_id, classes, groups, role_prior),
         "ab_variable_selection": lambda: step_ab_variable_selection(run_id),
         "manifest": lambda: step_manifest(run_id, refresh_latest),
@@ -342,19 +345,21 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="全链重跑原因（方案 §6.4 强制）：必须命中 E-R1/E-R2/E-R3/E-R4 并写清具体项")
     ap.add_argument("--citable", action="store_true",
                     help="显式声明本次产物可引用（仅 n_bootstrap 达正式口径/spec 档允许；缩减档直接报错）")
-    ap.add_argument("--normalization", default="current",
+    ap.add_argument("--normalization", default="unified",
                     choices=["current", "unified", "unified_keep_injection"],
-                    help="学图归一化口径（V23-DESIGN-085）：current=生产三路（默认，逐字不变）；"
-                         "unified=全部按训练段池化 mean/std；"
-                         "unified_keep_injection=其余统一但注入变量仍走平台尺度")
+                    help="学图归一化口径（V23-DESIGN-087）：unified=全部按训练段池化 mean/std（默认）；"
+                         "current=历史三路（legacy，仅历史对照）；"
+                         "unified_keep_injection=注入变量单列（legacy，已退役）")
     ap.add_argument("--no-latest", action="store_true",
                     help="不刷新 output/latest（实验档专用；生产默认刷新）")
     ap.add_argument("--run-prefix", default="v23",
                     help="run_id 前缀，默认 v23（实验档可换前缀避免与生产 run 混淆）")
+    ap.add_argument("--run-note", default=None,
+                    help="写入 9 份报告头的说明（如“口径切换验证，非论文数字”）")
     args = ap.parse_args(argv)
 
     from causalrca.causal import signatures as SIG
-    SIG.set_normalization_mode(args.normalization)
+    _prev_normalization = SIG.get_normalization_mode()
 
     classes = list(args.classes or READY_CODES)
     unknown = [k for k in classes if k not in REGISTRY]
@@ -394,10 +399,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                 f"n_bootstrap={args.n_bootstrap} run_mode={run_mode} backend={backend} "
                 f"with_ab={args.with_ab}")
 
+    SIG.set_normalization_mode(args.normalization)
     steps = _plan_steps(args.with_ab)
     fns = _step_fns(run_id, classes, groups, args.n_bootstrap, backend,
                     getattr(args, "role_prior", None),
-                    refresh_latest=not args.no_latest)
+                    refresh_latest=not args.no_latest,
+                    run_note=args.run_note)
     results: List[Dict] = []
     for i, step in enumerate(steps, start=1):
         entry = _run_step(i, step, fns[step["name"]], results, len(steps))
@@ -421,6 +428,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                        "normalization": args.normalization,
                        "refresh_latest": not args.no_latest,
                        "run_prefix": args.run_prefix,
+                       "run_note": args.run_note,
                        "explanation_backend": backend,
                        "note": llm_note},
         "steps": results,
@@ -452,6 +460,7 @@ def main(argv: Optional[List[str]] = None) -> int:
               f"{e['elapsed_s']:>7.2f}s {e['error'] or ''}")
     print(f"[D10] summary -> {summary_path}")
     print("=" * 78)
+    SIG.set_normalization_mode(_prev_normalization)  # 还原进程级口径，避免污染同进程后续调用
     return 0 if not failed else 1
 
 

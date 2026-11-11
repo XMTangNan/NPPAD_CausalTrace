@@ -243,3 +243,46 @@ def test_run_v23_all_records_failure_and_returns_nonzero(monkeypatch, tmp_path, 
     assert "D2 公差执行器未就绪" in steps[-1]["error"]
     assert summary["n_steps_failed"] == 1
     assert summary["failed"]
+
+
+# ==================== V23-CODE-034：汇总文本不得出现内部编号 ====================
+def _minimal_class_payload() -> dict:
+    tpl = {
+        "template": "LOCA_low", "group": "low", "marker": "WLR",
+        "n_variables": 55, "n_stable_edges": 61, "n_bootstrap": 5,
+        "top1": "RHMT", "top1_total_effect": 1.5,
+        "top5": [{"rank": i + 1, "variable": v, "subsystem": "示例",
+                  "total_effect": 1.0}
+                 for i, v in enumerate(["RHMT", "LVPZ", "PRB", "TRB", "P"])],
+        "k2": {"available": True, "n_relations": 10, "n_violation": 2,
+               "n_undecidable": 0},
+        "k3": {"available": True, "coverage": 0.5, "n_matched": 2,
+               "n_chain_edges": 4},
+        "deviation": {"available": True, "n_variables": 50,
+                      "level_counts": {"L1": 1}},
+        "stability_degraded": False,
+        "cond_IminusB": 10.0, "cond_IminusB_after_clip": 10.0,
+    }
+    return {
+        "schema": "causaltrace/v2.3/llm-class-payload",
+        "run_id": "v23-test", "accident_type": "LOCA",
+        "template_ids": ["LOCA_low"], "templates": [tpl],
+        "cross_group": {"available": True, "top1_by_group": {"low": "RHMT"},
+                        "top1_stable": True, "n_vars_in_all_groups": 3},
+        "cross_group_diff": {"available": True, "n_top1_switches": 0,
+                             "n_mechanism_switches": 0},
+        "limitations": ["示例局限"], "inputs": [],
+        "allowed_terms": list(LE._V23_ALLOWED_TERMS),
+    }
+
+
+def test_class_summary_text_has_no_internal_ids():
+    """V23-CODE-034：rule 汇总文本不得写内部编号（否则被忠实性校验判为未支撑变量）。"""
+    payload = _minimal_class_payload()
+    text = LE.render_rule_class_summary(payload)
+    for token in ("V23", "DESIGN", "§"):
+        assert token not in text, f"汇总文本仍含内部编号标记：{token}"
+    faith = LE.verify_summary_faithfulness(text, payload)
+    assert faith["faithful"] is True, faith
+    assert faith["n_vars_unknown"] == 0
+    assert faith["n_numbers_unsupported"] == 0

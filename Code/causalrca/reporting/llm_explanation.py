@@ -1267,7 +1267,7 @@ def render_rule_class_summary(payload: Dict) -> str:
         L.append(f"  Top-1 跨组是否相同：{'是' if cross.get('top1_stable') else '否'}；"
                  f"三组共同入榜变量 {cross.get('n_vars_in_all_groups')} 个。")
         L.append("  跨组一致性数值（Top-5 重叠 / Jaccard / Spearman）已撤出结果层："
-                 "实测与随机不可区分，不得读作“稳定”（V23-DESIGN-063，见方案 §7.10）。")
+                 "实测与随机不可区分，不得读作“稳定”。")
         d = payload["cross_group_diff"] or {}
         if d.get("available"):
             L.append(f"  差异报告：Top-1 切换 {d['n_top1_switches']} 次，"
@@ -1292,7 +1292,7 @@ def render_rule_class_summary(payload: Dict) -> str:
         dev = t["deviation"]
         if dev.get("available"):
             L.append(f"  {t['template']}：偏离通道 d 的档位计数已撤出结果层"
-                     "（d 跨变量不可比，只能同变量内沿时间看；V23-DESIGN-063）。")
+                     "（d 跨变量不可比，只能同变量内沿时间看）。")
         else:
             L.append(f"  {t['template']}：偏离度未产出。")
     L.append("")

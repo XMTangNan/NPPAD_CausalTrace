@@ -94,7 +94,8 @@ def _load_llm_explanation(k: str, g: str) -> Optional[Dict]:
         return None
 
 
-def generate_rca_report(k: str, g: str, run_id: Optional[str] = None) -> Dict:
+def generate_rca_report(k: str, g: str, run_id: Optional[str] = None,
+                        banner_note: Optional[str] = None) -> Dict:
     """生成单模板报告 dict（8 节固定键）；数据缺失如实标注。"""
     payload = LE.build_payload(k, g, run_id=run_id)
     roots = payload["root_candidates"]
@@ -222,6 +223,7 @@ def generate_rca_report(k: str, g: str, run_id: Optional[str] = None) -> Dict:
         "group": g,
         "marker": payload["marker"],
         "run_id": payload["run_id"],
+        "banner_note": banner_note,
         "section_order": list(SECTION_KEYS),
         "sections": sections,
         # 报告级指标口径（V23-DESIGN-063）：已撤出的评价指标不在正文出现，
@@ -251,6 +253,8 @@ def report_to_text(report: Dict) -> str:
     L: List[str] = []
     L.append(f"CausalTrace v2.3 根因分析报告 · {report['accident_type']} / {report['group']} 组")
     L.append(f"marker={report['marker']}，run_id={report['run_id']}")
+    if report.get("banner_note"):
+        L.append(f"[{report['banner_note']}]")
     if report.get("warning"):
         L.append("")
         L.append(f"[{report['warning']}]")
@@ -409,7 +413,8 @@ def write_report(report: Dict) -> Dict[str, str]:
 
 def run_all_reports(classes: Optional[List[str]] = None,
                     groups: Optional[List[str]] = None,
-                    run_id: Optional[str] = None) -> List[Dict]:
+                    run_id: Optional[str] = None,
+                    banner_note: Optional[str] = None) -> List[Dict]:
     """3 类 × 3 组 = 9 份报告；单模板失败不掩盖，汇总后抛出。"""
     classes = list(classes or READY_CODES)
     groups = list(groups or GROUPS)
@@ -418,7 +423,7 @@ def run_all_reports(classes: Optional[List[str]] = None,
     for k in classes:
         for g in groups:
             try:
-                rep = generate_rca_report(k, g, run_id=run_id)
+                rep = generate_rca_report(k, g, run_id=run_id, banner_note=banner_note)
                 paths = write_report(rep)
                 done.append({"template": rep["template"],
                              "run_id": rep["run_id"], "paths": paths})

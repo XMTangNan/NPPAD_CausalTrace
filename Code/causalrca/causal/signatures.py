@@ -100,19 +100,22 @@ def select_stable_edges(edge_stats: Dict, f_thr: float = STABLE_F,
             if e["f_e"] >= f_thr and e["dir_e"] >= dir_thr]
 
 
-# ==================== 归一化口径（V23-DESIGN-085，默认三路原样）====================
-NORMALIZATION_CURRENT = "current"
-NORMALIZATION_UNIFIED = "unified"
-NORMALIZATION_UNIFIED_KEEP_INJECTION = "unified_keep_injection"
+# ==================== 归一化口径（V23-DESIGN-085/087，默认 unified）====================
+# 2026-11-11 用户裁决：默认切换为 unified（全部建模变量按训练段池化 mean/std）。
+# current（历史三路）与 unified_keep_injection（注入变量单列，已退役）仅作历史对照保留，
+# 不再作为默认；稳定边判据、B_CLIP、排序规则均未改动。
+NORMALIZATION_CURRENT = "current"                      # legacy：历史三路口径
+NORMALIZATION_UNIFIED = "unified"                      # 现行默认
+NORMALIZATION_UNIFIED_KEEP_INJECTION = "unified_keep_injection"  # legacy：已退役
 NORMALIZATION_MODES = (NORMALIZATION_CURRENT, NORMALIZATION_UNIFIED,
                        NORMALIZATION_UNIFIED_KEEP_INJECTION)
-_NORMALIZATION_MODE = NORMALIZATION_CURRENT
+_NORMALIZATION_MODE = NORMALIZATION_UNIFIED
 
 
 def set_normalization_mode(mode: str) -> str:
-    """设置进程级学图归一化口径；默认 current（生产三路，逐字不变）。
+    """设置进程级学图归一化口径；默认 unified（V23-DESIGN-087 切换后）。
 
-    仅由显式 CLI 参数（run_v23_all --normalization）调用；默认路径不触碰。
+    current / unified_keep_injection 仅供历史对照显式指定，不得作为当前做法。
     """
     global _NORMALIZATION_MODE
     if mode not in NORMALIZATION_MODES:
@@ -143,10 +146,10 @@ def transform_graph_block(block: np.ndarray, variables: List[str], marker: str,
                           ) -> np.ndarray:
     """原始块 -> 学图矩阵。
 
-    normalization=None 时取进程级口径（默认 current）：
-      - current：V_thr 用共享 mu/sigma；marker 用平台尺度；图专用变量模板内尺度；
-      - unified：全部建模变量用训练段池化 mean/std（替代三路）；
-      - unified_keep_injection：除 marker 仍走平台尺度外，其余同 unified。
+    normalization=None 时取进程级口径（默认 unified）：
+      - unified：全部建模变量用训练段池化 mean/std（现行口径）；
+      - current（legacy）：V_thr 用共享 mu/sigma；marker 用平台尺度；图专用变量模板内尺度；
+      - unified_keep_injection（legacy，已退役）：除 marker 仍走平台尺度外，其余同 unified。
     """
     mode = normalization or _NORMALIZATION_MODE
     Z = np.empty_like(block, dtype=float)
