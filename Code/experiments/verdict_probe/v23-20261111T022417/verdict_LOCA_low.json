@@ -1,0 +1,1425 @@
+{
+  "schema": "causaltrace/explanation_verdict/v1",
+  "run_id": "v23-20261111T022417",
+  "template_id": "LOCA_low",
+  "switch_env": "CAUSALTRACE_LLM_VERDICT",
+  "switch_value": "1",
+  "evidence_sha256": "967bc266011f767f1780e2950b91bb50a360552cbd8107795a0bbe042996826c",
+  "backend": "llm",
+  "explanation_mode": "llm_verified",
+  "llm": {
+    "key_source": "file:Code/.env:DEEPSEEK_API_KEY",
+    "model": "deepseek-chat",
+    "base_url_source": "default",
+    "attempts": 1
+  },
+  "validation": {
+    "ok": true,
+    "errors": [],
+    "warnings": [],
+    "n_verdicts": 5
+  },
+  "degraded_reason": null,
+  "verdict": {
+    "schema": "causaltrace/explanation_verdict/v1",
+    "run_id": "v23-20261111T022417",
+    "template_id": "LOCA_low",
+    "ranking_source": "algorithm",
+    "verdicts": [
+      {
+        "rank": 1,
+        "variable": "RHMT",
+        "verdict": "undetermined",
+        "graph_basis": [
+          "LVPZ->RHMT",
+          "P->RHMT",
+          "PRB->RHMT",
+          "PSGA->RHMT",
+          "RHMT->RM1",
+          "RHMT->TAVG",
+          "RHMT->TRB",
+          "RHMT->WECS",
+          "RHMT->WHPI",
+          "RHMT->RRCA",
+          "RHMT->VOL"
+        ],
+        "knowledge_basis": [
+          "S5_LOCA_RHMT_response"
+        ],
+        "mechanism": "图上有4条入边、7条出边，但S5_LOCA_RHMT_response标注其为响应量、can_be_root为false，且方向为mixed。",
+        "conflicts": [
+          "图证据显示RHMT为高入出度传导节点，与S5_LOCA_RHMT_response的response_not_root角色冲突"
+        ]
+      },
+      {
+        "rank": 2,
+        "variable": "LVPZ",
+        "verdict": "undetermined",
+        "graph_basis": [
+          "LVPZ->P",
+          "LVPZ->PSGA",
+          "LVPZ->RHMT",
+          "LVPZ->RRCA",
+          "LVPZ->TAVG",
+          "LVPZ->TRB",
+          "LVPZ->VOL",
+          "LVPZ->WHPI",
+          "LVPZ->PRB",
+          "LVPZ->RM1",
+          "LVPZ->WECS"
+        ],
+        "knowledge_basis": [
+          "S2_LOCA_LVPZ_response"
+        ],
+        "mechanism": "图上入度为0、出度为11，但S2_LOCA_LVPZ_response标注其为装量损失表征、can_be_root为false。",
+        "conflicts": [
+          "图证据显示LVPZ为无入边源节点，与S2_LOCA_LVPZ_response的response_not_root角色冲突"
+        ]
+      },
+      {
+        "rank": 3,
+        "variable": "PRB",
+        "verdict": "undetermined",
+        "graph_basis": [
+          "P->PRB",
+          "LVPZ->PRB",
+          "PRB->PSGA",
+          "PRB->RHMT",
+          "PRB->RRCA",
+          "PRB->TRB",
+          "PRB->WECS",
+          "PRB->WHPI",
+          "PRB->RM1",
+          "PRB->TAVG"
+        ],
+        "knowledge_basis": [
+          "S3_LOCA_PRB_response"
+        ],
+        "mechanism": "图上有2条入边、8条出边，但S3_LOCA_PRB_response标注其为安全壳环境后果指标、can_be_root为false。",
+        "conflicts": [
+          "图证据显示PRB为传导枢纽，与S3_LOCA_PRB_response的response_not_root角色冲突"
+        ]
+      },
+      {
+        "rank": 4,
+        "variable": "TRB",
+        "verdict": "undetermined",
+        "graph_basis": [
+          "LVPZ->TRB",
+          "PRB->TRB",
+          "RHMT->TRB",
+          "RRCA->TRB",
+          "TAVG->TRB",
+          "RM1->TRB",
+          "P->TRB",
+          "TRB->WECS",
+          "TRB->WHPI"
+        ],
+        "knowledge_basis": [
+          "S4_LOCA_TRB_response"
+        ],
+        "mechanism": "图上有7条入边、2条出边，但S4_LOCA_TRB_response标注其为壳内环境响应、can_be_root为false。",
+        "conflicts": [
+          "图证据显示TRB为多入边汇聚节点，与S4_LOCA_TRB_response的response_not_root角色冲突"
+        ]
+      },
+      {
+        "rank": 5,
+        "variable": "P",
+        "verdict": "undetermined",
+        "graph_basis": [
+          "LVPZ->P",
+          "P->PSGA",
+          "P->RHMT",
+          "P->RM1",
+          "P->RRCA",
+          "P->VOL",
+          "P->WECS",
+          "P->WHPI",
+          "P->WLR",
+          "P->TAVG",
+          "P->PRB",
+          "P->TRB"
+        ],
+        "knowledge_basis": [
+          "S1_LOCA_P_response"
+        ],
+        "mechanism": "图上有1条入边、11条出边，但S1_LOCA_P_response标注P为破口结果、可作传导节点但非根因。",
+        "conflicts": [
+          "图证据显示P为高出度传导节点，与S1_LOCA_P_response的response_not_root角色冲突"
+        ]
+      }
+    ],
+    "conflict_notes": [
+      "五个候选均被补充条目标注为response_not_root（S1_LOCA_P_response、S2_LOCA_LVPZ_response、S3_LOCA_PRB_response、S4_LOCA_TRB_response、S5_LOCA_RHMT_response），与图证据中的高入出度/传导枢纽地位冲突，未用文字抹平。",
+      "K3:LOCA 的 matched_edges 为空，expected_chain 无任何稳定边可作支持依据。",
+      "K3 存在反向边：期望 VOL->P 而稳定边为 P->VOL；期望 WHPI->WECS 而稳定边为 WECS->WHPI。",
+      "K3 存在缺失边：期望 WLR->VOL 无稳定边（no_stable_edge）。",
+      "K2 条目 R1_inventory_leak 与 R3_eci_trigger 均为 not_violated，仅表示未被否定，不构成支持。"
+    ],
+    "uncertainty_notes": [
+      "五个候选均缺一条可判定为根因的证据：K3:LOCA 的 matched_edges 为空，无稳定边支持 expected_chain 中任一环节。",
+      "RHMT 缺单向驱动方向证据：S5_LOCA_RHMT_response 的 expected_direction 为 mixed，且 verification 为 pending_expert。",
+      "LVPZ、PRB、TRB、P 缺根因角色证据：对应补充条目 S2_LOCA_LVPZ_response、S3_LOCA_PRB_response、S4_LOCA_TRB_response、S1_LOCA_P_response 均标 can_be_root 为 false 且 verification 为 pending_expert。",
+      "WLR->VOL 期望边无稳定边，无法据图证据确认装量-泄漏环节。"
+    ]
+  },
+  "raw_text": "{\"schema\":\"causaltrace/explanation_verdict/v1\",\"run_id\":\"v23-20261111T022417\",\"template_id\":\"LOCA_low\",\"ranking_source\":\"algorithm\",\"verdicts\":[{\"rank\":1,\"variable\":\"RHMT\",\"verdict\":\"undetermined\",\"graph_basis\":[\"LVPZ->RHMT\",\"P->RHMT\",\"PRB->RHMT\",\"PSGA->RHMT\",\"RHMT->RM1\",\"RHMT->TAVG\",\"RHMT->TRB\",\"RHMT->WECS\",\"RHMT->WHPI\",\"RHMT->RRCA\",\"RHMT->VOL\"],\"knowledge_basis\":[\"S5_LOCA_RHMT_response\"],\"mechanism\":\"图上有4条入边、7条出边，但S5_LOCA_RHMT_response标注其为响应量、can_be_root为false，且方向为mixed。\",\"conflicts\":[\"图证据显示RHMT为高入出度传导节点，与S5_LOCA_RHMT_response的response_not_root角色冲突\"]},{\"rank\":2,\"variable\":\"LVPZ\",\"verdict\":\"undetermined\",\"graph_basis\":[\"LVPZ->P\",\"LVPZ->PSGA\",\"LVPZ->RHMT\",\"LVPZ->RRCA\",\"LVPZ->TAVG\",\"LVPZ->TRB\",\"LVPZ->VOL\",\"LVPZ->WHPI\",\"LVPZ->PRB\",\"LVPZ->RM1\",\"LVPZ->WECS\"],\"knowledge_basis\":[\"S2_LOCA_LVPZ_response\"],\"mechanism\":\"图上入度为0、出度为11，但S2_LOCA_LVPZ_response标注其为装量损失表征、can_be_root为false。\",\"conflicts\":[\"图证据显示LVPZ为无入边源节点，与S2_LOCA_LVPZ_response的response_not_root角色冲突\"]},{\"rank\":3,\"variable\":\"PRB\",\"verdict\":\"undetermined\",\"graph_basis\":[\"P->PRB\",\"LVPZ->PRB\",\"PRB->PSGA\",\"PRB->RHMT\",\"PRB->RRCA\",\"PRB->TRB\",\"PRB->WECS\",\"PRB->WHPI\",\"PRB->RM1\",\"PRB->TAVG\"],\"knowledge_basis\":[\"S3_LOCA_PRB_response\"],\"mechanism\":\"图上有2条入边、8条出边，但S3_LOCA_PRB_response标注其为安全壳环境后果指标、can_be_root为false。\",\"conflicts\":[\"图证据显示PRB为传导枢纽，与S3_LOCA_PRB_response的response_not_root角色冲突\"]},{\"rank\":4,\"variable\":\"TRB\",\"verdict\":\"undetermined\",\"graph_basis\":[\"LVPZ->TRB\",\"PRB->TRB\",\"RHMT->TRB\",\"RRCA->TRB\",\"TAVG->TRB\",\"RM1->TRB\",\"P->TRB\",\"TRB->WECS\",\"TRB->WHPI\"],\"knowledge_basis\":[\"S4_LOCA_TRB_response\"],\"mechanism\":\"图上有7条入边、2条出边，但S4_LOCA_TRB_response标注其为壳内环境响应、can_be_root为false。\",\"conflicts\":[\"图证据显示TRB为多入边汇聚节点，与S4_LOCA_TRB_response的response_not_root角色冲突\"]},{\"rank\":5,\"variable\":\"P\",\"verdict\":\"undetermined\",\"graph_basis\":[\"LVPZ->P\",\"P->PSGA\",\"P->RHMT\",\"P->RM1\",\"P->RRCA\",\"P->VOL\",\"P->WECS\",\"P->WHPI\",\"P->WLR\",\"P->TAVG\",\"P->PRB\",\"P->TRB\"],\"knowledge_basis\":[\"S1_LOCA_P_response\"],\"mechanism\":\"图上有1条入边、11条出边，但S1_LOCA_P_response标注P为破口结果、可作传导节点但非根因。\",\"conflicts\":[\"图证据显示P为高出度传导节点，与S1_LOCA_P_response的response_not_root角色冲突\"]}],\"conflict_notes\":[\"五个候选均被补充条目标注为response_not_root（S1_LOCA_P_response、S2_LOCA_LVPZ_response、S3_LOCA_PRB_response、S4_LOCA_TRB_response、S5_LOCA_RHMT_response），与图证据中的高入出度/传导枢纽地位冲突，未用文字抹平。\",\"K3:LOCA 的 matched_edges 为空，expected_chain 无任何稳定边可作支持依据。\",\"K3 存在反向边：期望 VOL->P 而稳定边为 P->VOL；期望 WHPI->WECS 而稳定边为 WECS->WHPI。\",\"K3 存在缺失边：期望 WLR->VOL 无稳定边（no_stable_edge）。\",\"K2 条目 R1_inventory_leak 与 R3_eci_trigger 均为 not_violated，仅表示未被否定，不构成支持。\"],\"uncertainty_notes\":[\"五个候选均缺一条可判定为根因的证据：K3:LOCA 的 matched_edges 为空，无稳定边支持 expected_chain 中任一环节。\",\"RHMT 缺单向驱动方向证据：S5_LOCA_RHMT_response 的 expected_direction 为 mixed，且 verification 为 pending_expert。\",\"LVPZ、PRB、TRB、P 缺根因角色证据：对应补充条目 S2_LOCA_LVPZ_response、S3_LOCA_PRB_response、S4_LOCA_TRB_response、S1_LOCA_P_response 均标 can_be_root 为 false 且 verification 为 pending_expert。\",\"WLR->VOL 期望边无稳定边，无法据图证据确认装量-泄漏环节。\"]}",
+  "evidence_pack": {
+    "schema": "causaltrace/explanation_evidence/v1",
+    "run_id": "v23-20261111T022417",
+    "template_id": "LOCA_low",
+    "accident": {
+      "code": "LOCA",
+      "name_cn": "一回路热段失水事故",
+      "group": "low",
+      "k3_template_id": "K3:LOCA"
+    },
+    "algorithm": {
+      "engine": "lingam",
+      "n_bootstrap": 100,
+      "top_k": 5,
+      "rank_key": "(-total_effect, in_degree, -weighted_reach, -reach_size, -consensus_rate)",
+      "gate_ratio": 0.1562,
+      "n_variables": 15,
+      "n_stable_edges": 59
+    },
+    "nodes": [
+      {
+        "variable": "FRCL",
+        "meaning_cn": "包壳破损份额",
+        "unit": "%",
+        "subsystem": "安全指标",
+        "role": "non_candidate",
+        "in_graph": true
+      },
+      {
+        "variable": "FRZR",
+        "meaning_cn": "锆氧化份额",
+        "unit": "%",
+        "subsystem": "安全指标",
+        "role": "non_candidate",
+        "in_graph": true
+      },
+      {
+        "variable": "LVPZ",
+        "meaning_cn": "稳压器水位",
+        "unit": "%",
+        "subsystem": "一回路热工",
+        "role": "upstream_driver",
+        "in_graph": true
+      },
+      {
+        "variable": "P",
+        "meaning_cn": "一回路压力",
+        "unit": "bar",
+        "subsystem": "一回路热工",
+        "role": "upstream_driver",
+        "in_graph": true
+      },
+      {
+        "variable": "PRB",
+        "meaning_cn": "安全壳压力",
+        "unit": "bar",
+        "subsystem": "安全壳",
+        "role": "conduction_hub",
+        "in_graph": true
+      },
+      {
+        "variable": "PSGA",
+        "meaning_cn": "蒸汽发生器A压力",
+        "unit": "bar",
+        "subsystem": "二回路SG",
+        "role": "non_candidate",
+        "in_graph": true
+      },
+      {
+        "variable": "RHMT",
+        "meaning_cn": "慢化剂温度反应性",
+        "unit": "dk/k",
+        "subsystem": "反应性与功率",
+        "role": "conduction_hub",
+        "in_graph": true
+      },
+      {
+        "variable": "RM1",
+        "meaning_cn": "安全壳空气辐射监测",
+        "unit": "CPM",
+        "subsystem": "辐射监测",
+        "role": "non_candidate",
+        "in_graph": true
+      },
+      {
+        "variable": "RRCA",
+        "meaning_cn": "A环路流量比",
+        "unit": "-",
+        "subsystem": "一回路流量",
+        "role": "non_candidate",
+        "in_graph": true
+      },
+      {
+        "variable": "TAVG",
+        "meaning_cn": "一回路平均温度",
+        "unit": "degC",
+        "subsystem": "一回路热工",
+        "role": "non_candidate",
+        "in_graph": true
+      },
+      {
+        "variable": "TRB",
+        "meaning_cn": "安全壳温度",
+        "unit": "degC",
+        "subsystem": "安全壳",
+        "role": "conduction_hub",
+        "in_graph": true
+      },
+      {
+        "variable": "VOL",
+        "meaning_cn": "一回路冷却剂装量",
+        "unit": "m3",
+        "subsystem": "一回路热工",
+        "role": "non_candidate",
+        "in_graph": true
+      },
+      {
+        "variable": "WECS",
+        "meaning_cn": "安全注入总流量",
+        "unit": "t/h",
+        "subsystem": "安全系统",
+        "role": "non_candidate",
+        "in_graph": true
+      },
+      {
+        "variable": "WHPI",
+        "meaning_cn": "高压安注流量",
+        "unit": "t/h",
+        "subsystem": "安全系统",
+        "role": "non_candidate",
+        "in_graph": true
+      },
+      {
+        "variable": "WLR",
+        "meaning_cn": "一回路破口泄漏流量（LOCA指示器）",
+        "unit": "t/h",
+        "subsystem": "故障指示器",
+        "role": "non_candidate",
+        "in_graph": true
+      }
+    ],
+    "stable_edges": [
+      {
+        "from": "LVPZ",
+        "to": "P",
+        "weight_median": 7.852795065576121,
+        "weight_iqr": 0.28939656258753654,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "LVPZ",
+        "to": "PSGA",
+        "weight_median": -20.534856976401322,
+        "weight_iqr": 6.582904976581691,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "LVPZ",
+        "to": "RHMT",
+        "weight_median": -0.21304210472702229,
+        "weight_iqr": 0.015444715574172652,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "LVPZ",
+        "to": "RRCA",
+        "weight_median": -0.21564485368471897,
+        "weight_iqr": 0.015174549003556276,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "LVPZ",
+        "to": "TAVG",
+        "weight_median": -3.400843260359572,
+        "weight_iqr": 0.3973005043838671,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "LVPZ",
+        "to": "TRB",
+        "weight_median": -0.0616087855166609,
+        "weight_iqr": 0.005725670356143575,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "LVPZ",
+        "to": "VOL",
+        "weight_median": 0.5892776022160875,
+        "weight_iqr": 0.07579087488659009,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "P",
+        "to": "PSGA",
+        "weight_median": -3.7728335248752956,
+        "weight_iqr": 1.0675882756875241,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "P",
+        "to": "RHMT",
+        "weight_median": -0.014567488036373028,
+        "weight_iqr": 0.0019475189769914778,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "P",
+        "to": "RM1",
+        "weight_median": -0.03287214786090291,
+        "weight_iqr": 0.00835545817049832,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "P",
+        "to": "RRCA",
+        "weight_median": 0.013491897110205847,
+        "weight_iqr": 0.003760752804728422,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "P",
+        "to": "VOL",
+        "weight_median": 0.06346718769516232,
+        "weight_iqr": 0.012625560124924128,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "P",
+        "to": "WECS",
+        "weight_median": -0.0124584976828154,
+        "weight_iqr": 0.001772928823292233,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "P",
+        "to": "WHPI",
+        "weight_median": -0.00833267222262359,
+        "weight_iqr": 0.001905832424033492,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "P",
+        "to": "WLR",
+        "weight_median": -0.04498661600279096,
+        "weight_iqr": 0.014027095142992163,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "PRB",
+        "to": "PSGA",
+        "weight_median": -162.4316977313079,
+        "weight_iqr": 19.57936823398208,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "PRB",
+        "to": "RHMT",
+        "weight_median": -0.23317372499926037,
+        "weight_iqr": 0.07450511799664741,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "PRB",
+        "to": "RRCA",
+        "weight_median": -0.2602510832069318,
+        "weight_iqr": 0.07782412216197598,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "PRB",
+        "to": "TRB",
+        "weight_median": 0.9489630405854721,
+        "weight_iqr": 0.014485352308614252,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "PRB",
+        "to": "WECS",
+        "weight_median": -1.3488870152053067,
+        "weight_iqr": 0.27858608035376653,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "PSGA",
+        "to": "RHMT",
+        "weight_median": -0.002021209448269338,
+        "weight_iqr": 0.0002317113010502777,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "PSGA",
+        "to": "RM1",
+        "weight_median": 0.0009657028080287241,
+        "weight_iqr": 0.00040105770603971955,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "PSGA",
+        "to": "TAVG",
+        "weight_median": 0.2605914795212888,
+        "weight_iqr": 0.009979817178984107,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "PSGA",
+        "to": "WECS",
+        "weight_median": -0.0012739880930249742,
+        "weight_iqr": 0.0002367019332321532,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "RHMT",
+        "to": "RM1",
+        "weight_median": -0.2383496673274748,
+        "weight_iqr": 0.08202593177393086,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "RHMT",
+        "to": "TAVG",
+        "weight_median": -526.6798575971748,
+        "weight_iqr": 1.3033191589772741,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "RHMT",
+        "to": "TRB",
+        "weight_median": -0.47368947108812864,
+        "weight_iqr": 0.18666618935248236,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "RHMT",
+        "to": "WECS",
+        "weight_median": 1.7692839522261472,
+        "weight_iqr": 0.3554973608990315,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "RHMT",
+        "to": "WHPI",
+        "weight_median": 3.3344370952957685,
+        "weight_iqr": 0.45688712383061647,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "RM1",
+        "to": "RRCA",
+        "weight_median": -1.026759928976835,
+        "weight_iqr": 0.09555704341917215,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "RM1",
+        "to": "TAVG",
+        "weight_median": -30.721612917466185,
+        "weight_iqr": 10.161821872076857,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "RRCA",
+        "to": "TAVG",
+        "weight_median": -6.036488279693927,
+        "weight_iqr": 2.35690021465214,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "RRCA",
+        "to": "TRB",
+        "weight_median": -0.053369162402742504,
+        "weight_iqr": 0.02027541213267163,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "RRCA",
+        "to": "VOL",
+        "weight_median": 7.565271507591794,
+        "weight_iqr": 0.25625900723241024,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "RRCA",
+        "to": "WECS",
+        "weight_median": 0.5453027233680285,
+        "weight_iqr": 0.19522970468340062,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "TAVG",
+        "to": "WECS",
+        "weight_median": 0.003700048754242765,
+        "weight_iqr": 0.0005478044440878661,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "TAVG",
+        "to": "WHPI",
+        "weight_median": 0.004999634553494035,
+        "weight_iqr": 0.0009218561629144879,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "TRB",
+        "to": "WECS",
+        "weight_median": 1.4215665379938078,
+        "weight_iqr": 0.29151854320600634,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "TRB",
+        "to": "WHPI",
+        "weight_median": -0.19398156653369217,
+        "weight_iqr": 0.04561043246862853,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "WECS",
+        "to": "WHPI",
+        "weight_median": 0.060229512170809324,
+        "weight_iqr": 0.010154277581450814,
+        "dir_e": 1.0,
+        "f_e": 1.0,
+        "count": 100
+      },
+      {
+        "from": "RHMT",
+        "to": "RRCA",
+        "weight_median": 0.2546516157736335,
+        "weight_iqr": 0.0832639594387414,
+        "dir_e": 1.0,
+        "f_e": 0.99,
+        "count": 99
+      },
+      {
+        "from": "RM1",
+        "to": "WECS",
+        "weight_median": 0.2760154389869385,
+        "weight_iqr": 0.1127166534359374,
+        "dir_e": 1.0,
+        "f_e": 0.99,
+        "count": 99
+      },
+      {
+        "from": "TAVG",
+        "to": "TRB",
+        "weight_median": -0.0006357996681508773,
+        "weight_iqr": 0.0003679794123564713,
+        "dir_e": 1.0,
+        "f_e": 0.99,
+        "count": 99
+      },
+      {
+        "from": "P",
+        "to": "TAVG",
+        "weight_median": -0.2503504056771235,
+        "weight_iqr": 0.3328188632221134,
+        "dir_e": 1.0,
+        "f_e": 0.98,
+        "count": 98
+      },
+      {
+        "from": "RM1",
+        "to": "VOL",
+        "weight_median": -0.8536358600170757,
+        "weight_iqr": 0.41440716982013537,
+        "dir_e": 1.0,
+        "f_e": 0.98,
+        "count": 98
+      },
+      {
+        "from": "P",
+        "to": "PRB",
+        "weight_median": -0.01345498114073283,
+        "weight_iqr": 0.006273330950195345,
+        "dir_e": 1.0,
+        "f_e": 0.97,
+        "count": 97
+      },
+      {
+        "from": "PRB",
+        "to": "WHPI",
+        "weight_median": 0.18594529455753894,
+        "weight_iqr": 0.061769170887737146,
+        "dir_e": 1.0,
+        "f_e": 0.96,
+        "count": 96
+      },
+      {
+        "from": "VOL",
+        "to": "WECS",
+        "weight_median": -0.05420170909588591,
+        "weight_iqr": 0.023352808565314978,
+        "dir_e": 1.0,
+        "f_e": 0.96,
+        "count": 96
+      },
+      {
+        "from": "LVPZ",
+        "to": "WHPI",
+        "weight_median": 0.025891805734402345,
+        "weight_iqr": 0.016180564016928196,
+        "dir_e": 1.0,
+        "f_e": 0.95,
+        "count": 95
+      },
+      {
+        "from": "LVPZ",
+        "to": "PRB",
+        "weight_median": -0.04353346809130153,
+        "weight_iqr": 0.034932279865763326,
+        "dir_e": 1.0,
+        "f_e": 0.88,
+        "count": 88
+      },
+      {
+        "from": "RM1",
+        "to": "TRB",
+        "weight_median": -0.044424638645805176,
+        "weight_iqr": 0.03196358321485757,
+        "dir_e": 1.0,
+        "f_e": 0.88,
+        "count": 88
+      },
+      {
+        "from": "RHMT",
+        "to": "VOL",
+        "weight_median": -2.3722986748088344,
+        "weight_iqr": 1.7183076806623816,
+        "dir_e": 1.0,
+        "f_e": 0.86,
+        "count": 86
+      },
+      {
+        "from": "PRB",
+        "to": "RM1",
+        "weight_median": -0.07552113196235116,
+        "weight_iqr": 0.12940803157822628,
+        "dir_e": 1.0,
+        "f_e": 0.79,
+        "count": 79
+      },
+      {
+        "from": "PRB",
+        "to": "TAVG",
+        "weight_median": -1.847034188623168,
+        "weight_iqr": 3.019588009152338,
+        "dir_e": 1.0,
+        "f_e": 0.79,
+        "count": 79
+      },
+      {
+        "from": "LVPZ",
+        "to": "RM1",
+        "weight_median": 0.02796072396389849,
+        "weight_iqr": 0.046405365545604135,
+        "dir_e": 1.0,
+        "f_e": 0.76,
+        "count": 76
+      },
+      {
+        "from": "RM1",
+        "to": "WHPI",
+        "weight_median": 0.0,
+        "weight_iqr": 0.07470278885664487,
+        "dir_e": 1.0,
+        "f_e": 0.76,
+        "count": 76
+      },
+      {
+        "from": "LVPZ",
+        "to": "WECS",
+        "weight_median": -0.026840391025175544,
+        "weight_iqr": 0.04472037424712811,
+        "dir_e": 1.0,
+        "f_e": 0.75,
+        "count": 75
+      },
+      {
+        "from": "P",
+        "to": "TRB",
+        "weight_median": 0.0003755619582900893,
+        "weight_iqr": 0.0010041469464595603,
+        "dir_e": 1.0,
+        "f_e": 0.75,
+        "count": 75
+      },
+      {
+        "from": "RRCA",
+        "to": "WHPI",
+        "weight_median": 0.0,
+        "weight_iqr": 0.08624111840337956,
+        "dir_e": 1.0,
+        "f_e": 0.74,
+        "count": 74
+      }
+    ],
+    "candidates": [
+      {
+        "rank": 1,
+        "variable": "RHMT",
+        "total_effect": 3.472075,
+        "in_degree": 4,
+        "out_degree": 7,
+        "reach_size": 7,
+        "weighted_reach": 7.0,
+        "incoming": [
+          {
+            "from": "LVPZ",
+            "weight_median": -0.21304210472702229,
+            "dir_e": 1.0
+          },
+          {
+            "from": "P",
+            "weight_median": -0.014567488036373028,
+            "dir_e": 1.0
+          },
+          {
+            "from": "PRB",
+            "weight_median": -0.23317372499926037,
+            "dir_e": 1.0
+          },
+          {
+            "from": "PSGA",
+            "weight_median": -0.002021209448269338,
+            "dir_e": 1.0
+          }
+        ],
+        "outgoing": [
+          {
+            "to": "RM1",
+            "weight_median": -0.2383496673274748,
+            "dir_e": 1.0
+          },
+          {
+            "to": "TAVG",
+            "weight_median": -526.6798575971748,
+            "dir_e": 1.0
+          },
+          {
+            "to": "TRB",
+            "weight_median": -0.47368947108812864,
+            "dir_e": 1.0
+          },
+          {
+            "to": "WECS",
+            "weight_median": 1.7692839522261472,
+            "dir_e": 1.0
+          },
+          {
+            "to": "WHPI",
+            "weight_median": 3.3344370952957685,
+            "dir_e": 1.0
+          },
+          {
+            "to": "RRCA",
+            "weight_median": 0.2546516157736335,
+            "dir_e": 1.0
+          },
+          {
+            "to": "VOL",
+            "weight_median": -2.3722986748088344,
+            "dir_e": 1.0
+          }
+        ]
+      },
+      {
+        "rank": 2,
+        "variable": "LVPZ",
+        "total_effect": 1.035767,
+        "in_degree": 0,
+        "out_degree": 11,
+        "reach_size": 12,
+        "weighted_reach": 11.5,
+        "incoming": [],
+        "outgoing": [
+          {
+            "to": "P",
+            "weight_median": 7.852795065576121,
+            "dir_e": 1.0
+          },
+          {
+            "to": "PSGA",
+            "weight_median": -20.534856976401322,
+            "dir_e": 1.0
+          },
+          {
+            "to": "RHMT",
+            "weight_median": -0.21304210472702229,
+            "dir_e": 1.0
+          },
+          {
+            "to": "RRCA",
+            "weight_median": -0.21564485368471897,
+            "dir_e": 1.0
+          },
+          {
+            "to": "TAVG",
+            "weight_median": -3.400843260359572,
+            "dir_e": 1.0
+          },
+          {
+            "to": "TRB",
+            "weight_median": -0.0616087855166609,
+            "dir_e": 1.0
+          },
+          {
+            "to": "VOL",
+            "weight_median": 0.5892776022160875,
+            "dir_e": 1.0
+          },
+          {
+            "to": "WHPI",
+            "weight_median": 0.025891805734402345,
+            "dir_e": 1.0
+          },
+          {
+            "to": "PRB",
+            "weight_median": -0.04353346809130153,
+            "dir_e": 1.0
+          },
+          {
+            "to": "RM1",
+            "weight_median": 0.02796072396389849,
+            "dir_e": 1.0
+          },
+          {
+            "to": "WECS",
+            "weight_median": -0.026840391025175544,
+            "dir_e": 1.0
+          }
+        ]
+      },
+      {
+        "rank": 3,
+        "variable": "PRB",
+        "total_effect": 0.788003,
+        "in_degree": 2,
+        "out_degree": 8,
+        "reach_size": 9,
+        "weighted_reach": 8.5,
+        "incoming": [
+          {
+            "from": "P",
+            "weight_median": -0.01345498114073283,
+            "dir_e": 1.0
+          },
+          {
+            "from": "LVPZ",
+            "weight_median": -0.04353346809130153,
+            "dir_e": 1.0
+          }
+        ],
+        "outgoing": [
+          {
+            "to": "PSGA",
+            "weight_median": -162.4316977313079,
+            "dir_e": 1.0
+          },
+          {
+            "to": "RHMT",
+            "weight_median": -0.23317372499926037,
+            "dir_e": 1.0
+          },
+          {
+            "to": "RRCA",
+            "weight_median": -0.2602510832069318,
+            "dir_e": 1.0
+          },
+          {
+            "to": "TRB",
+            "weight_median": 0.9489630405854721,
+            "dir_e": 1.0
+          },
+          {
+            "to": "WECS",
+            "weight_median": -1.3488870152053067,
+            "dir_e": 1.0
+          },
+          {
+            "to": "WHPI",
+            "weight_median": 0.18594529455753894,
+            "dir_e": 1.0
+          },
+          {
+            "to": "RM1",
+            "weight_median": -0.07552113196235116,
+            "dir_e": 1.0
+          },
+          {
+            "to": "TAVG",
+            "weight_median": -1.847034188623168,
+            "dir_e": 1.0
+          }
+        ]
+      },
+      {
+        "rank": 4,
+        "variable": "TRB",
+        "total_effect": 0.108361,
+        "in_degree": 7,
+        "out_degree": 2,
+        "reach_size": 2,
+        "weighted_reach": 2.0,
+        "incoming": [
+          {
+            "from": "LVPZ",
+            "weight_median": -0.0616087855166609,
+            "dir_e": 1.0
+          },
+          {
+            "from": "PRB",
+            "weight_median": 0.9489630405854721,
+            "dir_e": 1.0
+          },
+          {
+            "from": "RHMT",
+            "weight_median": -0.47368947108812864,
+            "dir_e": 1.0
+          },
+          {
+            "from": "RRCA",
+            "weight_median": -0.053369162402742504,
+            "dir_e": 1.0
+          },
+          {
+            "from": "TAVG",
+            "weight_median": -0.0006357996681508773,
+            "dir_e": 1.0
+          },
+          {
+            "from": "RM1",
+            "weight_median": -0.044424638645805176,
+            "dir_e": 1.0
+          },
+          {
+            "from": "P",
+            "weight_median": 0.0003755619582900893,
+            "dir_e": 1.0
+          }
+        ],
+        "outgoing": [
+          {
+            "to": "WECS",
+            "weight_median": 1.4215665379938078,
+            "dir_e": 1.0
+          },
+          {
+            "to": "WHPI",
+            "weight_median": -0.19398156653369217,
+            "dir_e": 1.0
+          }
+        ]
+      },
+      {
+        "rank": 5,
+        "variable": "P",
+        "total_effect": 0.074185,
+        "in_degree": 1,
+        "out_degree": 11,
+        "reach_size": 11,
+        "weighted_reach": 11.0,
+        "incoming": [
+          {
+            "from": "LVPZ",
+            "weight_median": 7.852795065576121,
+            "dir_e": 1.0
+          }
+        ],
+        "outgoing": [
+          {
+            "to": "PSGA",
+            "weight_median": -3.7728335248752956,
+            "dir_e": 1.0
+          },
+          {
+            "to": "RHMT",
+            "weight_median": -0.014567488036373028,
+            "dir_e": 1.0
+          },
+          {
+            "to": "RM1",
+            "weight_median": -0.03287214786090291,
+            "dir_e": 1.0
+          },
+          {
+            "to": "RRCA",
+            "weight_median": 0.013491897110205847,
+            "dir_e": 1.0
+          },
+          {
+            "to": "VOL",
+            "weight_median": 0.06346718769516232,
+            "dir_e": 1.0
+          },
+          {
+            "to": "WECS",
+            "weight_median": -0.0124584976828154,
+            "dir_e": 1.0
+          },
+          {
+            "to": "WHPI",
+            "weight_median": -0.00833267222262359,
+            "dir_e": 1.0
+          },
+          {
+            "to": "WLR",
+            "weight_median": -0.04498661600279096,
+            "dir_e": 1.0
+          },
+          {
+            "to": "TAVG",
+            "weight_median": -0.2503504056771235,
+            "dir_e": 1.0
+          },
+          {
+            "to": "PRB",
+            "weight_median": -0.01345498114073283,
+            "dir_e": 1.0
+          },
+          {
+            "to": "TRB",
+            "weight_median": 0.0003755619582900893,
+            "dir_e": 1.0
+          }
+        ]
+      }
+    ],
+    "knowledge": {
+      "k2": [
+        {
+          "id": "R1_inventory_leak",
+          "name": "一回路装量-泄漏",
+          "lhs": "WLR",
+          "rhs": "VOL",
+          "rhs_operator": "d_dt",
+          "expected_sign": "neg",
+          "status": "not_violated",
+          "missing_terms": "安注/补水、密度变化、未测小泄漏",
+          "applicable_accidents": [
+            "LOCA",
+            "LOCAC",
+            "LLB"
+          ]
+        },
+        {
+          "id": "R3_eci_trigger",
+          "name": "安注触发",
+          "lhs": "P_LOW",
+          "rhs": "ECI_FLOW",
+          "rhs_operator": "level",
+          "expected_sign": "trigger",
+          "status": "not_violated",
+          "missing_terms": "手动/自动逻辑、阈值回差",
+          "applicable_accidents": [
+            "LOCA",
+            "SGATR",
+            "FLB"
+          ]
+        }
+      ],
+      "k3": {
+        "template_id": "K3:LOCA",
+        "verification": "frozen",
+        "coverage": 0.4,
+        "n_chain_edges": 5,
+        "expected_chain": [
+          "WLR",
+          "VOL",
+          "P",
+          "TAVG",
+          "WHPI",
+          "WECS"
+        ],
+        "expected_sign_direction": {
+          "WLR": "pos",
+          "VOL": "neg",
+          "P": "neg",
+          "TAVG": "pos",
+          "WHPI": "pos",
+          "WECS": "pos"
+        },
+        "matched_edges": [],
+        "reverse_edges": [
+          {
+            "template": "VOL->P",
+            "stable": "P->VOL"
+          },
+          {
+            "template": "WHPI->WECS",
+            "stable": "WECS->WHPI"
+          }
+        ],
+        "missing_edges": [
+          {
+            "template": "WLR->VOL",
+            "reason": "no_stable_edge"
+          }
+        ],
+        "note": "expected_chain 只是机理骨架，不构成逐变量方向断言。"
+      },
+      "supplementary": [
+        {
+          "id": "S1_LOCA_P_response",
+          "kind": "response_role",
+          "variable": "P",
+          "name_cn": "一回路压力",
+          "unit": "bar",
+          "subsystem": "一回路热工",
+          "applicable_accidents": [
+            "LOCA"
+          ],
+          "expected_direction": "neg",
+          "role_in_accident": "response_conduction",
+          "can_be_root": false,
+          "asserted_edges": [],
+          "basis": "破口后一回路装量与温度下降，饱和压力随之降低；压力低信号再触发安注，故 P 是破口的结果、可作为传导节点，但不是根因。",
+          "conflicts_with": [],
+          "source": "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）",
+          "date": "2026-11-11",
+          "verification": "pending_expert"
+        },
+        {
+          "id": "S2_LOCA_LVPZ_response",
+          "kind": "response_role",
+          "variable": "LVPZ",
+          "name_cn": "稳压器水位",
+          "unit": "%",
+          "subsystem": "一回路热工",
+          "applicable_accidents": [
+            "LOCA"
+          ],
+          "expected_direction": "neg",
+          "role_in_accident": "response",
+          "can_be_root": false,
+          "asserted_edges": [],
+          "basis": "稳压器水位由一回路装量与汽腔压力决定，持续失水后总体下降（初期可能因闪蒸短时波动），属装量损失的表征而非驱动。",
+          "conflicts_with": [],
+          "source": "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）",
+          "date": "2026-11-11",
+          "verification": "pending_expert"
+        },
+        {
+          "id": "S3_LOCA_PRB_response",
+          "kind": "response_role",
+          "variable": "PRB",
+          "name_cn": "安全壳压力",
+          "unit": "bar",
+          "subsystem": "安全壳",
+          "applicable_accidents": [
+            "LOCA"
+          ],
+          "expected_direction": "pos",
+          "role_in_accident": "response",
+          "can_be_root": false,
+          "asserted_edges": [],
+          "basis": "破口介质排入安全壳使壳内压力上升，PRB 是LOCA 的环境后果指标，不参与一回路侧的因果链。",
+          "conflicts_with": [],
+          "source": "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）",
+          "date": "2026-11-11",
+          "verification": "pending_expert"
+        },
+        {
+          "id": "S4_LOCA_TRB_response",
+          "kind": "response_role",
+          "variable": "TRB",
+          "name_cn": "安全壳温度",
+          "unit": "degC",
+          "subsystem": "安全壳",
+          "applicable_accidents": [
+            "LOCA"
+          ],
+          "expected_direction": "pos",
+          "role_in_accident": "response",
+          "can_be_root": false,
+          "asserted_edges": [],
+          "basis": "高温介质与蒸汽排入安全壳使壳内温度上升，TRB 与 PRB 同属壳内环境响应，不能作为破口类根因。",
+          "conflicts_with": [],
+          "source": "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）",
+          "date": "2026-11-11",
+          "verification": "pending_expert"
+        },
+        {
+          "id": "S5_LOCA_RHMT_response",
+          "kind": "response_role",
+          "variable": "RHMT",
+          "name_cn": "慢化剂温度反应性",
+          "unit": "dk/k",
+          "subsystem": "反应性与功率",
+          "applicable_accidents": [
+            "LOCA"
+          ],
+          "expected_direction": "mixed",
+          "role_in_accident": "response",
+          "can_be_root": false,
+          "asserted_edges": [],
+          "basis": "慢化剂温度反应性由温度反馈系数决定，失水降温使其朝正方向变化，但符号与幅度随初始工况与硼浓度而变，不构成单向驱动量。",
+          "conflicts_with": [],
+          "source": "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）",
+          "date": "2026-11-11",
+          "verification": "pending_expert"
+        }
+      ],
+      "notes": [
+        "满足约束≠方向证明、违反≠链错（可能遗漏项导致）；K2 为辅助证据，不参与 T=(I−B)⁻¹ 排序",
+        "补充条目来自人工审核（V23-DESIGN-061），只标角色，不改 K2 数值口径与 K3 链。"
+      ]
+    },
+    "conflicts": [
+      {
+        "type": "response_not_root",
+        "subject": "RHMT",
+        "detail": "慢化剂温度反应性由温度反馈系数决定，失水降温使其朝正方向变化，但符号与幅度随初始工况与硼浓度而变，不构成单向驱动量。",
+        "knowledge_id": "S5_LOCA_RHMT_response"
+      },
+      {
+        "type": "response_not_root",
+        "subject": "LVPZ",
+        "detail": "稳压器水位由一回路装量与汽腔压力决定，持续失水后总体下降（初期可能因闪蒸短时波动），属装量损失的表征而非驱动。",
+        "knowledge_id": "S2_LOCA_LVPZ_response"
+      },
+      {
+        "type": "response_not_root",
+        "subject": "PRB",
+        "detail": "破口介质排入安全壳使壳内压力上升，PRB 是LOCA 的环境后果指标，不参与一回路侧的因果链。",
+        "knowledge_id": "S3_LOCA_PRB_response"
+      },
+      {
+        "type": "response_not_root",
+        "subject": "TRB",
+        "detail": "高温介质与蒸汽排入安全壳使壳内温度上升，TRB 与 PRB 同属壳内环境响应，不能作为破口类根因。",
+        "knowledge_id": "S4_LOCA_TRB_response"
+      },
+      {
+        "type": "response_not_root",
+        "subject": "P",
+        "detail": "破口后一回路装量与温度下降，饱和压力随之降低；压力低信号再触发安注，故 P 是破口的结果、可作为传导节点，但不是根因。",
+        "knowledge_id": "S1_LOCA_P_response"
+      },
+      {
+        "type": "reverse_edge",
+        "subject": "P->VOL",
+        "detail": "K3 期望 VOL->P，稳定边为 P->VOL"
+      },
+      {
+        "type": "reverse_edge",
+        "subject": "WECS->WHPI",
+        "detail": "K3 期望 WHPI->WECS，稳定边为 WECS->WHPI"
+      },
+      {
+        "type": "missing_edge",
+        "subject": "WLR->VOL",
+        "detail": "期望边 WLR->VOL 无稳定边（no_stable_edge）"
+      }
+    ],
+    "provenance": {
+      "files": [
+        "reports/llm_explanation_LOCA_low.json",
+        "signatures/signature_LOCA_low.json",
+        "Code/external_knowledge/variable_dictionary.yaml",
+        "Code/external_knowledge/physics_relations.yaml",
+        "Code/external_knowledge/fault_templates.yaml",
+        "Code/external_knowledge/supplementary_mechanisms.yaml"
+      ]
+    },
+    "allowed_terms": [
+      "JSON",
+      "K1",
+      "K2",
+      "K3",
+      "LOCA",
+      "R1_",
+      "R3_",
+      "S1_LOCA_P_",
+      "S2_LOCA_LVPZ_",
+      "S3_LOCA_PRB_",
+      "S4_LOCA_TRB_",
+      "S5_LOCA_RHMT_"
+    ]
+  }
+}

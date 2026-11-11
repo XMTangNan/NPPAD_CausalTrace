@@ -1932,3 +1932,21 @@ gitignore），`pytest` 161 passed。
   `../issues/…`；`方案/README.md` 新增 `../issues/` 索引小节；台账本行与 1909 行路径同步。
 - 新增：`issues/README.md`（收录标准、排除项、命名规则 `<主题>-<run_id 或日期>.md`、历史迁入不改内容）。
 - 状态：✅ 完成；未改文档内容，只改位置与引用；未动 `output/`。
+
+**V23-DESIGN-081（closed）·【用户要求】恢复 `量级核查` 入库 + 取证文档必须入库纪律**
+
+- 决定内容：从工作区外部副本恢复 `量级核查`，按 `issues/README.md` 命名规则落为
+  `issues/量级核查-v23-20261111T022417-2026-11-11.md`；并确立纪律"**取证类文档必须入库**"。
+- 依据：用户要求。动因：该文档此前从未入库、被其它会话清理后短暂丢失。
+- 完整性核验：源文件 699 行、44 个标题；含"决定/依据/影响"表、0–0.3 口径事实、
+  9 个模板（LOCA/SGATR/FLB × low/mid/high）各 3 小节、按变量汇总（79 条超标边）、
+  同子系统量级反例、九模板元数据；五问（超标边两端体检、σr/σg 对照、截断交互、
+  变量汇总、反例）齐全。迁入时仅在首行加取证声明，正文未改。
+- 影响文件：`issues/量级核查-…md`（新增）、`issues/README.md`（"入库纪律"小节）、本条台账。
+- 未入库产物盘点（`Code/experiments/` 整体被 gitignore）：
+  | 目录/文件 | 内容 | 处置建议 |
+  |---|---|---|
+  | `verdict_probe/` | 判定式解释的证据包与校验记录（台账 070 引用） | **建议入库**（已 `git add -f`，52K） |
+  | `absorption_A_*`、`aggregation_sensitivity_*`、`c57_total_effect_*`、`factorial_2x2_*`、`protocol_align_*`、`ranking_diagnosis_*` | 脚本 + results.json + REPORT.md | 临时实验，保留忽略；若其结论被方案引用，需把 REPORT.md 转存 `issues/` |
+  | `dev_third_state_scan_*.json`（336K） | 第三态扫描原始数据 | 临时数据，保留忽略；结论已进台账，数据不承载结论 |
+- 状态：✅ 完成；只提交，未推送（用户自行推送）。
