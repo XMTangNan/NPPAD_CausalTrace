@@ -263,6 +263,10 @@ def report_to_text(report: Dict) -> str:
              " 名次标准差 / 条件数门 / VIF 门 / 偏差 d 档位）：它们与随机不可区分，或作为门"
              "结构上不会失败。数值仅留档在 json 对应字段（`reported=false`），"
              "原因见方案 §7.10（V23-DESIGN-063，处置待定 2026-11-12）。")
+    L.append("[解读边界] 根因名次反映传导起点顺序与总效应排序，不等于物理强度；同一物理量的"
+             "多量程/冗余通道（如 SGATR 的 NSGA/LSGA）可能被回归劈成对同一组目标反号、近等幅"
+             "的系数，此类共线分裂不作物理强度解读（诊断标记见签名产物 "
+             "redundancy_diagnostics，仅记录、不参与排序）。")
 
     # 一、结论
     L.append(f"一、{SECTION_TITLES['1_conclusion_top5']}")

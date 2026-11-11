@@ -186,6 +186,24 @@ Code/
 - 不再出现 `v23_` 前缀子目录、`signatures_strict`、`signatures_no_ontology` 等并列目录；消融产物统一放 `<run 根>/ablations/{name}/`。
 - 文本/HTML 产物由 `artifact.write_text_artifact` 同时写同名 `.meta.json`（含 sha256 与 run_id）。
 
+**签名产物新增诊断字段（V23-CODE-035，只记录、不参与计算）**
+
+`signatures/signature_{K}_{g}.json` 顶层新增 `redundancy_diagnostics`（可选键，旧 run 无此键即视为未记录）：
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `available` | bool | 诊断失败时为 `false`（附 `reason`），不影响主产物 |
+| `note` | str | 固定声明："仅记录，不参与排序、候选集、稳定边判定或 Top-k" |
+| `rule` | obj | 可复核规则：`scope`、`range_tokens`、`min_abs_r=0.95`、`min_abs_w=5.0`、`cancel_ratio=0.10`、`min_targets=2` |
+| `n_samples` | int | 相关性计算样本量（训练块池化点数） |
+| `n_pairs_scanned` | int | 实际计算 Pearson 的变量对数（全候选对） |
+| `n_groups` | int | 同物理量多量程组数 |
+| `collinear_pairs` | list | 命中对：`flag="collinear_pair"`、`pair`、`quantity`、`pearson_r`、`targets[{target,w_u,w_v,sum}]`、`n_targets` |
+| `zero_variance_variables` | list | `[{variable,flag:"zero_variance",note}]`；**保留不剔**，学图列已被置 0 |
+| `variable_flags` | obj | `{变量: ["zero_variance" \| "collinear_pair", ...]}` |
+
+约束：该字段不得被任何排序/候选集/稳定边/Top-k 逻辑读取；新增/修改时必须同步本节。
+
 ## 3. 代码路径对照（旧 → 新，批 A/B/C）
 
 | 旧路径 | 新路径 | 说明 |

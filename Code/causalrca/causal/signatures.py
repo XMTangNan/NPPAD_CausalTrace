@@ -17,6 +17,7 @@ from causalrca.config.constants_v21 import (
 )
 from causalrca.evidence.knowledge import apply_ontology_constraint
 from causalrca.io.logging import logger
+from causalrca.causal import redundancy as RDN
 
 
 # ==================== 纯函数（G3 单测对象）====================
@@ -265,6 +266,29 @@ def bootstrap_lingam_template(blocks: List[np.ndarray], variables: List[str],
         "flags": {"unstable_magnitude_marker_edges": unstable},
         "engine": "lingam",
     }
+    # 冗余通道诊断（V23-CODE-035）：只记录，不参与排序/候选集/稳定边/Top-k。
+    # 失败时记录 available=False，不影响主产物返回。
+    try:
+        pooled_raw = np.vstack(blocks)
+        Z_full = transform_graph_block(pooled_raw, variables, marker, mu, sigma,
+                                       median_platform, graph_only,
+                                       unified_scale=unified)
+        zero_vars = RDN.zero_variance_variables(variables, Z_full)
+        diag = RDN.detect_collinear_pairs(variables, pooled_raw, stable, zero_vars)
+        diag["zero_variance_variables"] = [
+            {"variable": v, "flag": "zero_variance", "note": "保留不剔；学图列已被置 0"}
+            for v in zero_vars
+        ]
+        flags: Dict[str, List[str]] = {v: ["zero_variance"] for v in zero_vars}
+        for p in diag["collinear_pairs"]:
+            for v in p["pair"]:
+                flags.setdefault(v, []).append("collinear_pair")
+        diag["variable_flags"] = flags
+        out["redundancy_diagnostics"] = diag
+    except Exception as exc:  # noqa: BLE001 — 诊断层失败不得影响主排序产物
+        logger.warning(f"[redundancy] 冗余通道诊断失败: {exc}")
+        out["redundancy_diagnostics"] = {"available": False,
+                                         "reason": f"诊断失败: {exc}"}
     if extra_meta:
         out.update(extra_meta)
     # 辅助证据（K2/K3/偏离度）：事故类型取自本体（build_ontology 已写入），组取分组键。

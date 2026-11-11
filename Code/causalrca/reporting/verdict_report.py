@@ -177,6 +177,10 @@ def render_verdict_report(payload: Dict, pack: Dict, out: Dict, meta: Dict) -> s
             L.append("  校验错误：" + "；".join(out["validation"]["errors"][:6]))
     L.append("根因定义：同类事故内最先动起来、并把影响传下去的变量（方案 §0.1）；")
     L.append("          本报告的“根因”是以传导起点为定义的根因，不是经现场证据确认的唯一物理起因。")
+    L.append("解读边界：名次反映传导起点顺序与总效应排序，不等于物理强度；同一物理量的多量程/"
+             "冗余通道（如 SGATR 的 NSGA/LSGA）可能被回归劈成对同一组目标反号、近等幅的系数，"
+             "此类共线分裂不作物理强度解读（诊断标记见签名产物 redundancy_diagnostics，"
+             "仅记录、不参与排序）。")
     L.append("")
     L.append("章节顺序固定：1 图结构与 Top-5 → 2 逐候选判定 → 3 冲突与不确定 → 4 结论 → 5 局限与复现")
     L.append("")

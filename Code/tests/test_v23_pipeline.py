@@ -345,3 +345,54 @@ def test_load_inputs_falls_back_to_v21(tmp_path, monkeypatch):
     assert "classes" in inputs["manifest"]
     assert inputs["baseline"]["mu"] and inputs["baseline"]["sigma"]
     assert "median_platform" in inputs["scale"]
+
+
+def test_redundancy_diagnostics_are_record_only():
+    """V23-CODE-035：冗余通道诊断只标记，不产生任何排序量。"""
+    import numpy as np
+    from causalrca.causal import redundancy as RDN
+
+    variables = ["NSGA", "LSGA", "PSGA", "RM2"]
+    rng = np.random.default_rng(0)
+    base = rng.normal(size=500)
+    # NSGA/LSGA 是同一物理量（SG-A 水位）的两路量程，强相关
+    pooled = np.column_stack([base, base + rng.normal(scale=1e-3, size=500),
+                              rng.normal(size=500), rng.normal(size=500)])
+
+    groups = RDN.redundant_channel_groups(variables)
+    assert list(groups.values()) == [["NSGA", "LSGA"]]
+
+    stable = [
+        {"from": "NSGA", "to": "PSGA", "weight_median": 13.16},
+        {"from": "LSGA", "to": "PSGA", "weight_median": -12.87},
+        {"from": "NSGA", "to": "RM2", "weight_median": 15.75},
+        {"from": "LSGA", "to": "RM2", "weight_median": -14.93},
+        {"from": "PSGA", "to": "RM2", "weight_median": 0.8},
+    ]
+    diag = RDN.detect_collinear_pairs(variables, pooled, stable)
+    assert diag["n_pairs_scanned"] > 0
+    assert len(diag["collinear_pairs"]) == 1
+    pair = diag["collinear_pairs"][0]
+    assert pair["flag"] == "collinear_pair"
+    assert set(pair["pair"]) == {"NSGA", "LSGA"}
+    assert pair["n_targets"] == 2
+    assert pair["pearson_r"] > 0.99
+    assert set(diag) == {"note", "rule", "n_samples", "n_pairs_scanned",
+                         "n_groups", "collinear_pairs"}
+
+    # 同号或只有一个共同目标时不得误标
+    weak = [{"from": "NSGA", "to": "PSGA", "weight_median": 13.16},
+            {"from": "LSGA", "to": "PSGA", "weight_median": 12.87}]
+    assert RDN.detect_collinear_pairs(variables, pooled, weak)["collinear_pairs"] == []
+
+
+def test_zero_variance_flags_do_not_drop_variables():
+    """σ=0 变量只打 zero_variance 标记，保留在变量表里。"""
+    import numpy as np
+    from causalrca.causal import redundancy as RDN
+
+    variables = ["A", "B", "C"]
+    Z = np.column_stack([np.zeros(10), np.linspace(0, 1, 10), np.ones(10)])
+    assert RDN.zero_variance_variables(variables, Z) == ["A", "C"]
+    assert variables == ["A", "B", "C"]
+    assert Z.shape == (10, 3) and float(np.ptp(Z[:, 1])) > 0
