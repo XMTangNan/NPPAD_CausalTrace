@@ -2079,5 +2079,31 @@ gitignore），`pytest` 161 passed。
      整组截断使 cond 528→86.4、最小奇异值 0.0708→0.1591；单边截断会破坏抵消（cond 502–917）。
   5. **[未决]** 这些小 σ 放大是数值伪影还是物理强耦合，尚无外部证据；
      σ=0 变量（WHPI/WRCA/TKLV）以全零列入模是否需要剔除，待裁决。
-- 处置：先如实记录，是否进一步处理（变量集/共线性/截断策略）待用户裁决，本轮不调参。
-- 状态：⏳ open。
+- 2026-11-11 处理结论（用户裁决，详见 `issues/SGATR_low大系数来源-查证-v23sw-20261111T232828-2026-11-11.md`）：
+  1. **算法、归一化口径、图、全链路均不动**；只加诊断记录与解读边界。
+  2. 诊断层（V23-CODE-035）：签名产物新增 `redundancy_diagnostics`——
+     同一物理量多量程通道对（`ENTITY_TABLE.meaning` 去量程词后同组）满足
+     `|r|≥0.95`、≥2 个共同目标上 `|w|≥5` 反号且 `|w_u+w_v|≤0.10·min(|w|)` → 标 `collinear_pair`；
+     学图列被置 0 的变量标 `zero_variance`（保留不剔）。**只记录，不参与排序/候选集/稳定边/Top-k**。
+     已知命中：`SGATR_low` `NSGA`/`LSGA`（目标 `PSGA`/`RM2`/`WSPY`），`SGATR_mid` 同对（目标 `P`/`WECS`）；
+     其余 7 模板 0 命中。
+  3. 解读口径写死：内部版 §4.2.1 新增"共线分裂的解读边界"，判定/解释报告加固定声明
+     （"名次≠物理强度；多量程冗余通道可能被回归劈成反号近等幅，不作物理强度解读"）；
+     并更正"224.5→528 反升"为跨口径混比（current 224.5→180.4，unified 528.0→86.39）。
+     对外版本轮不动。
+- 边界（不越线）：不设 σ 下限、不换窗口/基线、不把六条边裁得更小、不改排序量、
+  不在变量集层面合并两路液位通道。
+- 待：±16 是共线分裂的数值表现还是真实强耦合，需外部物理证据；两路通道是否合并，
+  留待评审追问时再议。
+- 状态：⏳ open（仅剩"评审追问"项；处置已按用户裁决落地）。
+
+**V23-CODE-035（closed）·【代码改动】冗余通道诊断字段（只记录）**
+
+- 改动：新增 `causalrca/causal/redundancy.py`（`redundant_channel_groups` /
+  `detect_collinear_pairs` / `zero_variance_variables`）；`signatures.bootstrap_lingam_template`
+  追加 `redundancy_diagnostics`（失败记 `available=false`，不影响主产物）。
+- 契约：`Code/STRUCTURE.md` §2 新增字段说明；字段不得被任何排序逻辑读取。
+- 测试：`tests/test_v23_pipeline.py` 新增 2 条（诊断只记录、零方差保留不剔）；
+  `pytest tests` → **175 passed**。
+- 未跑 10 步全链路；旧 run 无该字段（视为未记录），下次 run 自然生效。
+- 状态：✅ closed。
