@@ -1900,3 +1900,17 @@ gitignore），`pytest` 161 passed。
 | 修 `verdict_report.generate_one` 兜底路径的绑定缺陷 | 复现：FLB_low 走规则兜底时进程已绑定到新 run，`_read_optional` 读不到源 run 的 tracing，抛“缺 root_candidates_FLB_low.json”；这是代码缺陷，不是数据缺失 | `verdict_report.py` 兜底分支前 `bind_run(source)` | FLB 三份重跑全部 `llm_verified`，无兜底 |
 
 - 状态：✅ 完成；`pytest tests` → **172 passed**。
+
+**V23-DESIGN-079（closed）·【用户授权执行】本地提交与推送结果**
+
+- 提交（分支 `scaffold`，代码与文档分开）：
+  ① `16b3e91` feat(v2.3)：第八步模型判定报告 + 正向机理条目 + 指标撤出结果层（代码、知识、测试）；
+  ② `74d549e` docs(v2.3)：方案 §0.5/§7.10/§7.11 + 对外版 + 台账 060–078（文档、submit、台账）。
+  `git status` 已无未提交的代码/文档改动；另有 1 份 `submit/量级核查-…md` 属分析会话，未纳入本次提交。
+- 推送：**失败**。命令 `git push origin scaffold`（HTTPS remote），退出信息原文：
+  `remote: No anonymous write access.`
+  `fatal: Authentication failed for 'https://github.com/XMTangNan/NPPAD_CausalTrace.git/'`
+  原因：WSL 侧 `credential.helper` 为空，HTTPS 无凭据可用（前两次沙箱内尝试未真正到达远端）。
+- 已按纪律执行：**只重试一次**；未改用 SSH、未使用 token、未 force、未改写远端历史。
+- 远端状态：`refs/heads/scaffold = 38f70e8`（未同步），本地领先 37 个提交。
+- 状态：⏳ 待用户在 WSL 配置 GitHub 凭据后重推；台账与回执已如实记录。
