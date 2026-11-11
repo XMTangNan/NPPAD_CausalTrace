@@ -2027,4 +2027,43 @@ gitignore），`pytest` 161 passed。
   （同步前）不受影响。任何全链重跑都会在第 8 步中断。
 - 证据：统一尺度实验三组（含控制组）完全一致复现，与归一化无关。
 - 处置：本轮不改（不在实验范围内，避免顺手动口径）；列为待修。
+- 状态：✅ closed（2026-11-11，V23-DESIGN-087）：已从类级汇总文本移除内部编号，
+  新增单测 `test_class_summary_text_has_no_internal_ids`；全流程第 8 步通过。
+
+**V23-DESIGN-087（closed）·【用户裁决】默认口径切换为 unified（变体 A），并跑全流程验证**
+
+- 决定内容：
+  1. 先修 `V23-CODE-034`（第 8 步内部编号触发忠实性拦截）；
+  2. 默认 `normalization=unified`；`current` 与 `unified_keep_injection` 保留为**显式可选**；
+     注入变量单列通道**退役**，理由为实测不承载排序信息；稳定边判据 / `B_CLIP` / 排序规则不动；
+  3. 方案文档一次改完三处"写—实现不符"，并记录本次切换；对外版同步；
+  4. 全流程 5 次档验证：`run_mode=reduced`、`citable=null`、不刷新 latest、报告头注明
+     "口径切换验证，非论文数字"。
+- 依据：用户裁决"切换 A"，以及 `issues/统一尺度对照实验-*.md` 的对照数据。
+- 实现：
+  - `signatures.py`：模块默认口径改为 unified；current / keep_injection 标 legacy；
+  - `llm_explanation.py`：类级汇总文本删除 `V23-DESIGN-063`、`§7.10` 等内部编号；
+  - `report_template.py` + `run_v23_all.py`：新增 `--run-note`，写入 9 份报告头；
+  - `run_v23_all.py`：`--normalization` 默认 unified，执行后还原进程级口径。
+- 验证 run：`v23sw-20261111T232828`（**10/10 步 ok**）；判定报告 `…-r8`（9/9 `llm_verified`）。
+  latest 未刷新（`manifest.latest_updated=false`）。
+- 数据：见 `issues/口径切换验证-v23sw-20261111T232828-2026-11-11.md`
+  （Top-1/Top-3、Top-5 入出度、稳定边数、cond 前后、max|w|、四态分布 2/5/28/10）。
+- 测试：`pytest tests` → 173 passed（含新增内部编号单测）。
+- 状态：✅ closed。
+
+**V23-DESIGN-088（open）·【自主决定】口径切换的兼容处置与残留问题登记**
+
+- 自主决定（非用户直接指令，供复核）：
+  1. legacy 保留方式：`current` 与 `unified_keep_injection` 仅保留代码分支与显式参数，
+     不再作为默认、不出现在新产物的"当前做法"描述中；
+  2. 新增 `--run-note` 通用参数（默认 None），用于在 9 份报告头写入本次验证声明，
+     不改变任何数值口径；
+  3. 单测 `test_bootstrap_fits_on_canonical_order` 固定到 `current` 口径：该用例靠列偏置
+     核对列序，unified 会中心化而读不出偏置；属测试适配，不改算法。
+- 残留问题（open，未淡化）：
+  - `SGATR_low`：最大系数仍 16.75、cond 截断前反升至 528、`|w|>5` 6 条；
+  - `SGATR_mid`：最大系数 14.06、`|w|>5` 6 条；
+  - `FLB_mid`：最大系数 5.227、1 条边超阈值。
+- 处置：先如实记录，是否进一步处理（变量集/共线性/截断策略）待用户裁决，本轮不调参。
 - 状态：⏳ open。
