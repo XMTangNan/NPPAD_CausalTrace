@@ -1980,3 +1980,51 @@ gitignore），`pytest` 161 passed。
 - 依赖：另一会话正在只读查证"三路归一化为何这样设计"；**结论出来前不实施**。
 - 影响文件：仅新增设计稿与本节台账；**代码零改动、未重跑、历史产物未动**。
 - 状态：⏳ 待用户确认设计（含 σ 下限选型、分档阈值、是否全量重跑）。
+
+**V23-DESIGN-085（closed）·【用户裁决】统一尺度对照实验（A/B 双变体，只出数据）**
+
+- 决定内容：用户批准"统一尺度"对照实验，按查证结论设计两个**独立开关、默认关闭**的变体：
+  A `unified`（所有建模变量按本模板训练段池化 mean/std 标准化，替代现有三路）；
+  B `unified_keep_injection`（其余同 A，注入变量仍走 `x/median_platform`）。
+- 约束（逐条执行）：9 模板（LOCA/SGATR/FLB × low/mid/high）、`n_bootstrap=5`、新目录、
+  `run_mode=reduced`（测试档）、`citable=null`、**不刷新 latest**、不覆盖现有 run、
+  `output/runs/v23-20261111T022417*` 未动；生产默认路径逐字不变；结论**只给数据，不判优劣**。
+- 实现：`signatures.py` 增加 `set_normalization_mode/get_normalization_mode`、
+  `compute_unified_scale`，`transform_graph_block` 增加可选 `normalization/unified_scale`；
+  `signatures` 产物追加 `normalization` 字段；`artifact.build_manifest` 增加 `refresh_latest`；
+  `run_v23_all` 增加 `--normalization/--no-latest/--run-prefix`，并在 summary 记录。
+- run：现口径@5 `v23nC-20261111T231028`；A `v23nA-20261111T231103`；
+  B `v23nB-20261111T231136`。三组均无 manifest、latest 仍指向生产 run。
+- 数据（详见 `issues/统一尺度对照实验-v23nC-v23nA-v23nB-2026-11-11.md`）：
+  max|w| 8/9 模板显著下降（如 LOCA_mid 813.3→4.5）；全边 |w|>5 合计 109→13；
+  cond 截断前最高 2.143e9→528；**稳定边集合 9/9 模板完全相同**；Top-5 45 席换 18 席。
+  A vs B：8/9 Top-5 集合相同，仅 LOCA_mid 差 1 人；稳定边与 max|w| 9/9 相同。
+- 结论：**只登记数据**，不写"哪个更好"；是否切换口径由用户裁决（Q-E 待定）。
+- 状态：✅ 实验完成，待用户判读。
+
+**V23-DESIGN-086（open）·【自主决定】实验控制组与三处文档不一致待修登记**
+
+- 自主决定 1：额外跑控制组 `--normalization current`、同 5 次档（`v23nC-20261111T231028`）。
+  理由：生产 run 为 100 次档，直接比会把 bootstrap 次数差异误读为尺度差异；不新增变体，只补基准。
+- 自主决定 2：新增 `--run-prefix` 与 `--no-latest` 两个参数，均为**显式可选、默认保持生产行为**
+  （默认前缀 `v23`、默认刷新 latest）。
+- 登记待修（**本轮不改文档**，等实验结论并入方案时一并改，避免改两次）：
+  1. 方案"逐类 sev-1 稳健 σ（含 σ_floor）" vs 实现"跨类 456 点池化普通 std、无 floor"；
+  2. 方案"注入前基线" vs 实现"注入后恢复段 [520,2030]"；
+  3. 方案"逐类基准" vs 实现"跨类池化"。
+  依据：`issues/归一化口径由来-查证-2026-11-11.md`。
+- 状态：⏳ 待与 V23-DESIGN-085 结论一起并入方案时关闭。
+
+**V23-CODE-034（open）·【发现缺陷】类级汇总解释忠实性校验恒失败，全链第 8 步中断**
+
+- 现象：`run_v23_all` 第 8 步 `explanation_reports` 报
+  `RuntimeError: ... rule 后端汇总解释未通过忠实性校验（实现缺陷）`，未支撑 token
+  `V23/DESIGN/063/7.10`；第 9/10 步（evaluation/manifest）因此不执行。
+- 根因：`causalrca/reporting/llm_explanation.py:1270/1295` 把
+  "V23-DESIGN-063，见方案 §7.10" 写进类级汇总文本，`verify_faithfulness` 将其判为
+  未支撑变量/数字。
+- 影响：文档口径同步（V23-DESIGN-082/083）后引入；生产 run `v23-20261111T022417`
+  （同步前）不受影响。任何全链重跑都会在第 8 步中断。
+- 证据：统一尺度实验三组（含控制组）完全一致复现，与归一化无关。
+- 处置：本轮不改（不在实验范围内，避免顺手动口径）；列为待修。
+- 状态：⏳ open。
