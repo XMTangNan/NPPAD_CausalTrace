@@ -1609,3 +1609,294 @@ gitignore），`pytest` 161 passed。
   - 说明：本次 Hit@3 0.1000 与 `015705/5` 的 0.2000 不同，属两轮图不同（100 次 vs 5 次），**不构成档位比较，也不作为结论**。
   - 结果列表：`方案/正式档100次结果列表-2026-11-11.md`（含核验表、主表三块、9 模板前 10 变量榜、附录诊断、真值可达性）。
 - 状态：✅ 已执行并核验（产物不可回填；如后续发现口径错误，开新 run，不改本轮文件）。
+
+**V23-DESIGN-060（closed）· v2.3 LLM 后端接线：回落 `Code/.env` 的 `DEEPSEEK_API_KEY`**
+
+- 触发：用户裁决"v2.3 的 LLM 后端改回读取 `Code/.env` 里已有的 `DEEPSEEK_API_KEY`；保留 `CAUSALTRACE_LLM_*` 作为可覆盖的优先项；base url 用 DeepSeek 默认"。
+- 改动（`Code/causalrca/reporting/llm_explanation.py`）：
+  ① 新增 `resolve_llm_credentials()`：`CAUSALTRACE_LLM_API_KEY`（进程环境）> `DEEPSEEK_API_KEY`（进程环境）> `Code/.env` / 仓库根 `.env`（前者优先）；
+     `CAUSALTRACE_LLM_BASE_URL` 缺省回落 `https://api.deepseek.com`，`CAUSALTRACE_LLM_MODEL` 缺省 `deepseek-chat`；
+  ② 新增 `_read_env_file_keys()`：只读键值、**不打印**；日志仅记录来源标签（`file:Code/.env:DEEPSEEK_API_KEY`）；
+  ③ `llm_unavailable_reason()` 改为"能解析到 key 即可用"，不再要求 `CAUSALTRACE_LLM_BASE_URL` 同时存在；
+  ④ `_call_chat_completions()` 改用解析结果，并修正 `system_prompt` 形参未被使用的问题（此前恒用默认 system）。
+- **两个问题分开记**：
+  - **接线问题**：v2.3 只认 `CAUSALTRACE_LLM_*`，而 `.env` 里是 `DEEPSEEK_API_KEY` → 后端判"不可用"，`requested_backend` 直接落到 `rule`。**这是本批修掉的**。
+  - **设计问题**：`V23-DESIGN-020` 降频铁律规定"模板级 9 份一律 rule、不逐模板调 LLM"。**即使接线正确，13 份里也只有 3 类级 + 1 全局会请求 LLM，9 份模板级仍不会**。设计问题不在本条处理，见 062。
+  - 因此"此前 13/13 份为 rule 稿、从未发起请求"= 接线问题（全量不可用）× 设计问题（模板级本就不调）叠加，**不能只归因于其一**。
+- 实测：`resolve_llm_credentials()` 解析出 `key_source=file:Code/.env:DEEPSEEK_API_KEY`、`base_url_source=default`；一次最小冒烟 HTTP 200。
+- 安全：**未回显、未打印前缀、未写入任何文件/日志**；仅 `bool` 与来源标签。
+- 测试：`pytest tests` → **171 passed**（新增 9 条判定路径/补充机理测试）。
+
+**V23-DESIGN-061（closed）· 知识库审核与补充：5 个候选变量的"事故角色"标注**
+
+- 触发：用户裁决"知识库是人为让 AI 整理的，不存在绝对对错；可以审核，符合物理机理就补进去；站不住的如实记为无机理支撑"。
+- 审核对象（取值全部来自 `external_knowledge/variable_dictionary.yaml`，非猜测）：
+  | 变量 | 含义 | 单位 | 子系统 | LOCA 判定 |
+  |---|---|---|---|---|
+  | `RHMT` | 慢化剂温度反应性 | dk/k | 反应性与功率 | 响应量（温度反馈），方向随工况变，不可作根因 |
+  | `LVPZ` | 稳压器水位 | % | 一回路热工 | 响应量（装量损失表征；初期闪蒸可短时波动） |
+  | `PRB` | 安全壳压力 | bar | 安全壳 | 响应量（壳内环境后果，不在回路因果链上） |
+  | `TRB` | 安全壳温度 | degC | 安全壳 | 响应量（同 PRB） |
+  | `P` | 一回路压力 | bar | 一回路热工 | 响应兼传导（破口结果；低压再触发安注），非根因 |
+- 新增文件：`Code/external_knowledge/supplementary_mechanisms.yaml`（schema `causaltrace/supplementary_mechanisms/v1`），5 条：
+  `S1_LOCA_P_response`、`S2_LOCA_LVPZ_response`、`S3_LOCA_PRB_response`、`S4_LOCA_TRB_response`、`S5_LOCA_RHMT_response`；
+  每条含 `basis`（一句话物理依据，无编造数值）、`source`（本次审核补充）、`date: 2026-11-11`、`verification: pending_expert`、`can_be_root: false`。
+- **为什么不写进 `physics_relations.yaml`**：K2 的 5 条与代码 `physics_constraints.PHYSICS_RELATIONS` 一一对应，yaml 自注"禁止在此改动"；
+  直接加条会破坏一致性校验，且需要可数值复算的 lhs/rhs。故补充层独立成文件，**不改 K2 数值口径、不改 K3 expected_chain、不参与 T=(I−B)⁻¹ 排序**。
+- 校验：`external_knowledge.validate_against_entity_table` 新增 **L5**：必填字段、id 唯一、变量必须在 ENTITY_TABLE、
+  `expected_direction ∈ {pos,neg,mixed,trigger}`、**响应量不得 `can_be_root=true`**、`asserted_edges` 不得指向 marker（K1 禁边 R1/R2/R3）。
+- 结论：**作为根因 5/5 无机理支撑**（不是"为了填满而补"）；补充条目只纠正角色与方向。
+- 影响面：排序融合**未变**（补充层不参与打分）；历史 run 未动；如要让它进入 K2 数值约束并影响排序，必须改代码并**新开 run**。
+
+**V23-DESIGN-062（closed）· 判定式解释路径（可开关、默认关闭）+ LOCA_low 真实冒烟**
+
+- 开关名：**`CAUSALTRACE_LLM_VERDICT`**（`1/true/on/yes` 开，未设置=关）。关闭时主链行为不变，9 份规则稿照旧。
+- 新增：`Code/causalrca/reporting/explanation_verdict.py`（证据包 / 提示词 / 四态 schema / 8 条校验 / 至多 1 次修复 / 降级）；
+  `Code/causalrca/cli/run_v23_verdict_explanation.py`（单模板冒烟，产物默认 `Code/experiments/verdict_probe/<run_id>/`，
+  不写 run 目录、不写 `output/` 顶层——遵守 `V23-CODE-031`）。
+- 主链挂点：`run_v23_llm_explanation.explain_one()` 末尾，`if verdict_enabled()` 才追加
+  `reports/llm_explanation_verdict_{K}_{g}.json`，**不替换** `llm_explanation_{K}_{g}.json`；异常只 warning，不中断主链。
+- 证据包实测（`LOCA_low`）：59 条稳定边（含 `weight_median/weight_iqr/dir_e/f_e/count`）、5 候选含入/出边、
+  15 变量字典含义、K2 `R1/R3` 正文、K3 期望链、补充条目 5 条、8 条预计算冲突、`evidence_sha256=967bc266…`。
+- 真实调用（一次，`--timeout 90`）：`mode=llm_verified`、`attempts=1`、`validation.ok=true`、`degraded_reason=null`；
+  5/5 判 `undetermined`，逐条引用 `S1–S5`；产物 `Code/experiments/verdict_probe/v23-20261111T022417/verdict_LOCA_low.json`。
+- 未做：其余 8 模板未跑、未重跑全链、未转正、未改历史产物、未改 `manifest.json`。
+- 状态：✅ 已执行（仅冒烟；转正与否待用户裁决）。
+
+**V23-DESIGN-063（closed）· 不可信指标撤出结果层（代码 + 渲染层 + 产物语义）**
+
+- 触发：用户裁决"这些指标先不要出现在结果里……评价指标本套有系统性的错误"，并决定 2026-11-12 再定最终处置。
+- **为什么撤出**：三条系统性前提（详见方案 §7.10）——
+  ① **P1 无独立真值**：命中类真值是按机理人工指定的假设，且与候选集同源，只能称"与假设的一致度"；
+  ② **P2 样本不独立**：同模板 20 条轨迹共享同一张图，因果通道全 run 只有 9 个排序；hit@1=4/60 的 Wilson 区间按
+     n=60 为 [0.0466, 0.2015]、n_eff=9 为 [0.0199, 0.4350]、每类 n_eff=3 为 [0.0615, 0.7923]，区间被系统性压窄；
+  ③ **P3 门槛不可失败**：VIF 门 500 既是阈值又是迭代停止条件（非保护 max 恰为 489.6/490.0/276.3）；
+     条件数门阈值 10000、截断后最高 1054.8、9/9 全过；跨组一致性 Jaccard 0.2632 vs 随机 0.2144
+     （三对均值不低于实测的概率 0.30）、名次标准差 1.89–2.87 vs 随机 3.22–3.40、单调占比 1/15–5/15 vs 0.27–0.33，
+     **只能结论"与随机不可区分"**；偏差通道 `d` 跨变量不可比（`d_raw` 到 1.67e5）。
+- **为什么保留代码**：这些量是审计与复算的唯一线索（例如真值可达性、随机基线对照），删函数会丢失"当初为什么判它不可信"
+  的证据链；且 2026-11-12 处置可能是"改造真值/改计有效 n"而非删除。故**只降级、不删**。
+- 改动：
+  ① `evaluation.py`：新增 `UNSUPPORTED_METRICS`（18 项：前提/原因/若要用需补什么）、
+     `METRIC_STATUS_KNOWN_UNUSABLE / METRIC_STATUS_PENDING_EXPERT / METRIC_STATUS_DESCRIPTIVE`、
+     `_withdrawn_fields()` / `_withdraw()`；`_tag_agg()` 对诊断块统一加
+     `reported=false`、`reliability="unsupported"`、`metric_status="known_unusable"`；
+     `stability` 块四个推断量（跨组 Jaccard / Spearman / 名次标准差 / 单调占比）与 `bootstrap_flip_rate` 逐块撤出；
+     `structural_health` 新增 `gates`（VIF 门、条件数门均标 `gate_status="cannot_fail"`）与 `result_layer`；
+     `mechanism_consistency` 标 `metric_status="pending_expert"`；
+     `evidence_rank_distribution`、偏差通道两通道加撤出标记；
+     新增 summary 顶层 `result_layer_policy`（三条前提 + 撤出清单 + 保留清单 + 处置待定）。
+  ② `report_template.py`：模块 docstring 增撤出说明；报告级新增 `metrics_policy`；§2 条件数与 `stability_label`
+     改为"已撤出结果层"说明；§3 删除 Top-5 重叠/Jaccard/逐对 Jaccard 数字，只留"三组 Top-1 是否相同 + 共同入榜变量数"；
+     §6 删除 4 级档位计数；§6 标题去掉"4 级计数"。
+  ③ `llm_explanation.py`：类级汇总规则稿去掉"相邻组平均 Top-5 重叠"数值与四通道偏离档位计数，改为撤出说明。
+- **影响面（哪些数字不再出现）**：
+  - 新建的 9 份逐模板解读报告：不再出现 `cond(I−B)` 数值、`stability_label` 判词、跨组 Jaccard/重叠/Spearman、
+    偏离 4 级档位计数；
+  - 新建的 3 份类级汇总：不再出现相邻组平均 Top-5 重叠、偏离档位计数；
+  - `submit/` 入口页：新增页首"指标口径：已撤出结果层"警示，类汇总链接标注"含已撤出指标，仅内部留档"；
+  - `指标可靠性审查` 文档：保留数字作为**审查证据**（页首另行标注"证据而非结果"）。
+- **未做**：未重跑任何 run、未改 `output/runs/` 下历史产物、未改 `manifest.json`、未删除任何函数；
+  历史报告正文中的旧数字仍在（按页首警示与字段语义理解）。
+- 测试：`pytest tests` → **171 passed**（未新增测试；渲染层改动靠既有报告结构测试覆盖）。
+
+**V23-DESIGN-064（closed）· 方案新增 §7.10（三条系统性前提 + 逐指标处置表）**
+
+- 落点：`方案/NPPAD-CausalTrace-v2.3方案-12类全适配与变量选取机制.md`，接 §7 序列，位于 §7.9 之后、§8 之前。
+- 结构：§7.10.1 三条前提（P1/P2/P3，含 n=60 / n_eff=9 / 每类 3 的区间对照、VIF 489.6/490.0/276.3、
+  条件数 1054.8、Jaccard 0.2632 vs 0.2144、名次标准差 1.89–2.87 vs 3.22–3.40、单调占比 1/15–5/15 vs 0.27–0.33、
+  `d_raw` 1.67e5）；§7.10.2 逐指标表（现状 / 为什么不可信 / 若要用需补什么 / 当前处置）；
+  §7.10.3 实现口径与影响面；§7.10.4 待办 Q-A…Q-D。
+- **不预设结论**：全节只写事实与原因，处置统一标"**处置待定 2026-11-12**"，未写"删除/保留/改造"的决定。
+- 备查：`方案/正式档100次结果列表-2026-11-11.md` 在本轮开始前已处于删除状态（`git status` 显示 `D`），
+  **本批未恢复、未重建**；结果层撤出只作用于生成代码与 `submit/` 页面/文档。
+- 状态：✅ 已写入；未重跑、未改历史产物。
+
+**V23-DESIGN-065（closed）· 第八步正路接线：判定式解释成为逐模板报告正文（默认开启）**
+
+- 触发：用户纠正"LLM 的产物应该是 9 份逐模板解读报告本身，是流水线第八步的正常交付物，不是开关后面的旁路 json"。
+- 产物定义变更：`reports/rca_report_{K}_{g}.txt` 的"Top-5 逐个四态判定与机理"改由 LLM 写；
+  `reports/llm_explanation_{K}_{g}.json` 降为**证据附件**（证据包 + 校验记录 + lineage）。
+- 新增：
+  ① `causalrca/reporting/verdict_report.py`：固定 5 章渲染（图结构与 Top-5 → 逐候选判定 →
+     冲突与不确定 → 结论 → 局限与复现），模型段只取证据包里的边/系数与知识 id；
+     校验不过时整份回落规则稿，抬头写 `未经模型判断`，失败原因进证据附件。
+  ② `causalrca/cli/run_v23_step8_report.py`：复用源 run 的图与签名（不重学图），
+     产物写入新 run 目录 `<source>-r8` 并写 `lineage.json`，源 run 零改动。
+  ③ `explanation_verdict.py`：schema 增 `conclusion`（结论章正文，≤120 字，禁新变量/新数值）；
+     `_k3_entry` 传 `n_matched`，删除硬编码的 `matched_edges: []`——该 bug 会让模型误判
+     "K3 无任何边支持"。
+- 开关：**默认开启**，不再需要 `CAUSALTRACE_LLM_VERDICT`；无 key / 校验失败自动 `rule_fallback`。
+- 首份样例：`output/runs/v23-20261111T022417-r8/reports/rca_report_LOCA_low.txt`
+  （mode=llm_verified，validation_ok=true，5/5 判 `unsupported` 并逐条引 S1–S5）。
+- 未做：其余 8 份未生成；未重跑图；未 commit。
+- 测试：`pytest tests` → **171 passed**（`test_validate_accepts_wellformed` 补 `conclusion` 字段）。
+
+**V23-DESIGN-066（closed）· 方案 §7.11：第八步产物定义与 V23-DESIGN-020 的部分推翻**
+
+- 落点：`方案/NPPAD-CausalTrace-v2.3方案-12类全适配与变量选取机制.md` §7.11（§7.10 之后、§8 之前）。
+- 写明：章节顺序与"由谁写"、硬约束与兜底、不重学图与 lineage、默认开启。
+- **`V23-DESIGN-020` 部分推翻**："模板级 9 份一律 rule" → "模板级默认模型判定 + 规则兜底"；
+  保留 3 类级 + 1 全局机制。推翻理由与可复现性保障见 §7.11（证据包限定 + 逐项校验 + 整体回落
+  + `explanation_mode`/sha256 留痕）。
+- 状态：✅ 已写入；未重跑全链。
+
+**V23-DESIGN-067（closed）·【用户裁决】根因定义成为项目级规则**
+
+- 决定内容：新增"根因 = 同类事故内、变量传递链条中最先动起来的变量"定义，并声明
+  `T=(I−B)⁻¹` 列和是"起点性"的代理度量；报告可直接写"根因"，但必须注明"以传导起点为定义的根因"，
+  非"经现场证据确认的唯一物理起因"。
+- 依据：用户明确裁决，且与导师任务描述（"谁是众多变量开始传递的起点"）一致；本条**取代**此前
+  "正文写驱动候选、不写根因定位"的建议。
+- 影响文件：内部工作版 §0.5（新增）；对外版 §0（新增）；`verdict_report.py` 报告抬头新增两行定义声明。
+- 结果：两版方案同位同文；LOCA_low 第二版报告抬头已带该声明；口径不再出现"驱动候选"类回避措辞。
+
+**V23-DESIGN-068（closed）·【用户裁决】稳定性一类推断量取消（非技术受阻）**
+
+- 决定内容：取消"三组 Top-1 是否相同 / 跨组 Top-5 重叠 / 名次标准差 / 单调占比"一类稳定性推断量，
+  删除对应待办，不再产出、不再提议。
+- 依据：用户判断"做了也没有意义"；明确要求台账写明**用户裁决不做，非技术受阻**。
+- 影响文件：内部工作版 §7.10.4（删除 Q-B，新增"已关闭"段）；对外版 §4.3/§4.4/§5.1/§7
+  （稳定性行删除、取消说明、后续工作去掉"稳定性零分布"）；`llm_explanation.py` 删除
+  limitations 中的"跨组不稳定：三组 Top-1 不一致"（该文本会进入规则稿与判定稿）。
+- 结果：新建报告不再出现该表述；代码中的跨组计算保留但仍是 `reported=false`（与 V23-DESIGN-063 一致）。
+
+**V23-DESIGN-069（closed）·【用户裁决】指标层维持现状**
+
+- 决定内容：18 项 `known_unusable` 继续撤出结果层、代码保留留档，不再讨论删除或恢复。
+- 依据：用户裁决"维持现状"。
+- 影响文件：无（仅台账登记；未改代码、未改两版方案的指标口径）。
+- 结果：口径不变；后续复盘中不再把"删除还是恢复"列为待办。
+
+**V23-DESIGN-070（closed）·【用户裁决】LLM 判定问法重构 + 正向机理补充 + 图诊断**
+
+- 决定内容：
+  ① 提问从"逐候选判有无资格当根因"改为"这批前五在物理机理上是否可能位于传导起点"；
+  ② 四态定为 有支撑/部分支撑/无支撑/无法判断，**缺条目不得默认否定**，无明确反向证据即判"无法判断"；
+  ③ 新增正向机理条目层；④ 五候选全否定时必须给出"图为何这样排"的诊断；⑤ 冲突原文保留；
+  ⑥ 第二章不再复述 `total_effect` 精确值。
+- 依据：用户判断"全是否定"是提问方式或回答模板问题，并给出示例问法；与 V23-DESIGN-067 的根因定义配套。
+- 影响文件：`explanation_verdict.py`（系统提示与 schema 规则、`graph_diagnosis`、正向条目装载、
+  K3 传 `n_matched`）；`verdict_report.py`（四态中文、3.4 诊断节、抬头定义、去掉内部编号）；
+  `external_knowledge/positive_mechanisms.yaml`（新增 P1/P2）；`external_knowledge.py`（加载器与校验）；
+  内部工作版 §7.11；对外版 §3.6。
+- 结果：LOCA_low 第二版落 `output/runs/v23-20261111T022417-r8v2/reports/rca_report_LOCA_low.txt`，
+  `mode=llm_verified`、`validation.ok=true`；五个候选仍判"无支撑"（因 S1–S5 是**明确反向证据**，
+  不是"缺条目"），但报告已给出三条源状枢纽 + 两条 K3 反向边 + 三条大系数边的诊断，
+  并指出正向注入起点 WLR 未进入候选、P1 声明的注入边在图上缺失。其余 8 份未跑。
+
+**V23-DESIGN-071（closed）·【自主决定】本轮实现取舍（逐条留痕）**
+
+| 决定 | 依据 | 影响文件 | 结果 |
+|---|---|---|---|
+| 正向条目另建 `positive_mechanisms.yaml`，不并入 S 系列文件 | 用户要求"正向与否定分开管理"；且 S 文件正文声明其 5 条均为否定、`can_be_root=false` | `external_knowledge/positive_mechanisms.yaml`（新增） | 两文件各自 `n_entries`，校验器同时校验两份 |
+| `asserted_edges` 采用 `{from,to}` 字典而非二元数组 | 现有 L5 校验按 `edge.get("from")` 解析，数组会被判"端点未知 None" | 同上 | 校验通过（首版数组写法被自查发现后立即改为字典） |
+| `graph_diagnosis` 只放四类可复核事实，上限 8 条 | 避免模型借"诊断"自由发挥；上限保证报告篇幅稳定 | `explanation_verdict.py` | 每模板最多 8 条，按 k3_reverse / 双向边 / hub / 最大边顺序 |
+| 诊断节编号为"三.4"，不新增第六章 | 保持"固定五章"承诺，同时满足"必须给出诊断" | `verdict_report.py`、内部工作版 §7.11、对外版 §3.6 | 报告仍为 5 章，诊断作为 3.4 子节 |
+| 数值收敛只做到提示词 + 程序章节，不改模型已产出的文本 | 不篡改模型输出，保持可审计 | `explanation_verdict.py` 规则 11 | 第二版结论已改写为"总效应见第一章" |
+| 报告去掉内部编号（如 `V23-DESIGN-063`） | 报告是对外读本，内部编号只留台账与方案 | `verdict_report.py` | 正文只写"见方案 §7.10" |
+
+- 状态：✅ 已执行；`pytest tests` 结果见 V23-DESIGN-072。
+
+**V23-DESIGN-072（open）·【自主决定】本轮遗留风险**
+
+- 风险 1：S 系列为"明确反向证据"，模型据此判"无支撑"合理；但 S 系列本身是 `pending_expert`，
+  若专家最终否掉 S 条目，五候选会从"无支撑"变回"无法判断"。→ 待外部评审后再复跑，不预先改判。
+- 风险 2：正向条目目前只覆盖 LOCA（P1/P2）；SGATR/FLB 尚无正向条目，跑其余 8 份时预计仍以
+  "无法判断/无支撑 + 诊断"为主。→ 待用户判断后再补，不在本轮自行扩写知识。
+- 风险 3：模型仍可能把"出度高"当作起点性证据与 S 系列对冲；当前靠冲突披露而非强制判词约束。
+- 状态：⏳ 待用户裁决/专家评审；不影响已落盘样例。
+
+**V23-DESIGN-073（closed）·【用户裁决】方案选项不可行：用 K1 角色字段做降权**
+
+- 决定内容：**不采用**"用 `variable_dictionary.yaml` 的角色字段（驱动/响应/指示）给排序降权"这一选项；
+  该选项从所有文档中撤下，不再作为候选方案或后续工作提出。
+- 依据：**字段不存在，不是判断问题**——`external_knowledge/variable_dictionary.yaml` 的字段只有
+  `meaning / subsystem / unit`，`role` 出现 **0 次**。图节点上的
+  `conduction_hub / upstream_driver / intermediate / physical_root` 是算法自算的图角色，
+  不是物理角色标注，**不得当作物理先验**。
+- 影响文件：对外版 §3.2（K1 字段描述更正为 `meaning / subsystem / unit`）、§7（后续工作删除
+  "引入角色先验"）；内部工作版未改正文（§9.4.3 的 `--role-prior` 是另一条基于对方名单的实现，
+  与本条所指的 K1 字段无关，**未动**）。
+- 结果：**排序不动、无需改代码**；后续不再提该选项。
+
+**V23-DESIGN-074（closed）·【用户裁决·事实备查】截断规模与反馈对命中数**
+
+- 事实（已核实，供复盘引用）：
+  ① 9 个模板合计 **79 条**稳定边的原始估计 \|B\| > 5，被截断，**最大 48057**；
+  ② 这 79 条中落在**已知物理反馈对**上的只有 **4 条**；
+  ③ 9 个模板中**双向稳定边 0 对**。
+- 含义：截断掉的绝大多数不是物理反馈回路；图上也没有成对的双向边（即"反馈被单向化"不是靠双向边
+  暴露的，而是靠与 K3 期望方向相反暴露的——与 `graph_diagnosis` 中"无 two_way_pair"的实际输出一致）。
+- 用户据此确认：**维持现有算法、不改排序量**（用户裁决，非本轮自主决定）。
+- 影响：无代码改动、无排序改动；仅登记备查。若后续要改造排序量，须先推翻本条事实基础。
+- 状态：✅ 已登记。
+
+**V23-DESIGN-075（closed）·【用户指出·核实并修复】模型对候选集状态做了错误断言**
+
+- 核实对象：`output/runs/v23-20261111T022417-r8v2/reports/rca_report_LOCA_low.txt` 中
+  "正向注入起点 WLR 未进候选"。
+- 取证结论：**该断言为假**。
+  - `tracing/root_candidates_LOCA_low.json`：`WLR` 在候选列表内，`rank: null`（只是未进前五）；
+  - `audit/truth_reachability_LOCA.json`：`WLR = selected`（入选最终变量集）；
+    `WBK = score_rejected`、`MBK = score_rejected`（评分淘汰，**不在候选集**）；
+    `n_selected=15`、`n_truth=3`、`n_selected=1`、`gate_blocks_truth=false`。
+- 定性：模型把"未进前五"写成"未进入候选"，属对候选集状态的错误断言，不是数据矛盾。
+- 修复（三处）：
+  ① 证据包显式下发状态：`nodes[]` 增 `in_candidate_set`（恒 true）、`gate_outcome`、`has_rank`；
+     新增 `excluded_variables[]`（读 B2 `truth_reachability_{K}.json`，带 `gate_outcome` 与 `is_truth`）。
+  ② 系统提示新增第 12 条：候选集状态只能引用证据包，禁止把"未进前五"写成"不在候选集"。
+  ③ 校验新增 `_candidate_claims()` 硬检查：正文出现"X 未进/不在候选"类断言时，
+     若 `in_candidate_set=true` 即判失败；反之"X 在候选"而实际不在也判失败。
+- 影响文件：`explanation_verdict.py`、`tests/test_v23_explanation_verdict.py`（新增 1 条测试）、
+  内部工作版 §7.11 第 4 条、对外版 §3.6 硬约束。
+- 结果：重生成后 LOCA_low 正文改为"正向注入起点 WLR **未进入前五**"，9/9 份 `validation_ok=true`；
+  旧 v2 报告已存档为 `reports/archive_rca_report_LOCA_low_v2_before_fix.txt` 供对比，**原地不改历史结论**。
+
+**V23-DESIGN-076（closed）·【用户授权执行】其余 8 份判定式报告全部生成**
+
+- 执行：`run_v23_step8_report --all`，源 run `v23-20261111T022417`，输出 `v23-20261111T022417-r8v2`，
+  不重学图，`lineage.json` 的 `templates` 按并集累加为 9 项。
+- 结果：9/9 `mode=llm_verified`、`validation_ok=true`；四态判定不再"全否"：
+  LOCA_high 出现 `supported`（WLR，引 P1_LOCA_WLR_injection）与 2 个 `partially_supported`；
+  其余模板以 `undetermined`（无知识覆盖）与 `partially_supported`（K3 链中段）为主。
+- 状态：✅ 完成；未改图、未改排序、未动源 run。
+
+**V23-DESIGN-077（closed）·【用户裁决】补全 SGATR / FLB 正向机理条目并重出 6 份报告**
+
+- 决定内容：按“严谨物理知识”补全两类正向条目，覆盖报告前五里无知识覆盖的变量；允许写“不是起点”；
+  与 S/P 系列分开、不参与排序、不改 K2/K3 数值口径；补完后重出 SGATR×3 + FLB×3。
+- 依据：用户裁决（"由你去查询严谨的物理知识去补全"）。条目依据只用守恒关系、因果次序与公开教材通用结论，
+  不写页码与引文；有争议的条目（二次侧压力净方向、B 侧排热方向）标 `ambiguous`。
+- 影响文件：`Code/external_knowledge/positive_mechanisms.yaml`（P1/P2 → P1–P14，新增 12 条：
+  SGATR：`P3_SGATR_WTRA_leak`(starts_chain)、`P4_SGATR_NSGA_level_rise`、`P5_SGATR_LSGA_level_rise`、
+  `P6_SGATR_RM2_radiation`、`P7_SGATR_PSGA_ambiguous`、`P8_SGATR_HTR_pressure_response`；
+  FLB：`P9_FLB_WFLB_break`(starts_chain)、`P10_FLB_NSGA_level_drop`、`P11_FLB_QMGB_heat_transfer`、
+  `P12_FLB_WRCA_flow`、`P13_FLB_WCHG_charging`、`P14_FLB_WUP_porv`）；全部 `pending_expert`，
+  新增 `assertion: starts_chain | not_start | ambiguous` 字段区分方向。内部工作版 §7.11 补一句。
+- 结果（补条目前 → 后，`-r8v2` 原地重生成 6 份，全部 `validation_ok=true`）：
+  - SGATR_low：`undetermined 3 + partially 2` → `unsupported 3 + undetermined 2`；变化 4 项
+    （NSGA/LSGA→unsupported 由 P4/P5；HTR→unsupported 由 P8；PSGA→undetermined 由 P7 的 ambiguous）。
+  - SGATR_mid：`partially 3 + undetermined 2` → `unsupported 5`；变化 5 项
+    （RM2→unsupported 由 P6；HTR/NSGA/LSGA 由 P8/P4/P5；WECS 无新条目，因 K3 中段判 unsupported）。
+  - SGATR_high：`undetermined 3 + unsupported 2` → `undetermined 2 + unsupported 3`；仅 NSGA 变化（P4）。
+  - FLB_low：`undetermined 3 + partially 2` → `undetermined 1 + unsupported 4`；变化 4 项
+    （QMGB 由 P11、WRCA 由 P12；WHPI/PSGA 无新条目，因 K3 中段）。
+  - FLB_mid：`undetermined 2 + partially 3` → `unsupported 3 + partially 1 + undetermined 1`；变化 3 项
+    （QMGB 由 P11；TAVG/WHPI 无新条目，因 K3 中段）。
+  - FLB_high：`undetermined 3 + partially 2` → `unsupported 3 + partially 2`；变化 3 项
+    （WRCA/WCHG/WUP 分别由 P12/P13/P14）。
+  - **结论没变的**：三份 SGATR 的前五排序与"起点不成立"的总体结论均未变；补条目只把
+    "无法判断（无覆盖）"变成"无支撑（有明确 not_start 依据）"，**没有把任何候选改判为有支撑**。
+- 状态：✅ 完成；未改图、未改排序、未动源 run；临时对照目录已删除。
+
+**V23-DESIGN-078（closed）·【自主决定】条目取舍与兜底路径缺陷修复**
+
+| 决定 | 依据 | 影响 | 结果 |
+|---|---|---|---|
+| 每类补 6 条，优先覆盖前五中无知识条目的变量 | 用户要求“覆盖优先、先 3–6 条” | `positive_mechanisms.yaml` | SGATR/FLB 各 6 条，未覆盖者（如 SGATR 的 LVPZ、FLB 的 PRB）如实留白 |
+| 允许 not_start / ambiguous 条目，且不因此改写判词 | 用户允许“允许写该变量在某类事故中不是起点” | 同上 | 4 条 not_start、2 条 ambiguous；判定只从 undetermined 变 unsupported，未变 supported |
+| 不补 K2/K3，不新增断言数值 | 用户要求“不改 K2/K3 数值口径” | 未改 | K2/K3 文件零改动 |
+| 修 `verdict_report.generate_one` 兜底路径的绑定缺陷 | 复现：FLB_low 走规则兜底时进程已绑定到新 run，`_read_optional` 读不到源 run 的 tracing，抛“缺 root_candidates_FLB_low.json”；这是代码缺陷，不是数据缺失 | `verdict_report.py` 兜底分支前 `bind_run(source)` | FLB 三份重跑全部 `llm_verified`，无兜底 |
+
+- 状态：✅ 完成；`pytest tests` → **172 passed**。

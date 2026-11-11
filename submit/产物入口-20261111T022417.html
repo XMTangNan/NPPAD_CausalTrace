@@ -29,12 +29,28 @@
   th { color:var(--dim); font-weight:600; background:#141821; }
   code { background:#12151c; border:1px solid var(--line); border-radius:4px; padding:1px 5px; font-size:12.5px; }
   .note { color:var(--dim); font-size:12.5px; margin-top:10px; }
+  .warn { background:#2a2118; border:1px solid #6b5220; border-radius:10px; padding:12px 16px; margin:0 0 8px; }
+  .warn b { color:#f0c674; }
+  .warn p { margin:4px 0 0; color:#d8c9a8; font-size:12.8px; }
 </style>
 </head>
 <body>
 
 <h1>CausalTrace 产物入口</h1>
 <p class="sub">run <code>v23-20261111T022417</code>（n_bootstrap = 100）· 纯静态页，双击即可打开 · 所有链接为相对路径，指向本次运行的真实产物文件</p>
+
+<div class="warn">
+  <b>指标口径：已撤出结果层（V23-DESIGN-063，2026-11-11）</b>
+  <p>hit@k / MRR / P@k / Recall@k / AP@k / Jaccard@k、名次分布与 Wilson 区间、跨组一致性（Jaccard /
+     Spearman / 单调占比 / 名次标准差）、VIF 门与条件数门的通过结论、截断翻转、偏差通道 d 档位——
+     这些指标已被判定不可信，<b>不进入结果层</b>，本页与新建报告均不展示其数值。</p>
+  <p>原因见方案 §7.10 与 <a href="指标可靠性审查-v23-20261111T022417-2026-11-11.md">指标可靠性审查</a>：
+     P1 无独立真值；P2 样本不独立（因果通道有效 n ≈ 9，不是 60）；P3 门槛结构上不会失败。
+     处置待定 2026-11-12。</p>
+  <p>下方链接指向的历史产物（json 字段、旧报告正文）未回改，仍含上述数字；它们的语义一律按
+     <code>reported=false / reliability="unsupported" / metric_status="known_unusable"</code> 理解，
+     不得引为结果。</p>
+</div>
 
 <h2>九宫格：每模板因果图（HTML）</h2>
 <div class="grid">
@@ -150,9 +166,9 @@
 <h2>全文报告与审计</h2>
 <div class="links">
   <div><a href="../Code/output/runs/v23-20261111T022417/tracing/tracing_report_v23.txt">全量追踪报告（tracing_report_v23.txt）</a></div>
-  <div><a href="../Code/output/runs/v23-20261111T022417/reports/summary_LOCA.json">LOCA 类汇总（json）</a></div>
-  <div><a href="../Code/output/runs/v23-20261111T022417/reports/summary_SGATR.json">SGATR 类汇总（json）</a></div>
-  <div><a href="../Code/output/runs/v23-20261111T022417/reports/summary_FLB.json">FLB 类汇总（json）</a></div>
+  <div><a href="../Code/output/runs/v23-20261111T022417/reports/summary_LOCA.json">LOCA 类汇总（json，含已撤出指标，仅内部留档）</a></div>
+  <div><a href="../Code/output/runs/v23-20261111T022417/reports/summary_SGATR.json">SGATR 类汇总（json，含已撤出指标，仅内部留档）</a></div>
+  <div><a href="../Code/output/runs/v23-20261111T022417/reports/summary_FLB.json">FLB 类汇总（json，含已撤出指标，仅内部留档）</a></div>
   <div><a href="../Code/output/runs/v23-20261111T022417/audit/truth_reachability.json">假设真值逐变量去向审计</a></div>
   <div><a href="../Code/output/runs/v23-20261111T022417/manifest.json">本次运行的 manifest（文件清单与 sha256）</a></div>
 </div>
@@ -167,7 +183,8 @@
   <tr><td><code>n_bootstrap</code></td><td>该模板实际 bootstrap 次数（本轮为 100）</td></tr>
   <tr><td><code>auxiliary</code></td><td>附加关系条目，仅存档、不参与排序</td></tr>
 </table>
-<p class="note">本页只链接原始产物，不含任何指标数字，也不做二次加工。图页面与报告均由同一次运行生成。</p>
+<p class="note">本页只链接原始产物，不含任何指标数字，也不做二次加工。图页面与报告均由同一次运行生成。
+  已撤出结果层的指标（见页首说明）在历史产物中仍然存在，但不得引为结果。</p>
 
 </body>
 </html>
