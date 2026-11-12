@@ -2107,3 +2107,29 @@ gitignore），`pytest` 161 passed。
   `pytest tests` → **175 passed**。
 - 未跑 10 步全链路；旧 run 无该字段（视为未记录），下次 run 自然生效。
 - 状态：✅ closed。
+
+**V23-DESIGN-089（closed）·【用户裁决】唯一一次 100 次档可引用生产 run**
+
+- 授权：用户明确授权的唯一一次 100 次档；不改代码、不改口径、不改阈值与排序量。
+- run：`v23-20261112T185258`；`n_bootstrap=100`、`normalization=unified`、`run_mode=spec`、
+  `citable=true`、`latest` 已刷新；10/10 步 ok；160 文件；约 4 分 58 秒。
+- 结果：九模板 Top-1 见 `submit/生产档结果-v23-20261112T185258-2026-11-12.md`；
+  `SGATR_low` max|w|=16.34（cond 494.7→81.37，6 条 |w|>5）、`SGATR_mid` 14.35（289.4→105.3）；
+  其余模板 3.18–5.62。降级模板 0/9。
+- 与 5 次测试档差异：2 个 Top-1 变化（LOCA_high VOL→LVPZ、FLB_low DNBR→WFLB），
+  `LOCA_high` 稳定边 60→43 最敏感；`SGATR_low/mid` 的 Top-5 与 Top-1 未变。
+- 第 8 步：链路内为 `rule` 后端（硬编码），LLM 判定由 `run_v23_step8_report` 另行生成
+  `v23-20261112T185258-r8`，9/9 `llm_verified`、0 兜底；3 份首轮校验未过、重试后通过。
+- 交付：`submit/生产档结果-…md`、`submit/产物入口-20261112T185258.html`（106 条链接逐条实测存在）。
+- 状态：✅ closed。
+
+**V23-DESIGN-090（open）·【文档错位】"共享评分基线（偏离/阈值）"标错来源**
+
+- 位置：内部版 §4.2.1 的"三套基线"表格（`方案/NPPAD-CausalTrace-v2.3方案-12类全适配与变量选取机制.md`）。
+- 错位：该行把"偏离/阈值"归到 `loader.fit_shared_baseline`（恢复段 `[520,2030]`），
+  但偏离通道实际读 `tolerance_{K}.json`，由 `evidence/tolerance.py` 用 **sev-1 注入前 `[0,100]` 共 11 点**
+  估计 `mu/sigma_robust`（含 MAD 与物理 floor）。方向是"**方案写恢复段、实现用注入前**"。
+- 影响：仅文档表述；不改代码、不改口径（本次生产 run 前后均未改）。
+- 待修：把该行拆成两行——"共享基线（仅 legacy 学图 `current` 使用）"与"偏离/公差（注入前 11 点）"。
+  本次按用户边界**不改文档**，仅登记。
+- 状态：⏳ open。
