@@ -34,3 +34,6 @@ Thumbs.db
 
 # 只读实验产物（不在主链内，不入库）
 Code/experiments/
+
+# 缓存目录
+.cache/
