@@ -22,7 +22,10 @@ from causalrca.io import artifact as A
 from causalrca.data import loader as D
 from causalrca.config.accident_config import (ALL_CODES, MISSING_CODES, PARTIAL_CODES,
                                      READY_CODES, REGISTRY)
-from causalrca.features.variable_selector import build_raw_dataframe, select_variables
+from causalrca.features.variable_selector import (
+    build_raw_dataframe, select_variables, set_selection_profile,
+    get_selection_profile, SELECTION_PROFILE_V23,
+)
 from causalrca.io.logging import logger
 
 # A 阶段负责落 v2.3 registry 的三份冻结输入（文件名保持不变，便于与 v2.1 对照）
@@ -44,8 +47,13 @@ def snapshot_frozen_inputs(run_id: str) -> None:
                          source=f"output/rca_v21/{name}.json（v2.1 冻结，只读快照）")
 
 
-def main() -> None:
+def main(selection_profile: str = None, per_subsystem_keep: int = None) -> None:
+    # 未显式传入时沿用进程级设置（run_v23_all 会先 set 再调用本函数）
+    if selection_profile is not None:
+        set_selection_profile(selection_profile, per_subsystem_keep)
+    profile, profile_q = get_selection_profile()
     run_id = A.new_run_id("v23a")
+    logger.info(f"[变量选取] run_id={run_id} selection_profile={profile} Q={profile_q}")
     logger.info(f"[变量选取] run_id={run_id}")
 
     # 注册表与分组快照：同一 run 的其余阶段都引用这两份
@@ -91,6 +99,11 @@ def main() -> None:
     summary = {
         "accident_types": sorted(all_selected),
         "selected_vars": all_selected,
+        "selection_profile": profile,
+        "per_subsystem_keep": profile_q if profile != SELECTION_PROFILE_V23 else 1,
+        "n_alias_groups": {k: len(all_reports[k].get("alias_merge") or []) for k in all_selected},
+        "degenerate_design": {k: bool(all_reports[k].get("degenerate_design"))
+                              for k in all_selected},
         "checks_summary": {k: all_reports[k]["checks"] for k in all_selected},
         "n_selected": {k: len(all_selected[k]) for k in all_selected},
         # 三态口径：True=pass / False=fail / None=n/a（V3 不适用时不得判为失败）
@@ -108,4 +121,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    ap = argparse.ArgumentParser(description="v2.3 A 阶段：四阶段变量选取")
+    ap.add_argument("--selection-profile", default=SELECTION_PROFILE_V23,
+                    choices=[SELECTION_PROFILE_V23, "wide"])
+    ap.add_argument("--per-subsystem-keep", type=int, default=None)
+    args = ap.parse_args()
+    main(args.selection_profile, args.per_subsystem_keep)

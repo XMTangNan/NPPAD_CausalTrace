@@ -58,6 +58,112 @@ VIF_MAX = 500.0
 N_MIN = 15
 N_MAX = 25
 TOP_K = 30
+
+# ---- 宽筛选诊断档（V23-DESIGN-093）----
+# 默认 v23；wide 只作 diagnostic、citable=null、不刷 latest。
+# Q=2 的依据只能是工程/物理三条（p 上限 30、每模板 25–28 条轨迹、每子系统
+# 至少 2 个独立测点），**不得**以“让某个真值变量进榜”为由调整。
+SELECTION_PROFILE_V23 = "v23"
+SELECTION_PROFILE_WIDE = "wide"
+WIDE_PER_SUBSYSTEM_KEEP = 2      # Q
+WIDE_N_MAX = 30                  # wide 总量上限
+WIDE_ALIAS_CORR_MIN = 0.999      # 别名判据：逐位相同 或 |Pearson r|≥0.999
+WIDE_CORR_COND_MAX = 1e12        # 数据质量闸：相关矩阵条件数上限
+WIDE_CORR_EIG_MIN = -1e-8        # 数据质量闸：最小特征值下限
+
+_PROFILE = SELECTION_PROFILE_V23
+_PROFILE_Q = WIDE_PER_SUBSYSTEM_KEEP
+
+
+def set_selection_profile(profile: str = SELECTION_PROFILE_V23,
+                          per_subsystem_keep: Optional[int] = None) -> None:
+    """设置进程级筛选档位；默认 v23（生产口径不受影响）。"""
+    global _PROFILE, _PROFILE_Q
+    if profile not in (SELECTION_PROFILE_V23, SELECTION_PROFILE_WIDE):
+        raise ValueError(f"未知 selection_profile: {profile}")
+    _PROFILE = profile
+    _PROFILE_Q = int(per_subsystem_keep or WIDE_PER_SUBSYSTEM_KEEP)
+
+
+def get_selection_profile() -> Tuple[str, int]:
+    return _PROFILE, _PROFILE_Q
+
+
+def _alias_groups(raw_data: pd.DataFrame, candidates: Sequence[str],
+                  scores: Dict[str, float],
+                  forced: Sequence[str]) -> Tuple[Dict[str, str], List[Dict]]:
+    """别名合并（wide 专用）：返回 (alias_of, alias_merge)。
+
+    判据预声明：逐位相同或 `|Pearson r| ≥ WIDE_ALIAS_CORR_MIN`（union-find）。
+    代表选择：forced 优先，其次训练期评分最高，同分按字母序。
+    被合并列写入 `alias_of`（member→rep），调用方必须阻止其回流。
+    """
+    sub = raw_data[list(candidates)]
+    corr = sub.corr().abs()
+    parent = {v: v for v in candidates}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    for i, a in enumerate(candidates):
+        for b in list(candidates)[i + 1:]:
+            r = corr.at[a, b]
+            if pd.notna(r) and float(r) >= WIDE_ALIAS_CORR_MIN:
+                union(a, b)
+
+    groups: Dict[str, List[str]] = {}
+    for v in candidates:
+        groups.setdefault(find(v), []).append(v)
+
+    forced_set = set(forced)
+    alias_of: Dict[str, str] = {}
+    merge_log: List[Dict] = []
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        forced_members = [v for v in members if v in forced_set]
+        if forced_members:
+            rep = sorted(forced_members)[0]
+        else:
+            rep = min(members, key=lambda v: (-scores.get(v, 0.0), v))
+        for v in members:
+            if v != rep and v not in forced_set:
+                alias_of[v] = rep
+        merge_log.append({
+            "rep": rep,
+            "members": sorted(members),
+            "n_members": len(members),
+            "criterion": f"identical_or_abs_pearson_ge_{WIDE_ALIAS_CORR_MIN}",
+        })
+    return alias_of, merge_log
+
+
+def _corr_diagnostics(raw_data: pd.DataFrame, selected: Sequence[str]) -> Tuple[bool, Dict]:
+    """数据质量闸：相关矩阵负特征值或 cond>WIDE_CORR_COND_MAX → 退化。"""
+    if len(selected) < 2:
+        return False, {}
+    x = raw_data[list(selected)].dropna()
+    if x.shape[1] < 2 or len(x) < 3:
+        return False, {}
+    corr = x.corr().values
+    eig = np.linalg.eigvalsh(corr)
+    try:
+        cond = float(np.linalg.cond(corr))
+    except np.linalg.LinAlgError:
+        cond = float("inf")
+    diag = {"min_eig": float(eig.min()), "cond_corr": cond,
+            "n_rows": int(len(x)), "n_vars": int(x.shape[1])}
+    bad = bool(diag["min_eig"] < WIDE_CORR_EIG_MIN or cond > WIDE_CORR_COND_MAX)
+    return bad, diag
+
 # 论文锚定评分加权（V23-DESIGN-023）：候选优先，但**不改变 VIF 剔除资格**。
 # 取值 0.15 的依据：评分已归一到 [0,1]，0.15 足以让锚定变量进入 TOP_K 前列，
 # 又不足以把高共线变量强留在最终集合（VIF≥500 仍会被剔除并记录）。
@@ -377,6 +483,8 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
         (selected_vars, selection_report)
     """
     np.random.seed(random_state)
+    profile, profile_q = get_selection_profile()
+    wide = profile == SELECTION_PROFILE_WIDE
 
     # 仅数值列，排除标识列
     num_cols = [c for c in raw_data.select_dtypes(include=[np.number]).columns
@@ -454,7 +562,8 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
                      + W_MI * mi_norm[v]
                      + W_CROSS_DISC * raw_metrics["cross_disc"][v])
 
-    top_k = sorted(scores, key=scores.get, reverse=True)[:TOP_K]
+    top_k = (sorted(scores, key=lambda v: (-scores[v], v))          # wide：不按评分截断
+             if wide else sorted(scores, key=scores.get, reverse=True)[:TOP_K])
 
     # ---------- 阶段3：物理知识校验（方案 §3.3 阶段3）----------
     trigger = get_trigger_var(accident_type)
@@ -481,21 +590,35 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
         if v not in top_k and v in candidates:
             top_k.append(v)
 
+    # 宽档：别名合并（候选层；真值表与 n_gt_distinct 不动）
+    alias_of: Dict[str, str] = {}
+    alias_merge: List[Dict] = []
+    if wide:
+        alias_pool = [v for v in candidates if v not in dropped_key_vars]
+        alias_of, alias_merge = _alias_groups(raw_data, alias_pool, scores, forced)
+        merged_away = set(alias_of)
+        top_k = [v for v in top_k if v not in merged_away]
+    alias_reps = [v for v in candidates if v not in alias_of]
+
     required_subsystems = get_required_subsystems(accident_type)
     # 每子系统选取得分最高的代表变量（V2 子系统覆盖，受 VIF 保护）。
-    # 若最高分恰是被剔除的重复测点，则代表权交给同物理量已入选的另一路
-    # （不得因此改用次高分变量——那会凭空引入一个未被选中的保护变量）。
+    # wide：每子系统保留 Q 个别名组代表（Q=2，预声明，不按结果调整）。
     subsystem_reps: List[str] = []
     for sub in required_subsystems:
-        sub_cands = [v for v in candidates if get_subsystem(v) == sub]
+        sub_cands = [v for v in (alias_reps if wide else candidates)
+                     if get_subsystem(v) == sub]
         if not sub_cands:
             continue
-        best = max(sub_cands, key=lambda v: scores.get(v, 0.0))
-        if best in retained_of:
-            best = retained_of[best]["retained"]
-        subsystem_reps.append(best)
-        if best not in top_k:
-            top_k.append(best)
+        if wide:
+            picks = sorted(sub_cands, key=lambda v: (-scores.get(v, 0.0), v))[:profile_q]
+        else:
+            picks = [max(sub_cands, key=lambda v: scores.get(v, 0.0))]
+        for best in picks:
+            if best in retained_of:
+                best = retained_of[best]["retained"]
+            subsystem_reps.append(best)
+            if best not in top_k:
+                top_k.append(best)
 
     # ---------- 阶段3b：论文锚定（V23-DESIGN-018；返工 V23-DESIGN-023）----------
     # 论文原文：最终变量集 = XGBoost 特征选择 + 领域专家验证（p.4），但未给出名单；
@@ -514,6 +637,13 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
                            f"（|Pearson r|={abs(d['corr']):.6f}），阶段3 去重剔除"),
             })
             continue
+        if v in alias_of:
+            anchor_dropped.append({
+                "var": v, "stage": "alias_merge",
+                "reason": (f"与 {alias_of[v]} 为别名（逐位相同或 |Pearson r|≥"
+                           f"{WIDE_ALIAS_CORR_MIN}），候选层合并，不回流"),
+            })
+            continue
         if v in candidates:
             continue
         if v in anchor_spec["missing_in_data"]:
@@ -523,14 +653,17 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
         anchor_dropped.append({"var": v, "stage": "stage1_or_missing", "reason": reason})
 
     anchor_vars = [v for v in anchor_all
-                   if v in candidates and v not in dropped_key_vars]
+                   if v in candidates and v not in dropped_key_vars
+                   and v not in alias_of]
     for v in anchor_vars:
         scores[v] = min(1.0, float(scores.get(v, 0.0)) + ANCHOR_SCORE_BONUS)
     for v in anchor_vars:
         if v not in top_k:
             top_k.append(v)
 
-    top_k = deduplicate(top_k, scores, forced=list(forced))
+    if not wide:
+        # wide 档的冗余控制已由“别名合并 + 每子系统 Q 个代表”承担，不再叠加通用去冗余
+        top_k = deduplicate(top_k, scores, forced=list(forced))
     for v in anchor_vars:
         if v not in top_k:
             anchor_dropped.append({
@@ -541,6 +674,7 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
     # ---------- 阶段4：因果发现适配（方案 §3.3 阶段4）----------
     selected = list(top_k)
     n_vars_before_vif = len(selected)
+    backfilled: List[str] = []
     vif_log: List[Dict] = []
     # 保护集 = 强制变量（触发+关键响应）+ 每子系统代表（保证 V2 覆盖）；
     # 锚定变量不在保护集内：可被 VIF 迭代剔除（V23-DESIGN-023）。
@@ -585,23 +719,29 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
             })
         selected.remove(max_vif_var)
 
-    # 4b. 变量数约束 15-25
-    if len(selected) > N_MAX:
+    # 4b. 变量数约束：v23 15-25；wide 15-30
+    n_max_effective = WIDE_N_MAX if wide else N_MAX
+    cap_trimmed: List[Dict] = []
+    if len(selected) > n_max_effective:
         protected_kept = protected & set(selected)
         non_protected_sorted = sorted([v for v in selected if v not in protected],
-                                       key=lambda v: scores.get(v, 0.0), reverse=True)
-        trimmed = non_protected_sorted[:N_MAX - len(protected_kept)]
-        for v in non_protected_sorted[N_MAX - len(protected_kept):]:
+                                       key=lambda v: (-scores.get(v, 0.0), v))
+        trimmed = non_protected_sorted[:n_max_effective - len(protected_kept)]
+        for v in non_protected_sorted[n_max_effective - len(protected_kept):]:
+            cap_trimmed.append({"var": v, "score": round(float(scores.get(v, 0.0)), 6),
+                                "reason": f"n>{n_max_effective}，按评分从低到高裁剪"})
             if v in anchor_vars:
                 anchor_dropped.append({
-                    "var": v, "stage": "n_max_trim",
-                    "reason": f"变量数>{N_MAX}，按评分裁剪（score={scores.get(v, 0.0):.3f}）",
+                    "var": v,
+                    "stage": "n_max_trim",
+                    "reason": f"变量数>{n_max_effective}，按评分裁剪（score={scores.get(v, 0.0):.3f}）",
                 })
         selected = list(protected_kept) + trimmed
     elif len(selected) < N_MIN:
         remaining = sorted([v for v in candidates
-                            if v not in selected and v not in dropped_key_vars],
-                           key=lambda v: scores.get(v, 0.0), reverse=True)
+                            if v not in selected and v not in dropped_key_vars
+                            and v not in alias_of],
+                           key=lambda v: (-scores.get(v, 0.0), v))
         for v in remaining:
             if len(selected) >= N_MIN:
                 break
@@ -611,6 +751,7 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
             non_prot_vifs = {vv: vifs[vv] for vv in trial if vv not in protected} if vifs else {}
             if vifs is not None and all(val < VIF_MAX for val in non_prot_vifs.values()):
                 selected.append(v)
+                backfilled.append(v)
             else:
                 log_error("STAT", f"回补变量 {v} 致 VIF 超标 ({accident_type})",
                           "回补变量引入或加剧共线性", "跳过该候选，尝试下一个", "open")
@@ -618,6 +759,28 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
     # 列序口径固定（V23-CODE-023）：进入因果发现前按字母序排一次，
     # 后续 VIF 报告/落盘/建模全部使用该顺序，杜绝选择器内部顺序外泄到 Top1。
     selected = canonical_variable_order(selected)
+
+    # wide 数据质量闸：相关矩阵负特征值或 cond>1e12 → 该类退回 v23（p=15）
+    degenerate_design = False
+    degenerate_diag: Dict = {}
+    if wide:
+        degenerate_design, degenerate_diag = _corr_diagnostics(raw_data, selected)
+        if degenerate_design:
+            logger.warning(
+                f"[变量选取] {accident_type}: wide 触发数据质量闸 "
+                f"{degenerate_diag}，退回 v23")
+            set_selection_profile(SELECTION_PROFILE_V23)
+            try:
+                sel_fb, rep_fb = select_variables(
+                    accident_type, raw_data, severity_by_traj, random_state)
+            finally:
+                set_selection_profile(profile, profile_q)
+            rep_fb["selection_profile_requested"] = SELECTION_PROFILE_WIDE
+            rep_fb["selection_profile_effective"] = SELECTION_PROFILE_V23
+            rep_fb["degenerate_design"] = True
+            rep_fb["degenerate_diagnostics"] = degenerate_diag
+            rep_fb["wide_fallback_reason"] = "corr_matrix_degenerate"
+            return sel_fb, rep_fb
 
     # 去冗余阶段记录可能因 N_MIN 回补而失效：最终在集合内的锚定变量不算剔除，
     # 单列 readded_anchor 记录“剔了又补回”，避免同一变量同时出现在 retained/dropped。
@@ -689,6 +852,18 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
         "max_vif_all": max_vif_all,
         "vif_max_threshold": VIF_MAX,
         "selected": selected,
+        "selection_profile": profile,
+        "selection_profile_effective": profile,
+        "per_subsystem_keep": profile_q if wide else 1,
+        "n_max_effective": n_max_effective,
+        "alias_of": alias_of,
+        "alias_merge": alias_merge,
+        "n_alias_groups": len(alias_merge),
+        "cap_trimmed": cap_trimmed,
+        "backfilled": backfilled,
+        "degenerate_design": degenerate_design,
+        "degenerate_diagnostics": degenerate_diag,
+        "truth_table_unchanged": True,   # 只做候选层合并；n_gt_distinct 不动
         "variable_order_rule": VARIABLE_ORDER_RULE,
         "paper_anchor": {
             "source": anchor_spec["source"],
@@ -731,7 +906,9 @@ def select_variables(accident_type: str, raw_data: pd.DataFrame,
                 (v in selected) or any(d["var"] == v for d in anchor_dropped)
                 for v in anchor_all
             ),
-            "V1_count_15_25": N_MIN <= len(selected) <= N_MAX,
+            "V1_count_15_25": N_MIN <= len(selected) <= n_max_effective,
+            # wide：别名合并必须留痕（alias_of/alias_merge 落盘）；v23 不适用
+            "V8_alias_merge_recorded": True if wide else None,
             "V2_subsystem_coverage": all(
                 any(get_subsystem(v) == sub for v in selected)
                 for sub in required_subsystems

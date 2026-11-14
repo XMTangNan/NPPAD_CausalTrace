@@ -2174,3 +2174,49 @@ gitignore），`pytest` 161 passed。
   4. **F2 全局随机种子**：不改，避免改变 bootstrap 抽样而使 `v23-20261112T185258` 不可复现。
 - 同日另关闭 `V23-DESIGN-086`（三处文档不符已由 087 覆盖）与 `V23-DESIGN-090`（§4.2.1 表格拆行）。
 - 状态：✅ closed（仅记录，无代码/产物影响）。
+
+**V23-DESIGN-093（closed）·【用户裁决】宽筛选立为诊断档（`selection_profile=wide`）**
+
+- 授权：2026-11-14 用户裁决；默认仍 `v23`，wide 仅诊断、`citable=null`、不刷 `latest`。
+- 规则写死在方案 §3.6 与 `variable_selector.py`：W1 质量门不变；W2 不按评分截断；
+  W3 每子系统 Q=2 别名组代表（评分最高/同分字母序）；W4 别名 `逐位相同 或 |r|≥0.999`
+  （union-find，不回流）；W5 上限 30、超限裁非 forced 并落 `cap_trimmed`；W6 V1 15–30。
+- **Q=2 的依据只允许三条**：p 上限 30、每模板 25–28 条轨迹、每子系统至少 2 个独立测点。
+  文档与代码注释均不得出现"为了接住 `MBK`"一类措辞。
+- 数据质量闸：相关矩阵负特征值或 `cond>1e12` → `degenerate_design=true`，该类退回 v23（p=15），
+  报告披露"该类未采用 wide"。
+- 真值表一字不改、`n_gt_distinct` 不变；指标 strict / alias_aware 双报。
+- A 阶段实测（`v23a-20261114T172653`，诊断）：LOCA 30（cap，裁 1）、SGATR 18、
+  FLB 15（退化退回 v23）；与外部子方案 20/17/21 不一致，以实跑为准。
+- 验收四项（阶段 2）：`cond(I−B)` 截后 <1e4；`clip_ratio` <0.35；同一别名家族 Top-5 ≤1 席；
+  无符号相反大系数对。任一不过即停、不调阈值。
+- **阶段 2/3 结果（2026-11-14）**：
+  - 验收四项全过：`cond` 截后最坏 **1382.9**（<1e4）、`clip_ratio` 最坏 **0.140**（<0.35）、
+    别名家族 Top-5 违反 **0**、符号相反大系数对 **0**（但该判据在 wide 下近乎恒真，见 issues §4）。
+  - 九模板 Top-1 **8/9 改变**；稳定边 42–294 → 50–347；`max|w|` 最高 **1940**（LOCA_low）。
+  - **LOCA `p=30` > 训练轨迹 25/26/28**（`n_train_trajectories` 实测）→ 欠定区，
+    这是稳定边膨胀与 `max|w|` 1940 的直接解释；W3 的“上限 30”与“轨迹 25–28”两条依据自相矛盾。
+  - FLB 退化闸生效：p=15，三模板与 v23 逐项相同。
+  - run：`v23w-20261114T173745`（LOCA）、`v23w-20261114T180022`（SGATR）、
+    `v23w-20261114T175655`（FLB），均 10/10 ok、`citable=null`、未刷新 latest。
+  - **未调任何阈值**；**结论：维持 v23 默认与唯一可引用口径，wide 仅诊断**。
+    是否把上限改为 `p ≤ n_train_trajectories` 属规则变更，留待用户裁决。
+- 留档：`issues/宽筛选诊断档-查证-2026-11-14.md`、
+  `submit/宽筛选诊断档结果-v23w-2026-11-14.md`、`submit/产物入口-v23w-wide-20261114.html`。
+- 状态：✅ closed（诊断档执行完毕；规则变更待裁决）。
+
+**V23-CODE-037（closed）·【自主决定】wide 筛选实现 + 双报 + 测试修正 + 评审件归档**
+
+- `variable_selector.py`：新增 `set_selection_profile/get_selection_profile`、
+  `_alias_groups`、`_corr_diagnostics`；wide 分支（去 TOP_K、Q=2、cap30、退化回退）；
+  报告新增 `selection_profile/alias_of/alias_merge/cap_trimmed/backfilled/degenerate_*`
+  与 `V8_alias_merge_recorded`。
+- `run_variable_selector.py`：`--selection-profile/--per-subsystem-keep`；summary 增 profile 字段。
+- `run_v23_all.py`：`--selection-profile`；wide 强制 `citable=null`、`--no-latest`；
+  进程级 profile 在 `finally` 还原。
+- `evaluation.py`：新增 `gt_alias_aware` / `metrics_alias_aware`（strict 不变、真值表不变）。
+- `test_v23_evaluation.py`：clip 断言改为"两侧名次可得、`n_cand` 一致、截断不劣于不截断、允许相等"，
+  并把"相等"写入断言信息；flips 断言改为"列入者四档必须真有差异"，不再硬编码 `LOCA_high`。
+- 外部评审两份文件由 `方案/` 移入 `issues/`，`issues/README.md` 登记。
+- 验证：`pytest tests` → **175 passed / 0 failed**。
+- 状态：✅ closed。

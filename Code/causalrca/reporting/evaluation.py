@@ -1022,8 +1022,14 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
         raise FileNotFoundError("没有任何模板产物（tracing/ + signatures/），无法评测")
 
     gt_effective: Dict[str, List[str]] = {}
+    alias_maps: Dict[str, Dict[str, str]] = {}
     for k in classes:
         gt_effective[k] = list(IT.truth_for(k))
+        try:
+            doc = _read_json("variable_sets", f"selection_report_{k}.json", run_id) or {}
+        except Exception:
+            doc = {}
+        alias_maps[k] = dict(doc.get("alias_of") or {})
 
     rows: List[Dict] = []
     for tr in traces:
@@ -1036,6 +1042,9 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
         gt = [v for v in gt_effective[k] if v in df.columns]      # 只剔除数据里没有的列
         if not gt:
             continue
+        # alias_aware：真值表不变、n_gt_distinct 不变；仅把“别名成员”映射到代表后另算一套
+        amap = alias_maps.get(k, {})
+        gt_alias = [amap.get(v, v) for v in gt]
         d, d_status = trace_deviation(df, cfg, list(tpl["nodes"]), return_status=True)
         if not d:
             raise ValueError(f"{k}/{sev}: 偏移强度为空，无法评测")
@@ -1077,6 +1086,13 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
                         "causal_unmasked_for_eval": ranking_metrics(rank_u, gt),
                         "deviation_equal_weight": ranking_metrics(rank_d, gt),
                         "deviation_production_set": ranking_metrics(rank_d_prod, gt)},
+            # 双报：strict（上方，真值表原样）与 alias_aware（仅映射别名成员）
+            "gt_alias_aware": gt_alias,
+            "metrics_alias_aware": {
+                "causal": ranking_metrics(rank_c, gt_alias),
+                "causal_unmasked_for_eval": ranking_metrics(rank_u, gt_alias),
+                "deviation_equal_weight": ranking_metrics(rank_d, gt_alias),
+                "deviation_production_set": ranking_metrics(rank_d_prod, gt_alias)},
             "clip_sensitivity": clip_rows,
         }
         if prior_on:
@@ -1085,6 +1101,10 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
             row["gt_in_candidate_set"][ROLE_PRIOR_CHANNEL] = [v for v in gt if v in rank_p]
         row["metrics"] = {ch: {kk: (round(vv, 4) if isinstance(vv, float) else vv)
                                for kk, vv in row["metrics"][ch].items()} for ch in row["metrics"]}
+        row["metrics_alias_aware"] = {
+            ch: {kk: (round(vv, 4) if isinstance(vv, float) else vv)
+                 for kk, vv in vals.items()}
+            for ch, vals in row["metrics_alias_aware"].items()}
         rows.append(row)
 
     written: List[str] = []

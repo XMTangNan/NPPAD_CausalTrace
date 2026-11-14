@@ -352,6 +352,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                          "unified_keep_injection=注入变量单列（legacy，已退役）")
     ap.add_argument("--no-latest", action="store_true",
                     help="不刷新 output/latest（实验档专用；生产默认刷新）")
+    ap.add_argument("--selection-profile", default="v23", choices=["v23", "wide"],
+                    help="变量筛选档（V23-DESIGN-093）：v23=生产口径（默认）；"
+                         "wide=宽筛选诊断档，强制 citable=null 且不刷新 latest")
+    ap.add_argument("--per-subsystem-keep", type=int, default=None,
+                    help="wide 档每子系统保留的别名组代表数（默认 2）")
     ap.add_argument("--run-prefix", default="v23",
                     help="run_id 前缀，默认 v23（实验档可换前缀避免与生产 run 混淆）")
     ap.add_argument("--run-note", default=None,
@@ -359,7 +364,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = ap.parse_args(argv)
 
     from causalrca.causal import signatures as SIG
+    from causalrca.features.variable_selector import (
+        set_selection_profile, get_selection_profile,
+    )
     _prev_normalization = SIG.get_normalization_mode()
+    _prev_profile, _prev_q = get_selection_profile()
 
     classes = list(args.classes or READY_CODES)
     unknown = [k for k in classes if k not in REGISTRY]
@@ -391,6 +400,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             f"--citable 仅允许正式口径（n_bootstrap>={N_BOOTSTRAP_SPEC}，run_mode={RUN_MODE_SPEC}）；"
             f"本次 n_bootstrap={args.n_bootstrap} → run_mode={run_mode}，不得标可引用")
     citable = True if args.citable else None
+    if args.selection_profile == "wide":
+        if args.citable:
+            raise SystemExit("selection_profile=wide 为诊断档，不得 --citable")
+        args.citable = False
+        args.no_latest = True
+        citable = None
+        logger.warning("[D10] selection_profile=wide：诊断档，强制 citable=null、不刷新 latest")
     if not stability_claims_allowed(args.n_bootstrap):
         logger.warning(f"[D10] n_bootstrap={args.n_bootstrap}（正式口径 {N_BOOTSTRAP_SPEC}）："
                        f"run_mode={run_mode}；报告中必须打印实际次数，"
@@ -400,6 +416,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 f"with_ab={args.with_ab}")
 
     SIG.set_normalization_mode(args.normalization)
+    set_selection_profile(args.selection_profile, args.per_subsystem_keep)
     steps = _plan_steps(args.with_ab)
     fns = _step_fns(run_id, classes, groups, args.n_bootstrap, backend,
                     getattr(args, "role_prior", None),
@@ -414,6 +431,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     finally:
         # 异常路径下也要还原进程级口径，避免污染同进程后续调用
         SIG.set_normalization_mode(_prev_normalization)
+        set_selection_profile(_prev_profile, _prev_q)
 
     failed = [f"{e['name']}: {e['error']}" for e in results
               if e["status"] == "failed"]
@@ -430,6 +448,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                        "citable": citable,
                        "role_prior": bool(getattr(args, "role_prior", None)),
                        "normalization": args.normalization,
+                       "selection_profile": args.selection_profile,
+                       "per_subsystem_keep": (args.per_subsystem_keep or 2)
+                                              if args.selection_profile == "wide" else 1,
                        "refresh_latest": not args.no_latest,
                        "run_prefix": args.run_prefix,
                        "run_note": args.run_note,
