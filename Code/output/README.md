@@ -39,6 +39,14 @@ output/
 （+ 历史 `error_log.jsonl`），由 `tests/test_architecture.py::test_output_has_single_run_root_contract`
 守卫（V23-CODE-031）。
 
+## 前置：冻结输入（R0，强制）
+
+`output/archive/rca_v21_frozen/` 存 `split_manifest.json` / `shared_baseline.json` / `marker_scale.json`，
+是变量选取的只读输入；缺失时 `run_variable_selector.py:32-38` 直接抛 `FileNotFoundError`，**不会自动重算或降级**。
+
+`output/archive/` 已被 `.gitignore` 排除（`.gitignore:11-13`，仅本 README 例外），因此 `archive/`
+不在 git 中；新克隆必须先由数据集侧恢复冻结件，否则全链在第 4 步（end2end）即失败。
+
 ## 保留策略
 
 | 类别 | 保留 | 清理 |

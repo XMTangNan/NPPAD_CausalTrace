@@ -20,28 +20,31 @@ REPO_DATA = PROJECT_ROOT / "nppad_repo" / "Operation_csv_data"
 NORMAL_DIR = REPO_DATA / "Normal"
 
 OUTPUT_DIR = CODE_ROOT / "output"
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # 批 E 起：v2.3 产物只落 output/runs/<run_id>/（见 causalrca/io/artifact.py）；
 # 下列历史目录统一沉到 output/archive/，不再在 output/ 顶层重建。
 ARCHIVE_DIR = OUTPUT_DIR / "archive"
 FIG_DIR = ARCHIVE_DIR / "figures"
-FIG_DIR.mkdir(parents=True, exist_ok=True)
 RESULT_DIR = ARCHIVE_DIR / "results"
-RESULT_DIR.mkdir(parents=True, exist_ok=True)
 
 # 方案二 RCA 产出目录（历史，只读）
 RCA_OUTPUT_DIR = ARCHIVE_DIR / "rca"
-RCA_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 RCA_RESULT_DIR = RCA_OUTPUT_DIR / "results"
-RCA_RESULT_DIR.mkdir(parents=True, exist_ok=True)
 RCA_SIGNATURE_DIR = RCA_OUTPUT_DIR / "signatures"
-RCA_SIGNATURE_DIR.mkdir(parents=True, exist_ok=True)
 
 # 方案一 LOCA 产出目录（历史产出归档）
 PLAN1_OUTPUT_DIR = ARCHIVE_DIR / "plan1_loca"
-PLAN1_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 PLAN1_RESULT_DIR = PLAN1_OUTPUT_DIR / "results"
-PLAN1_RESULT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ensure_output_dirs() -> None:
+    """显式创建 output/ 及其历史子目录。
+
+    import 本模块**不产生任何目录副作用**（V23-CODE-036）；
+    需要这些目录的入口/写入方在真正落盘前调用本函数。
+    """
+    for d in (OUTPUT_DIR, FIG_DIR, RESULT_DIR, RCA_OUTPUT_DIR, RCA_RESULT_DIR,
+              RCA_SIGNATURE_DIR, PLAN1_OUTPUT_DIR, PLAN1_RESULT_DIR):
+        d.mkdir(parents=True, exist_ok=True)
 
 # ==================== 时间窗口（通用，逐事故可覆盖）====================
 # 主窗口：事故发展期 t=300~1500s（121 点，10s/步含端点）

@@ -1205,7 +1205,7 @@
 - 口径保持：`B_CLIP` 四列必报（038）；变量级只作诊断；**主指标=模板级检索**（数值待重算，035 旧值仍作废）。
 - 状态：✅ 已解决（未改遮蔽实现、未重算全链）。
 
-**V23-CODE-029（open）· `sigma_robust` 下限失效使偏离度 `d` 爆量 → 偏差基线与偏差加权不可用**
+**V23-CODE-029（closed）· `sigma_robust` 下限失效使偏离度 `d` 爆量 → 偏差基线与偏差加权不可用**
 
 - 现象：`d = max|x−μ| / max(1.4826·MAD, σ_floor)` 在两处爆量：`σ_robust = 0` 处达 1e12–1e17；
   `σ_robust ≈ 1e-5` 处达 1e3–1e5。
@@ -2015,7 +2015,7 @@ gitignore），`pytest` 161 passed。
   依据：`issues/归一化口径由来-查证-2026-11-11.md`。
 - 状态：⏳ 待与 V23-DESIGN-085 结论一起并入方案时关闭。
 
-**V23-CODE-034（open）·【发现缺陷】类级汇总解释忠实性校验恒失败，全链第 8 步中断**
+**V23-CODE-034（closed）·【发现缺陷】类级汇总解释忠实性校验恒失败，全链第 8 步中断**
 
 - 现象：`run_v23_all` 第 8 步 `explanation_reports` 报
   `RuntimeError: ... rule 后端汇总解释未通过忠实性校验（实现缺陷）`，未支撑 token
@@ -2133,3 +2133,27 @@ gitignore），`pytest` 161 passed。
 - 待修：把该行拆成两行——"共享基线（仅 legacy 学图 `current` 使用）"与"偏离/公差（注入前 11 点）"。
   本次按用户边界**不改文档**，仅登记。
 - 状态：⏳ open。
+
+**V23-DESIGN-091（部分完成 / 1 项待裁决）·【用户裁决】落地评审 A1、A2、A4（文档）、C1、F1、F3**
+
+- 授权：2026-11-14 用户裁决，仅落地已确认采纳的 6 项；A3、A5、B 类、D、F2、宽筛选不动。
+- 已落地：
+  1. **A1**：新增 `Code/requirements.txt`（`pip freeze` 45 项，Python 3.14.4），`STRUCTURE.md` §6 补安装/复现方式；
+  2. **A2**：`STRUCTURE.md` §6 与 `Code/output/README.md` 写明 R0 冻结输入前置、缺失即 `FileNotFoundError`、
+     `output/archive` 被 `.gitignore:11-13` 排除；
+  3. **A4（仅文档）**：`STRUCTURE.md` 测试数统一为 **175 例**（161/138 的历史快照作废），不采纳"175 是漂移"；
+  4. **C1**：`V23-CODE-029`、`V23-CODE-034` 标题状态改为 `closed`，与正文一致。
+- 验证：`cd Code && PYTHONPATH=. pytest tests -q` → **174 passed / 1 failed**（23.60s）。
+  失败项 `tests/test_v23_evaluation.py::test_clip_sensitivity_is_first_class`：断言 `clip5 != clip_off`，
+  在 `latest=v23-20261112T185258` 上两者名次都为 2（该断言依赖具体 run 的数据）。
+  **与本次改动无因果关系**（本次只改目录副作用与 `try/finally`，不触碰评测与产物）；未改测试绕过，待裁决。
+- 状态：⏳ open（仅剩"是否放宽该断言"一项）。
+
+**V23-CODE-036（closed）·【自主决定】paths 去 import 副作用 + 口径还原 try/finally**
+
+- `config/paths.py`：删除模块级 `mkdir`，新增 `ensure_output_dirs()`；`io/files.py`、`io/logging.py`
+  改为落盘前按需 `mkdir(parents=True, exist_ok=True)`，既有调用点行为不变。
+- `cli/run_v23_all.py`：步骤循环包进 `try/finally`，异常路径也还原进程级 `normalization`。
+- 新增 `Code/requirements.txt`（版本 pin，见 DESIGN-091）。
+- 未改算法、口径、阈值、排序量；未重跑 10 步链路；未碰 `output/` 与 `latest`。
+- 状态：✅ closed。

@@ -14,8 +14,9 @@ __all__ = ["save_json", "load_json", "save_text"]
 
 
 def save_json(obj, name, result_dir=None):
-    d = result_dir or RESULT_DIR
-    path = Path(d) / f"{name}.json"
+    d = Path(result_dir or RESULT_DIR)
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{name}.json"
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=2, default=str)
     logger.info(f"saved -> {path}")
@@ -30,8 +31,9 @@ def load_json(name, result_dir=None):
 
 
 def save_text(text, name, result_dir=None):
-    d = result_dir or RESULT_DIR
-    path = Path(d) / f"{name}.txt"
+    d = Path(result_dir or RESULT_DIR)
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{name}.txt"
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
     logger.info(f"saved -> {path}")

@@ -406,10 +406,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                     refresh_latest=not args.no_latest,
                     run_note=args.run_note)
     results: List[Dict] = []
-    for i, step in enumerate(steps, start=1):
-        entry = _run_step(i, step, fns[step["name"]], results, len(steps))
-        if entry["status"] != "ok":
-            break
+    try:
+        for i, step in enumerate(steps, start=1):
+            entry = _run_step(i, step, fns[step["name"]], results, len(steps))
+            if entry["status"] != "ok":
+                break
+    finally:
+        # 异常路径下也要还原进程级口径，避免污染同进程后续调用
+        SIG.set_normalization_mode(_prev_normalization)
 
     failed = [f"{e['name']}: {e['error']}" for e in results
               if e["status"] == "failed"]
@@ -460,7 +464,6 @@ def main(argv: Optional[List[str]] = None) -> int:
               f"{e['elapsed_s']:>7.2f}s {e['error'] or ''}")
     print(f"[D10] summary -> {summary_path}")
     print("=" * 78)
-    SIG.set_normalization_mode(_prev_normalization)  # 还原进程级口径，避免污染同进程后续调用
     return 0 if not failed else 1
 
 

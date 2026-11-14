@@ -20,6 +20,7 @@ def log_error(category, description, root_cause, solution, status="open"):
     entry = {"time": datetime.now().isoformat(timespec="seconds"), "category": category,
              "description": description, "root_cause": root_cause,
              "solution": solution, "status": status}
+    ERROR_LOG.parent.mkdir(parents=True, exist_ok=True)
     with open(ERROR_LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     logger.warning(f"[{category}] {description} -> {solution} ({status})")

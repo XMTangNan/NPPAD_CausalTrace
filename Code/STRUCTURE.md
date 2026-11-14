@@ -284,6 +284,17 @@ Code/
 
 ## 6. 执行入口（可复现）
 
+**环境与依赖（A1）**
+- 本机实测 Python **3.14.4**；依赖固定版本见 `Code/requirements.txt`（由 `../.venv/bin/python -m pip freeze` 于 2026-11-14 导出，45 项，含 `lingam==1.8.2`/`pygam==0.12.0`/`graphviz==0.21`）。
+- 安装：`cd Code && python -m pip install -r requirements.txt`；运行一律带 `PYTHONPATH=.`。
+
+**R0 前置（A2，强制）**
+- 变量选取第一步会把 v2.1 冻结输入复制进 `registry/`：`output/archive/rca_v21_frozen/` 下的
+  `split_manifest.json` / `shared_baseline.json` / `marker_scale.json`；**缺失时直接抛 `FileNotFoundError`**
+  （`run_variable_selector.py:32-38`），不会自动重算或降级。
+- `output/archive/` 已被 `.gitignore` 排除（`.gitignore:11-13`，仅 `output/README.md` 例外）；
+  克隆仓库后必须先由数据集侧恢复冻结件，再跑全链。
+
 ```
 cd Code
 # 全链（验收/发布动作，10 步；需显式声明重跑原因，见下方“运行约定”）
@@ -305,13 +316,13 @@ PYTHONPATH=. python -m causalrca.reporting.run_v23_graphs --run-id <id>
 PYTHONPATH=. python -m causalrca.causal.severity_aggregation --run-id <id>
 PYTHONPATH=. python -m causalrca.cli.run_v23_llm_explanation --run-id <id>   # 模板 rule + 类级/全局（--backend llm 可选）
 PYTHONPATH=. python -m causalrca.cli.run_v23_report --run-id <id>
-PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（161 例，全绿；含 tests/legacy 9 例）
+PYTHONPATH=. pytest tests/ -q                                  # 单测 + 回归（175 例，全绿；含 tests/legacy 9 例）
 ```
 
-> 注：原先 4 例失败在 `tests/test_v23_report_llm.py`，根因是旧单层根 `tracing/` 与
-> `signatures/` 来自不同批次（`v23c-*` vs `v23-*`）导致跨阶段拒绝混源；`v23-20261110T134957`
-> 统一重算后已 **138 passed / 0 failed**（产物缺失时这 4 例转为 skipped，属设计行为）。
-> 登记见 `error_tracking.md` V23-DESIGN-030。`cd Code && pytest tests -q` 亦可
+> 注：**测试数以本行命令的实际输出为唯一来源**（本机 venv 实测：**175 passed / 0 failed**，2026-11-14）。
+> 历史文档里的 161 / 138 是不同批次快照，已被本行取代，不再作为口径。
+> 依赖 `output/latest` 或可选库（`pygam`/`graphviz`）的用例在缺环境时应显式 skip，不得计为 passed。
+> 历史根因见 `error_tracking.md` V23-DESIGN-030。`cd Code && pytest tests -q` 亦可
 > （`pyproject.toml` 仅补 `testpaths`/`pythonpath`，`PYTHONPATH=. python -m` 方式不变）。
 
 **产物根契约（批 E，强制）**
