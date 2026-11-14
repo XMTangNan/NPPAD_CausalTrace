@@ -835,8 +835,8 @@ def norm_quantile_dict(value_dict, lower=0.05, upper=0.95):
 | 用途 | 数据段 | 估计量 | 代码 |
 |---|---|---|---|
 | **学图**（本节） | 每模板训练轨迹学图窗 `[60,1500]s` | 普通 `mean/std(ddof=0)` | `signatures.compute_unified_scale` |
-| 共享评分基线（偏离/阈值） | 跨类 sev-1 **恢复段** `[520,2030]s` 池化 | 普通 `mean/std`，σ≈0 跳过 | `loader.fit_shared_baseline` |
-| 公差基准 | 每类 sev-1 **注入前** `[0,100]s` 共 11 点 | `μ±kσ` | `tolerance.py` |
+| 共享基线（仅 legacy 学图 `current` 用） | 跨类 sev-1 **恢复段** `[520,2030]s` 池化 | 普通 `mean/std`，σ≈0 跳过 | `loader.fit_shared_baseline` |
+| 偏离/公差 | 每类 sev-1 **注入前** `[0,100]s` 共 11 点 | `μ±kσ`（含 MAD 与物理 floor） | `tolerance.py` |
 
 **本次一并更正的三处文档—实现不符**：
 1. 原文"稳健 σ 含 σ_floor"：**仅适用于数据审计/偏离/公差通道**，学图不含 floor（§4.4.1 已加范围限定）；
