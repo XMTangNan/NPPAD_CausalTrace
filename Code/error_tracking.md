@@ -2228,6 +2228,46 @@ gitignore），`pytest` 161 passed。
 - 结论：wide 不升格；`v23` 仍为默认与唯一可引用口径，`v23-20261112T185258` 不受影响。
 - 状态：✅ closed（文档收口完成；代码同步与重跑待用户决定）。
 
+**V23-DESIGN-095（open）·【用户裁决/已批】闸门二改有效秩；W5 按模板封顶列为待实现**
+
+- 授权：2026-11-14 用户已批"换判据"，并重申**本轮不改主代码**；实现须用户另行拍板。
+- **变更 1（已批，未实现）**：闸门二由"相关矩阵 `cond > 1e12`"改为"**有效秩 < p**"——
+  用 SVD `sv > max_sv · p · eps` 判秩，`rank < p` 即 `degenerate_design`；负特征值一条保留，
+  `cond` 降为记录、不再作闸。
+- **变更 2（已批，未实现）**：W5 由"总量上限 30"改为 `cap = min(30, n_train_trajectories(该模板))`；
+  前置条件是"按组选变量"（现为按类一套变量集），需改 A1 与下游取集方式。
+- **现状（必须同时披露）**：主代码仍是 `WIDE_N_MAX=30` + `cond_corr > 1e12`，与本规则不一致；
+  按新规则改代码前**不得再跑 wide**。
+- **只读复算（LOCA_low，不重跑链路）**：复现当时那次 wide 选择（low 组 25 条、cap=25）的相关矩阵，
+  `p=23`、`max_sv=12.3904853`、`min_sv=4.8132528e-14`、容差 `max_sv·p·eps=6.3278529e-14`、
+  **`rank=22 < 23`**；旧闸同次记录 `min_eig=4.8211604e-14`、`cond=2.5742436e14`。
+  → **新旧判据结论一致：仍退化**，LOCA_low 不需重新实验。
+- **对照实验（运行时覆盖，非正式口径）**：`v23w-20261114T182440`，100 次、10/10、
+  `citable=null`、未刷 `latest`；LOCA_low 触发退化闸（wide 未生效，p=15）、LOCA_mid p=21（cap 26）、
+  LOCA_high p=23（cap 28）；SGATR p=18（`v23w-20261114T180022`）并入同一张表、未重跑。
+- 文档：方案 §3.6（数据质量闸 + 规则变更 + 按组封顶实验）、
+  `submit/宽筛选-按组封顶对照-v23wcap-2026-11-14.md`。
+- 状态：⏳ open（仅决策与复算留痕；实现待用户批准改代码）。
+
+**V23-CODE-038（closed）·【自主决定】按组封顶实验用运行时覆盖脚本，主代码零改动**
+
+- 背景：用户明确"先不要动主代码"，要求用 monkeypatch 或等价方式把上限注成
+  `min(30, n_train_trajectories(该模板))` 跑一次对照；不可行则回报停手。
+- 实现（全部在 `work/`，不入库、不提交）：
+  1. `run_wide_cap.py`：按组单独调 `select_variables`，调用前把 `variable_selector.WIDE_N_MAX`
+     注成该组轨迹数；顶替 `run_variable_selector.main` 写 `selection_report_{K}_{g}.json`；
+     包裹 `run_v23_end2end.compute_template` 按 `(k,g)` 换入该组变量集；
+     包裹 `evaluation._template_rankings` 把组内名次截到三组交集（否则第 9 步 `KeyError: 'DNBR'`，
+     该块数值本已撤出结果层）。
+  2. `compare_wide_cap.py`：只读计算三块量（结构健康度 / 边集稳定性 / 机理性），基线
+     `v23-20261112T185258`。
+  3. `rank_probe.py`：只读复算有效秩（包装 `_corr_diagnostics` 取同一相关矩阵）。
+- 结论与已知瑕疵：注入可行（冒烟 `v23wt-20261114T182217` 首轮第 9 步失败，补交集补丁后
+  `v23wt-20261114T182355` 10/10）；`tracing` 元数据 `n_nodes=36` 为类级并集，实际入模 15/21/23，
+  签名与稳定边已核验在组内集合（`out_of_set_edges=0`）。
+- 边界：未改主代码、未改默认档、未动 `v23-20261112T185258`、`citable=null`、未刷 `latest`、未推送。
+- 状态：✅ closed。
+
 **V23-CODE-037（closed）·【自主决定】wide 筛选实现 + 双报 + 测试修正 + 评审件归档**
 
 - `variable_selector.py`：新增 `set_selection_profile/get_selection_profile`、
