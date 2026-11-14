@@ -2463,3 +2463,17 @@ gitignore），`pytest` 161 passed。
   4. `E8 = 10 CFR 50.46(b)` 只支持"后果量"身份，不支持具体因果方向，若专家认为不能据此禁边，应撤 S7/S8 的约束部分。
 - 未跑链路、未改代码、未推送。
 - 状态：✅ closed。
+
+
+**V23-DESIGN-103（closed）·【诊断】LLM 链路可用性与 v23k 全 rule 归因**
+
+- 用户要求：核实 v2.3 LLM 为什么没跑；只诊断、不改代码、不跑链路、不推送。
+- Key：`Code/.env` 的 `DEEPSEEK_API_KEY` 存在且非空（长度 35，未记录内容），与代码期望 `LLM_API_KEY_ENV` 一致；读取优先级 进程环境 `CAUSALTRACE_LLM_API_KEY` → `DEEPSEEK_API_KEY` → `Code/.env` → 仓库根 `.env`。
+- 连通性：一次最小请求（`deepseek-chat`、`max_tokens=4`）返回 HTTP 200，服务端回显 `deepseek-flash`，用量 8 tokens；结论：**可用、无阻塞**。
+- `v23k` 9/9 `backend=rule`：`run_v23_all.py:378` 与两处模板级（`run_v23_all.py:226`、`run_v23_llm_explanation.py:167`）把 backend 硬编码为 rule，从未发起请求；9 份产物 `requested_backend=rule`、`degraded=False`。**不是 key、不是网络、不是异常吞**。
+- 与“解释层未接线”区分：未接线是没有开关/消费者，不是没有能力。
+- 五处不一致：①模型名未 pin（方案 V4.1-Flash / 代码 deepseek-chat / 服务端别名 deepseek-flash）；②方案未规定温度/seed/超时（代码 0.0 / 无 seed / 30s）；③类级 3 + 全局 1 的 LLM 产物无消费者；④`report_template.py:398` 尾句无条件写“规则稿生成”；⑤txt 正文不拼 LLM 文本，JSON 只存 backend/faithful。
+- 估算：不含 D7 约 4 文件、300 行内；13 份/轮输入约 88.7k 字符（30–40k tokens）、输出约 21k 字符（10–13k tokens）；主要成本是非确定性与缓存随 run 失效。
+- 方案落点：`方案/NPPAD-CausalTrace-v2.3-外部知识贯穿与排序公差方案-2026-11-14.md` §4.13.7、台账 E23/E24/N38。
+- 未跑链路、未改代码、未推送。
+- 状态：✅ closed。
