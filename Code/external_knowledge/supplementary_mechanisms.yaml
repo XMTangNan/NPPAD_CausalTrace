@@ -10,7 +10,7 @@ note: >-
   注入纪律：只有 `sourced: true` 且 `reverse_forbidden: true` 的边反向、以及 `sourced: true` 的
   `forbidden_outgoing` 会进入排序期禁边层；其余一律只作解释层与覆盖率披露。
   不改 K2 数值口径、不改 K3 expected_chain、不改真值表。
-n_entries: 18
+n_entries: 33
 sources:
   E1:
     doc: "USNRC NUREG-0800, Standard Review Plan, §15.6.5 Loss-of-Coolant Accidents Resulting From Spectrum of Postulated Piping Breaks Within the Reactor Coolant Pressure Boundary"
@@ -173,7 +173,7 @@ entries:
     date: "2026-11-11"
     reviewed_by: ai_agent
     expert_confirmed: false
-    review_verdict: accepted_with_caveat
+    review_verdict: caveat
     review_note: "AI 代审：保留 mixed 与 can_be_root=false；因无单向出处，不产生任何禁边。"
   - id: S6_LOCA_RM1_indicator
     kind: response_role
@@ -227,7 +227,7 @@ entries:
     date: "2026-11-14"
     reviewed_by: ai_agent
     expert_confirmed: false
-    review_verdict: accepted_with_caveat
+    review_verdict: caveat
     review_note: "AI 代审：角色判为响应可信，但无出处，故 targets 不进入禁边层。"
   - id: S8_LOCA_FRZR_consequence
     kind: response_role
@@ -255,7 +255,7 @@ entries:
     date: "2026-11-14"
     reviewed_by: ai_agent
     expert_confirmed: false
-    review_verdict: accepted_with_caveat
+    review_verdict: caveat
     review_note: "AI 代审：角色可信但无出处，不进入禁边层。"
   # ==================== SGATR ====================
   - id: S9_SGATR_P_response
@@ -393,16 +393,17 @@ entries:
     asserted_edges:
       - {from: P, to: WHPI, sign: trigger, reverse_forbidden: false, sourced: true, source_ref: E3}
     forbidden_outgoing: []
-    sourced: true
+    sourced: false
     source_ref: [E3]
+    unsourced_reason: "条目变量 P 不在 FLB 模型内（FLB 15 变量含 PRB/PSGA 但不含 P），已判 rejected；撤出约束层。"
     basis: "二次侧失冷使一回路温度/压力变化，低压信号触发安注；P 是传导节点。"
     conflicts_with: []
     source: "外部知识补强（2026-11-14）"
     date: "2026-11-14"
     reviewed_by: ai_agent
     expert_confirmed: false
-    review_verdict: accepted
-    review_note: "AI 代审：与 LOCA/SGATR 同判据。"
+    review_verdict: rejected
+    review_note: "AI 代审（2026-11-14 复核）：FLB 的 15 变量集不含 P（一回路压力不属于 FLB 选变量），本条无可作用对象，判 rejected 并撤出约束层。条目保留仅为留痕，不得引用。"
   - id: S15_FLB_PRB_response
     kind: response_role
     variable: PRB
@@ -507,3 +508,369 @@ entries:
     expert_confirmed: false
     review_verdict: accepted
     review_note: "AI 代审：积分型后果量，出边全禁。"
+  # ==================== 2026-11-14 结构性覆盖补强（补 15 条，覆盖矩阵见 submit 文档） ====================
+  - id: S19_LOCA_TAVG_response
+    kind: response_role
+    variable: TAVG
+    name_cn: 一回路平均温度
+    unit: degC
+    subsystem: 一回路热工
+    applicable_accidents: [LOCA]
+    expected_direction: neg
+    role_in_accident: response_conduction
+    can_be_root: false
+    asserted_edges:
+      - from: TAVG
+        to: PSGA
+        sign: pos
+        reverse_forbidden: false
+        sourced: false
+        source_ref: [E6]
+        unsourced_reason: "E6 只到主题章级，未到可核对章节号；方向（一次侧温度→二次侧压力）成立但不满足“具体出处”要求。"
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E6]
+    unsourced_reason: "TAVG→PSGA 仅有主题章级锚点；原拟加的“TAVG 不直接启动安注”会与 K3 的 TAVG→WHPI 链边直接对撞，故不写入，避免制造第二个知识库内部冲突。"
+    basis: "破口后一回路装量下降、传热恶化，平均温度随压力下降而降低；TAVG 是装量/压力链上的传导节点，不是起点。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：TAVG→PSGA 方向可信但出处不足，故该边不入约束层；TAVG→WHPI 属控制逻辑，禁反向（WHPI→TAVG）依据充分。"
+  - id: S20_LOCA_PSGA_response
+    kind: response_role
+    variable: PSGA
+    name_cn: SG-A 压力
+    unit: bar
+    subsystem: 二回路SG
+    applicable_accidents: [LOCA]
+    expected_direction: neg
+    role_in_accident: response_state
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E6]
+    unsourced_reason: "一次侧向二次侧传热减弱使 SG 压力下降，方向可推，但无可核对章节号支撑具体滞后关系。"
+    basis: "一回路温度下降后经传热管向二次侧的传热减少，SG 压力随之下降；PSGA 是二次侧的状态响应，不驱动一回路侧过程量。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: caveat
+    review_note: "AI 代审：角色判断成立，但 PSGA 与一回路温度存在双向耦合，故不写禁边、不产生约束。"
+  - id: S21_LOCA_RRCA_response
+    kind: response_role
+    variable: RRCA
+    name_cn: 一回路流量A（主泵）
+    unit: t/h
+    subsystem: 一回路流量
+    applicable_accidents: [LOCA]
+    expected_direction: mixed
+    role_in_accident: response_state
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E6]
+    unsourced_reason: "两相流下泵扬程与回路阻力同时变化，流量方向不唯一，且无章节级锚点。"
+    basis: "破口后一回路进入两相状态，主泵扬程与回路阻力同时变化，环路流量的净方向不唯一；流量是装量/压力状态的结果。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: caveat
+    review_note: "AI 代审：mixed 保留；无可靠单向结论，不产生约束。"
+  - id: S22_LOCA_WHPI_ecs
+    kind: response_role
+    variable: WHPI
+    name_cn: 高压安注流量
+    unit: t/h
+    subsystem: 安全系统
+    applicable_accidents: [LOCA]
+    expected_direction: pos
+    role_in_accident: response_control
+    can_be_root: false
+    asserted_edges:
+      - {from: WHPI, to: WECS, sign: pos, reverse_forbidden: true, sourced: true, source_ref: E1}
+    forbidden_outgoing: []
+    sourced: true
+    source_ref: [E1]
+    basis: "高压安注是低压信号触发的安全动作，其流量汇入安全注入总流量；总流量是各注入路径之和，不反向决定单一路径流量。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：补上 LOCA 缺失的 WHPI→WECS（此前只有 SGATR 有），属求和关系的反向不可成立。"
+  - id: S23_LOCA_WECS_total
+    kind: response_role
+    variable: WECS
+    name_cn: 安全注入总流量
+    unit: t/h
+    subsystem: 安全系统
+    applicable_accidents: [LOCA]
+    expected_direction: pos
+    role_in_accident: response_state
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing:
+      targets: [WHPI]
+      basis: "总流量是各注入路径的求和结果，不反向决定单一路径的高压安注流量。"
+      sourced: true
+      source_ref: E1
+    sourced: true
+    source_ref: [E1]
+    basis: "安全注入总流量由高压安注、蓄压箱等各路径汇合而成，属求和型状态量。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：求和关系的反向禁边，与 S22 互为镜像，不构成循环。"
+  - id: S24_SGATR_RH_response
+    kind: response_role
+    variable: RH
+    name_cn: 反应性（棒位/硼）
+    unit: pcm
+    subsystem: 反应性与功率
+    applicable_accidents: [SGATR]
+    expected_direction: mixed
+    role_in_accident: response
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E7]
+    unsourced_reason: "E7 仅主题章级；且 SGTR 下反应性变化由温度反馈与硼浓度共同决定，无单一次序锚点。"
+    basis: "二次侧泄漏导致一回路过冷，慢化剂温度反馈使反应性先升后降，与硼浓度控制叠加，净方向不唯一。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: caveat
+    review_note: "AI 代审：mixed 保留；无出处，不产生约束。"
+  - id: S25_SGATR_VOID_response
+    kind: response_role
+    variable: VOID
+    name_cn: 一回路空泡份额
+    unit: "%"
+    subsystem: 一回路热工
+    applicable_accidents: [SGATR]
+    expected_direction: mixed
+    role_in_accident: response_state
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E6]
+    unsourced_reason: "E6 仅主题章级；空泡份额与压力互为因果（闪蒸与冷凝），无可核对章节号给出单向结论。"
+    basis: "一回路压力下降引起闪蒸、空泡份额上升；空泡又改变回路阻力与传热。两者互为因果，不能写成单向驱动。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: caveat
+    review_note: "AI 代审：明确标为双向耦合，不产生禁边，避免把真实反馈当错误删掉。"
+  - id: S26_SGATR_WECS_total
+    kind: response_role
+    variable: WECS
+    name_cn: 安全注入总流量
+    unit: t/h
+    subsystem: 安全系统
+    applicable_accidents: [SGATR]
+    expected_direction: pos
+    role_in_accident: response_state
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing:
+      targets: [WHPI]
+      basis: "总流量为各注入路径求和，不反向决定高压安注单路流量。"
+      sourced: true
+      source_ref: E2
+    sourced: true
+    source_ref: [E2]
+    basis: "SGTR 下安注同样按压力/水位信号投入，总流量是各路径之和。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：与 S11（WHPI→WECS）互为镜像，补齐 SGATR 的求和关系两侧。"
+  - id: S27_SGATR_WRCA_response
+    kind: response_role
+    variable: WRCA
+    name_cn: 一回路流量A（主泵）
+    unit: t/h
+    subsystem: 一回路流量
+    applicable_accidents: [SGATR]
+    expected_direction: mixed
+    role_in_accident: response_state
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E2]
+    unsourced_reason: "流量随过冷度与泵特性漂移，方向不唯一，且无章节级锚点。"
+    basis: "二次侧泄漏使一回路过冷，冷却剂密度与回路阻力变化，环路流量随之漂移；流量不是破口的原因。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: caveat
+    review_note: "AI 代审：mixed 保留；不产生约束。"
+  - id: S28_FLB_PSGA_response
+    kind: response_role
+    variable: PSGA
+    name_cn: SG-A 压力
+    unit: bar
+    subsystem: 二回路SG
+    applicable_accidents: [FLB]
+    expected_direction: neg
+    role_in_accident: response_state
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E3]
+    unsourced_reason: "E3 支持“有响应”，但不给“压力→给水流量”这类具体边的章节级方向。"
+    basis: "给水/蒸汽管道破裂使二次侧质量与能量流失，SG 压力下降；PSGA 是二次侧状态响应。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: caveat
+    review_note: "AI 代审：角色成立；因 PSGA 与一回路温度双向耦合，不写禁边。"
+  - id: S29_FLB_PWNT_response
+    kind: response_role
+    variable: PWNT
+    name_cn: 核功率
+    unit: "%FP"
+    subsystem: 反应性与功率
+    applicable_accidents: [FLB]
+    expected_direction: mixed
+    role_in_accident: response
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E7]
+    unsourced_reason: "E7 仅主题章级；FLB 下功率变化由温度反馈与保护动作共同决定，无单一次序锚点。"
+    basis: "二次侧排热变化改变一回路平均温度，经慢化剂温度反馈影响功率；功率同时受保护动作约束，净方向不唯一。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: caveat
+    review_note: "AI 代审：mixed 保留；不产生禁边（功率→温度是真实反馈）。"
+  - id: S30_FLB_TAVG_response
+    kind: response_role
+    variable: TAVG
+    name_cn: 一回路平均温度
+    unit: degC
+    subsystem: 一回路热工
+    applicable_accidents: [FLB]
+    expected_direction: mixed
+    role_in_accident: response_conduction
+    can_be_root: false
+    asserted_edges:
+      - from: TAVG
+        to: PSGA
+        sign: pos
+        reverse_forbidden: false
+        sourced: false
+        source_ref: [E6]
+        unsourced_reason: "E6 仅主题章级，未到可核对章节号。"
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E6]
+    unsourced_reason: "TAVG→PSGA 仅有主题章级锚点；原拟加的“TAVG 不直接启动安注”会与 K3 的 TAVG→WHPI 链边直接对撞，故不写入。"
+    basis: "二次侧失冷后一回路平均温度随排热与压力变化；TAVG 是传导节点，不是起点。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：TAVG→PSGA 出处不足不入约束；TAVG→WHPI 的控制逻辑禁反向依据充分。"
+  - id: S31_FLB_WFWA_response
+    kind: response_role
+    variable: WFWA
+    name_cn: 给水流量A
+    unit: t/h
+    subsystem: 二回路给水
+    applicable_accidents: [FLB]
+    expected_direction: neg
+    role_in_accident: response_conduction
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E3]
+    unsourced_reason: "给水流量下降方向可由质量守恒推出，但“破口分流→给水流量”的具体锚点未到章节号。"
+    basis: "给水管道破裂后部分给水经破口外泄，进入 SG 的给水流量下降；WFWA 是质量损失链上的传导量。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: caveat
+    review_note: "AI 代审：角色成立；无出处，不入约束层。"
+  - id: S32_FLB_WHPI_ecs
+    kind: response_role
+    variable: WHPI
+    name_cn: 高压安注流量
+    unit: t/h
+    subsystem: 安全系统
+    applicable_accidents: [FLB]
+    expected_direction: pos
+    role_in_accident: response_control
+    can_be_root: false
+    asserted_edges:
+      - {from: WHPI, to: WECS, sign: pos, reverse_forbidden: true, sourced: true, source_ref: E3}
+    forbidden_outgoing: []
+    sourced: true
+    source_ref: [E3]
+    basis: "高压安注流量汇入安全注入总流量；总和关系不反向决定单一路径。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：补齐 FLB 的 WHPI→WECS；与 S22/S11 同类。"
+  - id: S33_FLB_WSTB_response
+    kind: response_role
+    variable: WSTB
+    name_cn: 主蒸汽流量B
+    unit: t/h
+    subsystem: 二回路蒸汽
+    applicable_accidents: [FLB]
+    expected_direction: mixed
+    role_in_accident: response_state
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E3]
+    unsourced_reason: "破口分流与另一列负荷再分配方向相反，无单一次序锚点。"
+    basis: "蒸汽管道破裂使本列蒸汽流量下降，另一列承担更多负荷；净方向取决于破口位置与负荷分配，故标 mixed。"
+    conflicts_with: []
+    source: "结构性覆盖补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: caveat
+    review_note: "AI 代审：mixed 保留；不产生约束。"

@@ -2402,3 +2402,28 @@ gitignore），`pytest` 161 passed。
 - 结论：知识当前是**负向约束层**（删错边），不是能纠正排序的知识先验；不得据此宣称方案有效或无效。
 - 结果文档：`submit/外部知识补强-注入对照-v23k-2026-11-14.md`；入口页 `submit/产物入口-v23k-knowledge-20261114.html`。
 - 状态：✅ closed。
+
+**V23-DESIGN-101（closed）·【用户裁决】按结构性覆盖补条目，AI 代审，只动知识数据层**
+
+- 用户裁决（原话要点）：只动 `Code/external_knowledge/*.yaml`；不改代码、不跑链路、不动其它方案文件、不推送；
+  按“事故类 × 子系统/关键变量”覆盖矩阵找空格补，**禁止**按任何 run 的 Top-5/稳定边/覆盖率补；
+  每条出处要具体（标题+版本/年份+章节号或页码），查不到就 `sourced: false`；断言边只写有把握的，
+  否定性条目优先；不得与现有 32 条重复或冲突；AI 扮演专业审查，逐条 accepted/caveat/rejected，
+  统一 `reviewed_by: ai_agent`、`expert_confirmed: false`，文档一律写“AI 代审、非专家确认”。
+- 先报矩阵与计划、再动 YAML；交付含补强清单、覆盖矩阵、新 sha256、台账。
+- 状态：✅ closed。
+
+**V23-CODE-043（closed）·【自主决定】补 15 条 S19–S33、两处改判 rejected、判定词表统一**
+
+- 新增 15 条（LOCA S19–S23、SGATR S24–S27、FLB S28–S33），按变量补齐 45 个入模变量槽位；
+  其中 sourced 4 条（S22/S23/S26/S32，均为 `WHPI↔WECS` 求和关系两侧），11 条角色条目 `sourced: false`。
+- 结构缺陷整改：`S14_FLB_P_response`、`P10_FLB_NSGA_level_drop` 的变量不在 FLB 15 变量集内，
+  判 `rejected` 且 `sourced: false`，撤出约束层，条目留痕不删。
+- 判定词表统一：`accepted_with_caveat` → `caveat`，与用户要求的 accepted/caveat/rejected 三值一致。
+- 主动放弃一条：原拟加“TAVG 不直接启动安注”（禁 `TAVG→WHPI`），会与 LOCA K3 的 `TAVG→WHPI` 链边对撞，
+  故不写入，避免制造第二个知识库内部冲突（已在条目 `unsourced_reason` 中写明）。
+- 验证：`validate_against_entity_table()` → `ok=True, errors=[], warnings=[]`；
+  `pytest tests/test_v23_knowledge_external.py` → 13 passed；注入规则 LOCA 37 / SGATR 42 / FLB 62
+  （较上轮 +1 / 0 / +1，新增 2 条 `WECS→WHPI` 求和关系反向禁边）。
+- 未跑链路、未改代码、未推送。
+- 状态：✅ closed。

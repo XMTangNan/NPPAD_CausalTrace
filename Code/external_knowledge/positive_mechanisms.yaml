@@ -156,7 +156,7 @@ entries:
     date: "2026-11-11"
     reviewed_by: ai_agent
     expert_confirmed: false
-    review_verdict: accepted_with_caveat
+    review_verdict: caveat
     review_note: "AI 代审：角色判断保留；断言边无出处，不进入约束层。"
   - id: P5_SGATR_LSGA_level_rise
     kind: positive_mechanism
@@ -180,7 +180,7 @@ entries:
     date: "2026-11-11"
     reviewed_by: ai_agent
     expert_confirmed: false
-    review_verdict: accepted_with_caveat
+    review_verdict: caveat
     review_note: "AI 代审：方向成立、次序无出处，故不产生约束。"
   - id: P6_SGATR_RM2_radiation
     kind: positive_mechanism
@@ -309,8 +309,8 @@ entries:
     date: "2026-11-11"
     reviewed_by: ai_agent
     expert_confirmed: false
-    review_verdict: accepted
-    review_note: "AI 代审：角色保留；无约束。"
+    review_verdict: rejected
+    review_note: "AI 代审（2026-11-14 复核）：NSGA 不在 FLB 的 15 变量集内，本条无可作用对象，判 rejected 并撤出约束层；条目保留仅为留痕，不得引用。"
   - id: P11_FLB_QMGB_heat_transfer
     kind: positive_mechanism
     variable: QMGB
