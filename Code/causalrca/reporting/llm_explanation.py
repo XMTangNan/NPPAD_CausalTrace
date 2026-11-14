@@ -25,6 +25,7 @@ from causalrca.config.constants_v23 import (
     LLM_FAITHFUL_DECIMALS as FAITHFUL_DECIMALS,
     LLM_FLOAT_TOL as FLOAT_TOL,
     LLM_TIMEOUT_S as V23_LLM_TIMEOUT_S,
+    LLM_MODEL_PIN, LLM_TEMPERATURE_PIN, LLM_TIMEOUT_PIN_S, LLM_MAX_RETRIES,
 )
 from causalrca.config.paths import (
     CODE_ROOT, LLM_API_KEY_ENV, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT,
@@ -348,16 +349,33 @@ _UPPER_VAR_RE = re.compile(r"[A-Z][A-Z0-9_]{1,}")
 _V23_ALLOWED_TERMS = ["K2", "K3", "JSON"]
 
 V23_SYSTEM_PROMPT = (
-    "你是核电事故根因分析专家。你将收到一份 JSON 证据（CausalTrace v2.3 单引擎 LiNGAM "
-    "稳定边 + 溯源 Top-5 + 跨组汇总/差异 + K2/K3/偏离度）。严格规则：\n"
+    "你是核电事故根因分析专家。你将收到一份 JSON 证据（CausalTrace v2.3：门控后候选池、"
+    "总效应、偏差、知识命中、边摘要、路径审计）。严格规则：\n"
     "1. 只允许引用输入 JSON 中出现的数字与变量名，禁止编造任何变量、边、数值或机制；\n"
-    "2. 百分比请保留 JSON 数值换算后的两位小数，禁止改写或补齐精度；\n"
+    "2. 百分比保留 JSON 数值换算后的两位小数，禁止改写或补齐精度；\n"
     "3. 单引擎稳定边不等于多引擎共识，必须标注 n_consensus=null；\n"
     "4. 结论表述为“模型稳定识别出的有向关系”，不得写成“已证实因果”；\n"
-    "5. 章节固定：结论与 Top 根因 / 证据链 / 跨组一致性 / 物理一致性 K2 / "
-    "故障模板 K3 / 偏离度提示 / 局限；\n"
-    "6. 使用中文，禁止输出 JSON 之外的新数字。"
+    "5. 正文固定六段：现象 / 最可能原因 / 机理链逐跳 / 为什么排除另外几个 / "
+    "不确定性与反证 / 建议核对项；缺段写“未产出+原因”，不许静默省略；\n"
+    "6. 机理链必须逐跳写“A 变化导致 B 变化”，并标注该跳是 compliant / unsupported / "
+    "violating；unsupported 只能写“未违反但无依据”，不得写成“知识支持”；\n"
+    "7. 允许对 Top-5 提异议，但只能写进 llm_disagreement.claims（target/stance/basis/text），"
+    "ranking_modified 恒为 false，不得改写任何 rank/rank_v2；\n"
+    "8. 公差是数据代理时只能写“数据代理公差”，不得写“专家公差”；\n"
+    "9. 使用中文，禁止输出 JSON 之外的新数字。"
 )
+
+
+def _build_v23_prompt(payload: Dict) -> str:
+    return (
+        "以下为 CausalTrace v2.3 的单模板证据 JSON（只读产物，未重算因果）。"
+        "请按六段写中文根因解释：现象 / 最可能原因 / 机理链逐跳 / 为什么排除另外几个 / "
+        "不确定性与反证 / 建议核对项。\n"
+        "每段至少引用一个输入字段；排名字段只许复述，不许改。\n"
+        "若要对排序提异议，只写进 llm_disagreement（ranking_modified=false）。\n"
+        "只允许引用下面 JSON 中出现的数字与变量名。\n\n"
+        + json.dumps(payload, ensure_ascii=False, indent=2)
+    )
 
 
 # ==================== 忠实性校验 ====================
@@ -626,6 +644,86 @@ def _load_deviation(k: str, g: str) -> Dict:
 
 
 # ==================== payload 构建（唯一证据入口） ====================
+def _load_knowledge_index(k: str) -> Dict:
+    """外部知识索引：变量 → 条目 id / 角色 / 方向 / sourced（只读，不改图）。"""
+    try:
+        import yaml
+        from causalrca.evidence.constraints import KNOW_DIR, FILES
+    except Exception:  # noqa: BLE001
+        return {"available": False, "variables": {}, "reason": "knowledge 模块不可用"}
+    per: Dict[str, Dict] = {}
+    n_entries = 0
+    for name in FILES:
+        doc = yaml.safe_load((KNOW_DIR / name).read_text(encoding="utf-8")) or {}
+        for ent in doc.get("entries") or []:
+            if k not in (ent.get("applicable_accidents") or []):
+                continue
+            n_entries += 1
+            var = ent.get("variable")
+            slot = per.setdefault(var, {"entry_ids": [], "sourced_any": False,
+                                        "roles": set(), "directions": set()})
+            slot["entry_ids"].append(ent.get("id"))
+            slot["sourced_any"] = slot["sourced_any"] or (ent.get("sourced") is True)
+            if ent.get("role_in_accident"):
+                slot["roles"].add(ent.get("role_in_accident"))
+            if ent.get("expected_direction"):
+                slot["directions"].add(ent.get("expected_direction"))
+    for v in per.values():
+        v["roles"] = sorted(v["roles"])
+        v["directions"] = sorted(v["directions"])
+    return {"available": True, "n_entries": n_entries, "variables": per}
+
+
+def _knowledge_status(var: str, idx: Dict) -> Dict:
+    info = (idx.get("variables") or {}).get(var)
+    if not info:
+        return {"knowledge_status": "missing", "knowledge_entry_ids": [],
+                "roles": [], "directions": []}
+    status = "covered" if info.get("sourced_any") else "partial"
+    return {"knowledge_status": status, "knowledge_entry_ids": info.get("entry_ids") or [],
+            "roles": info.get("roles") or [], "directions": info.get("directions") or []}
+
+
+def _edge_summary(sig: Dict, var: str, limit: int = 5) -> Dict:
+    inc, out = [], []
+    for e in sig.get("stable_edges") or []:
+        if e.get("to") == var:
+            inc.append({"from": e.get("from"), "to": var,
+                        "weight_median": e.get("weight_median"),
+                        "dir_e": e.get("dir_e"), "f_e": e.get("f_e")})
+        elif e.get("from") == var:
+            out.append({"from": var, "to": e.get("to"),
+                        "weight_median": e.get("weight_median"),
+                        "dir_e": e.get("dir_e"), "f_e": e.get("f_e")})
+    return {"incoming": inc[:limit], "outgoing": out[:limit],
+            "n_incoming": len(inc), "n_outgoing": len(out)}
+
+
+def _load_path_audit(k: str, g: str) -> Dict:
+    doc, _path = _read_optional("signatures", f"path_audit_{k}_{g}")
+    if doc is None:
+        return {"available": False, "reason": "path_audit 未产出"}
+    keep = ("counts", "truncated", "max_paths", "max_hops", "n_paths_enumerated",
+            "path_length_hist", "enumeration_method")
+    return {"available": True, **{x: doc.get(x) for x in keep},
+            "paths": [{"path_id": p.get("path_id"), "nodes": p.get("nodes"),
+                       "length": p.get("length"),
+                       "contribution": p.get("contribution"),
+                       "result": p.get("result"),
+                       "missing_reason": p.get("missing_reason")}
+                      for p in (doc.get("paths") or [])]}
+
+
+def _load_gate_compare(k: str, g: str) -> Dict:
+    doc, _path = _read_optional("reports", f"gate_compare_{k}_{g}")
+    if doc is None:
+        return {"available": False, "reason": "gate_compare 未产出"}
+    keep = ("n_rank_changed", "top1_before", "top1_after", "top5_before",
+            "top5_after", "top5_set_diff", "n_excluded", "pool_size",
+            "gate_policy_version", "gate_rule_id", "g")
+    return {"available": True, **{x: doc.get(x) for x in keep}}
+
+
 def build_payload(k: str, g: str, run_id: Optional[str] = None) -> Dict:
     """组装 D6/D7 共用证据 payload；只读 v2.3 产物，不重算因果。"""
     rc, rc_path = _read_optional("tracing", f"root_candidates_{k}_{g}")
@@ -654,12 +752,28 @@ def build_payload(k: str, g: str, run_id: Optional[str] = None) -> Dict:
         n_clipped = len(rc.get("clipped_edges") or [])
 
     cL = sig.get("cL") or {}
+    knowledge_idx = _load_knowledge_index(k)
+    path_audit = _load_path_audit(k, g)
+    gate_cmp = _load_gate_compare(k, g)
     roots: List[Dict] = []
     for c in (rc.get("root_candidates") or [])[:5]:
         var = c.get("variable")
         aux = cL.get(var) or {}
+        kn = _knowledge_status(var, knowledge_idx)
+        paths_for_var = [p for p in (path_audit.get("paths") or [])
+                         if var in (p.get("nodes") or [])][:5]
         roots.append({
             "rank": c.get("rank"),
+            "rank_v2": c.get("rank_v2"),
+            "rank_if_kept": c.get("rank_if_kept"),
+            "in_pool": c.get("in_pool"),
+            "gate_status": c.get("gate_status"),
+            "gate_reason": c.get("gate_reason"),
+            "gate_rule_id": c.get("gate_rule_id"),
+            "deviation_raw": c.get("deviation_raw"),
+            "sigma_source": c.get("sigma_source"),
+            "sigma_rule_id": c.get("sigma_rule_id"),
+            "tolerance_source": c.get("tolerance_source"),
             "variable": var,
             "subsystem": (c.get("entity") or {}).get("subsystem"),
             "role": c.get("role"),
@@ -670,6 +784,9 @@ def build_payload(k: str, g: str, run_id: Optional[str] = None) -> Dict:
             "weighted_reach": c.get("weighted_reach"),
             "auxiliary_cL": aux.get("cL"),
             "auxiliary_piL": aux.get("piL"),
+            **kn,
+            "edges": _edge_summary(sig, var),
+            "path_results": paths_for_var,
         })
 
     cross = {"available": summary is not None}
@@ -780,6 +897,40 @@ def build_payload(k: str, g: str, run_id: Optional[str] = None) -> Dict:
         "baseline_coverage": baseline,
         "top_k": min(3, len(roots)),
         "root_candidates": roots,
+        "n_knowledge_missing": sum(1 for r in roots
+                                   if r.get("knowledge_status") == "missing"),
+        "n_roots": len(roots),
+        "ranking": {
+            "gate_policy_version": rc.get("gate_policy_version"),
+            "gate_rule_id": rc.get("gate_rule_id"),
+            "g": (gate_cmp or {}).get("g"),
+            "pool_size": rc.get("pool_size"),
+            "n_excluded": rc.get("n_excluded"),
+            "tolerance_source": rc.get("tolerance_source", "data_proxy"),
+            "n_rank_changed": gate_cmp.get("n_rank_changed"),
+            "top1_before": gate_cmp.get("top1_before"),
+            "top1_after": gate_cmp.get("top1_after"),
+            "top5_before": gate_cmp.get("top5_before"),
+            "top5_after": gate_cmp.get("top5_after"),
+            "n_variables": rc.get("n_nodes"),
+        },
+        "knowledge": {
+            "knowledge_status": ("partial" if (knowledge_idx.get("variables") or {})
+                                 else "empty"),
+            "n_entries": knowledge_idx.get("n_entries"),
+            "constraint_version": "constraints_v1",
+            "expert_signoff_status": {"n_expert_confirmed": 0,
+                                      "note": "AI 代审、非专家确认"},
+            "forbidden_edges_applied": len(
+                (sig.get("ontology_constraint") or {}).get("removed_forbidden_rates") or {}),
+            "knowledge_prior": {"present": 0, "missing": 0, "reversed": 0,
+                                "note": "本轮未使用 prior_knowledge（E13）"},
+            "knowledge_imputed_edges": [],
+            "hard_forbid_path": 0,
+            "path_audit": path_audit,
+        },
+        "gate_compare": gate_cmp,
+        "path_audit": path_audit,
         "variables": list(sig.get("variables") or []),
         "auxiliary": {
             "frontier_reach": len((sig.get("frontier") or {}).get("reach") or []),
@@ -793,6 +944,7 @@ def build_payload(k: str, g: str, run_id: Optional[str] = None) -> Dict:
         "k3": k3,
         "deviation": deviation,
         "limitations": limitations,
+        "n_limitations": len(limitations),
         "allowed_terms": list(_V23_ALLOWED_TERMS),
         "inputs": inputs,
     }
@@ -810,7 +962,120 @@ def _pct(x) -> str:
     return "未产出" if v is None else f"{v * 100:.{FAITHFUL_DECIMALS}f}%"
 
 
+def _ordered_roots(payload: Dict) -> List[Dict]:
+    roots = list(payload.get("root_candidates") or [])
+    return sorted(roots, key=lambda c: (c.get("rank_v2") is None,
+                                        c.get("rank_v2") or 10 ** 6,
+                                        c.get("rank") or 10 ** 6))
+
+
+def _render_six_sections(payload: Dict) -> str:
+    """六段通俗因果叙述（规则稿）。数字全部来自 payload，可逐条对拍。"""
+    k, g = payload["accident_type"], payload["group"]
+    roots = _ordered_roots(payload)
+    ranking = payload.get("ranking") or {}
+    kn = payload.get("knowledge") or {}
+    pa = payload.get("path_audit") or {}
+    counts = pa.get("counts") or {}
+    L: List[str] = [f"【{k} / {g} 组 · 根因解释（六段）】", ""]
+
+    # 一、现象
+    L.append("一、现象")
+    dev = payload.get("deviation") or {}
+    lc = dev.get("level_counts") or {}
+    L.append(f"  本组入模变量 {payload.get('n_variables')} 个，稳定边 "
+             f"{payload.get('n_stable_edges')} 条；指示器 {payload.get('marker')} 触发。")
+    if dev.get("available"):
+        L.append(f"  通道偏移档位计数：正常 {lc.get('normal')}、中等 {lc.get('moderate')}、"
+                 f"较大 {lc.get('large')}、严重 {lc.get('severe')}。")
+    else:
+        L.append(f"  偏离度未产出（原因：{dev.get('reason')}）。")
+    L.append("")
+
+    # 二、最可能原因
+    L.append("二、最可能原因")
+    top1 = roots[0] if roots else None
+    L.append(f"  门控策略 {ranking.get('gate_policy_version')}（{ranking.get('gate_rule_id')}，"
+             f"门槛 g={ranking.get('g')}）；候选池 {ranking.get('pool_size')} 个，"
+             f"剔除 {ranking.get('n_excluded')} 个。")
+    if top1:
+        L.append(f"  第 1 名是 {top1['variable']}（{top1.get('subsystem')}）：总效应 "
+                 f"{_f(top1.get('total_effect'))}，偏差 {_f(top1.get('deviation_raw'))}"
+                 f"（尺子口径 {top1.get('tolerance_source')}），门判定 "
+                 f"{top1.get('gate_status')}。")
+    else:
+        L.append("  未产出（本组无根因候选）。")
+    L.append("")
+
+    # 三、机理链逐跳
+    L.append("三、机理链逐跳")
+    if top1:
+        e = top1.get("edges") or {}
+        L.append(f"  {top1['variable']} 的入边 {e.get('n_incoming')} 条、出边 "
+                 f"{e.get('n_outgoing')} 条。")
+        for item in (e.get("incoming") or [])[:3]:
+            L.append(f"    {item.get('from')}→{item.get('to')}：权重 "
+                     f"{_f(item.get('weight_median'))}，方向一致率 {_f(item.get('dir_e'))}。")
+        for item in (e.get("outgoing") or [])[:3]:
+            L.append(f"    {item.get('from')}→{item.get('to')}：权重 "
+                     f"{_f(item.get('weight_median'))}，方向一致率 {_f(item.get('dir_e'))}。")
+        for p in (top1.get("path_results") or [])[:3]:
+            L.append(f"    路径 {p.get('path_id')}（长度 {p.get('length')}，结果 "
+                     f"{p.get('result')}）：{'→'.join(p.get('nodes') or [])}。")
+        if not (top1.get("path_results") or []):
+            L.append("    未抽到涉及该变量的受审路径。")
+    else:
+        L.append("  未产出（无候选）。")
+    L.append("")
+
+    # 四、为什么排除另外几个
+    L.append("四、为什么排除另外几个")
+    others = roots[1:5]
+    if others:
+        for c in others:
+            reason = {"pass": "过了公差门但效应更小",
+                      "fail": "未过公差门（偏差未超门槛）",
+                      "not_evaluable": "偏差不可评估，按保守策略不进池"}.get(
+                c.get("gate_status"), "门判定未知")
+            L.append(f"  {c['variable']}：第 {c.get('rank')} 名（新口径 "
+                     f"{c.get('rank_v2')}），总效应 {_f(c.get('total_effect'))}，"
+                     f"{reason}；知识状态 {c.get('knowledge_status')}。")
+    else:
+        L.append("  未产出（候选不足）。")
+    L.append("")
+
+    # 五、不确定性与反证
+    L.append("五、不确定性与反证")
+    L.append(f"  路径审计：compliant {counts.get('compliant')} 条、unsupported "
+             f"{counts.get('unsupported')} 条、violating {counts.get('violating')} 条；"
+             f"截断={pa.get('truncated')}（上限 max_hops={pa.get('max_hops')}，"
+             f"max_paths={pa.get('max_paths')}）。")
+    L.append(f"  Top-5 中知识缺失 {payload.get('n_knowledge_missing')} 个；"
+             f"知识状态 {kn.get('knowledge_status')}；"
+             f"专家确认 {((kn.get('expert_signoff_status') or {}).get('n_expert_confirmed'))} 条。")
+    L.append("  规则稿不产生模型异议（llm_disagreement=null）。")
+    L.append("")
+
+    # 六、建议核对项
+    L.append("六、建议核对项")
+    todo = [c["variable"] for c in roots
+            if c.get("gate_status") != "pass" or c.get("knowledge_status") == "missing"]
+    if todo:
+        L.append("  建议核对：" + "、".join(todo) + "（公差条目 / 知识覆盖 / 入出边方向）。")
+    else:
+        L.append("  Top-5 均过门且有知识覆盖；建议核对路径审计中的 unsupported 跳。")
+    L.append("")
+    L.append("（本解释由离线规则后端依据同 run_id 产物生成，未调用任何大模型；"
+             "所有数字与变量名均来自同 run_id 的 JSON 证据。）")
+    return "\n".join(L)
+
+
 def render_rule_explanation(payload: Dict) -> str:
+    """六段规则稿（对外唯一入口；旧 7 段仅留档）。"""
+    return _render_six_sections(payload)
+
+
+def render_rule_explanation_legacy(payload: Dict) -> str:
     """基于 payload 数值的结构化中文解释（确定性、可核查、零外部依赖）。"""
     k, g = payload["accident_type"], payload["group"]
     roots = payload["root_candidates"]
@@ -1001,19 +1266,9 @@ def llm_unavailable_reason() -> Optional[str]:
     return None
 
 
-def _build_v23_prompt(payload: Dict) -> str:
-    return (
-        "以下为 CausalTrace v2.3 的单模板证据 JSON（只读产物，未重算因果）。"
-        "请生成中文结构化根因解释，章节：结论与 Top 根因 / 证据链 / 跨组一致性 / "
-        "物理一致性 K2 / 故障模板 K3 / 偏离度提示 / 局限。\n"
-        "只允许引用下面 JSON 中出现的数字与变量名。\n\n"
-        + json.dumps(payload, ensure_ascii=False, indent=2)
-    )
-
-
 def _call_chat_completions(prompt: str, timeout: Optional[float] = None,
                            system_prompt: str = V23_SYSTEM_PROMPT) -> str:
-    """OpenAI 兼容 chat/completions（标准库 urllib，超时默认 30s，失败抛异常）。
+    """OpenAI 兼容 chat/completions（标准库 urllib，失败抛异常）。
 
     凭据来自 resolve_llm_credentials()（V23-DESIGN-060）；日志只记录 key 来源标签。
     """
@@ -1022,30 +1277,99 @@ def _call_chat_completions(prompt: str, timeout: Optional[float] = None,
     key = str(cred["api_key"])
     if not base or not key:
         raise RuntimeError("llm 后端凭据缺失（环境变量与 Code/.env 均未提供）")
-    logger.info(f"[D6] llm 凭据来源={cred['key_source']}，base={cred['base_url_source']}")
+    logger.info(f"[D6] llm 凭据来源={cred['key_source']}，base={cred['base_url_source']}，"
+                f"model={LLM_MODEL_PIN}（显式 pin）")
     url = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
     body = json.dumps({
-        "model": cred["model"],
+        # 显式 pin：不跟随 cred["model"] 的运行时环境变量，保证口径可复现
+        "model": LLM_MODEL_PIN,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.0,
+        "temperature": LLM_TEMPERATURE_PIN,
     }).encode("utf-8")
     req = urllib.request.Request(
         url, data=body, method="POST",
         headers={"Content-Type": "application/json",
                  "Authorization": f"Bearer {key}"})
-    t = V23_LLM_TIMEOUT_S if timeout is None else timeout
-    with urllib.request.urlopen(req, timeout=t) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    return data["choices"][0]["message"]["content"].strip()
+    t = LLM_TIMEOUT_PIN_S if timeout is None else timeout
+    last_exc: Optional[Exception] = None
+    for attempt in range(int(LLM_MAX_RETRIES) + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=t) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            return data["choices"][0]["message"]["content"].strip()
+        except Exception as exc:  # noqa: BLE001 - 由调用方显式降级
+            last_exc = exc
+            logger.warning(f"[D6] llm 调用第 {attempt} 次失败：{type(exc).__name__}: {exc}")
+    raise last_exc if last_exc else RuntimeError("llm 调用失败")
+
+
+def build_claims(payload: Dict) -> List[Dict]:
+    """每条断言指回字段（`evidence_ref` 必须能解析到 payload 字段）。"""
+    claims: List[Dict] = []
+    roots = _ordered_roots(payload)
+    ranking = payload.get("ranking") or {}
+    counts = (payload.get("path_audit") or {}).get("counts") or {}
+    for c in roots[:5]:
+        claims.append({
+            "claim_id": f"C_rank_{c['variable']}",
+            "section": 2,
+            "text": f"{c['variable']} 的效应分为 {c.get('total_effect')}",
+            "evidence_ref": f"root_candidates[{c.get('rank')}].total_effect",
+            "status": "supported",
+        })
+        claims.append({
+            "claim_id": f"C_gate_{c['variable']}",
+            "section": 2,
+            "text": f"{c['variable']} 的门判定为 {c.get('gate_status')}",
+            "evidence_ref": f"root_candidates[{c.get('rank')}].gate_status",
+            "status": "supported",
+        })
+    claims.append({
+        "claim_id": "C_pool",
+        "section": 2,
+        "text": f"候选池 {ranking.get('pool_size')} 个，剔除 {ranking.get('n_excluded')} 个",
+        "evidence_ref": "ranking.pool_size",
+        "status": "supported",
+    })
+    for key in ("compliant", "unsupported", "violating"):
+        claims.append({
+            "claim_id": f"C_path_{key}",
+            "section": 5,
+            "text": f"路径审计 {key} 计数 {counts.get(key)}",
+            "evidence_ref": f"path_audit.counts.{key}",
+            "status": "supported",
+        })
+    for c in roots:
+        if c.get("knowledge_status") == "missing":
+            claims.append({
+                "claim_id": f"C_kn_{c['variable']}",
+                "section": 5,
+                "text": f"{c['variable']} 无知识条目覆盖",
+                "evidence_ref": f"root_candidates[{c.get('rank')}].knowledge_status",
+                "status": "supported",
+            })
+    return claims
+
+
+def _disagreement_block(backend: str, text: str) -> Optional[Dict]:
+    """规则稿不产生异议（null）；llm 若未给出结构化异议也写空列表并说明。"""
+    if backend == "rule":
+        return None
+    return {"schema": "causaltrace/llm_disagreement/v1",
+            "ranking_modified": False,
+            "claims": [],
+            "note": "模型未输出结构化异议；排名字段未被改动"}
 
 
 def generate_explanation(payload: Dict, backend: str = "rule",
                          timeout: Optional[float] = None) -> Dict:
-    """生成解释：rule（默认离线）/ llm（可选，失败自动降级并写 degraded_reason）。"""
+    """生成解释：rule（默认离线）/ llm / auto（有 key 走 llm，否则 rule 并记原因）。"""
     requested = backend
+    if backend == "auto":
+        backend = "llm" if llm_unavailable_reason() is None else "rule"
     if backend == "llm":
         why = llm_unavailable_reason()
         if why:
@@ -1054,7 +1378,9 @@ def generate_explanation(payload: Dict, backend: str = "rule",
             logger.warning(f"[D6] llm 后端不可用（{why}），降级 rule")
             return {"backend": "rule", "requested_backend": requested,
                     "degraded": True, "degraded_reason": why,
-                    "text": text, "faithfulness": faith}
+                    "text": text, "faithfulness": faith,
+                    "llm_disagreement": _disagreement_block("rule", text),
+                    "claims": build_claims(payload)}
         try:
             text = _call_chat_completions(_build_v23_prompt(payload), timeout=timeout)
         except Exception as exc:  # noqa: BLE001 - 任何失败都必须显式降级
@@ -1064,14 +1390,18 @@ def generate_explanation(payload: Dict, backend: str = "rule",
             logger.warning(f"[D6] {reason}")
             return {"backend": "rule", "requested_backend": requested,
                     "degraded": True, "degraded_reason": reason,
-                    "text": text, "faithfulness": faith}
+                    "text": text, "faithfulness": faith,
+                    "llm_disagreement": _disagreement_block("rule", text),
+                    "claims": build_claims(payload)}
         faith = verify_faithfulness(text, payload)
         if not faith["faithful"]:
             logger.warning(f"[D6] llm 输出不忠实：{faith['n_numbers_unsupported']} 个未支撑数字，"
                            f"{faith['n_vars_unknown']} 个未知变量名（原样保留并标记）")
         return {"backend": "llm", "requested_backend": requested,
                 "degraded": False, "degraded_reason": None,
-                "text": text, "faithfulness": faith}
+                "text": text, "faithfulness": faith,
+                "llm_disagreement": _disagreement_block("llm", text),
+                "claims": build_claims(payload)}
 
     text = render_rule_explanation(payload)
     faith = verify_faithfulness(text, payload)
@@ -1079,7 +1409,9 @@ def generate_explanation(payload: Dict, backend: str = "rule",
         raise RuntimeError(f"rule 后端解释未通过忠实性校验（实现缺陷）：{faith}")
     return {"backend": "rule", "requested_backend": requested,
             "degraded": False, "degraded_reason": None,
-            "text": text, "faithfulness": faith}
+            "text": text, "faithfulness": faith,
+            "llm_disagreement": None,
+            "claims": build_claims(payload)}
 
 
 # ==================================================================

@@ -41,6 +41,11 @@ def explain_one(k: str, g: str, backend: str = "rule") -> Dict:
         "degraded_reason": res["degraded_reason"],
         "text": res["text"],
         "faithfulness": faith,
+        "llm_disagreement": res.get("llm_disagreement"),
+        "claims": res.get("claims") or [],
+        "ranking_modified": False,
+        "model": {"name": "deepseek-flash", "temperature": 0.0,
+                  "timeout_s": 60, "max_retries": 1},
         "inputs": payload["inputs"],
         "payload": payload,
     }
@@ -143,8 +148,8 @@ def main(argv: Optional[List[str]] = None) -> str:
                     help=f"事故类型，默认 READY_CODES={READY_CODES}")
     ap.add_argument("--groups", nargs="+", default=None,
                     help=f"严重度组，默认 {GROUPS}")
-    ap.add_argument("--backend", choices=["rule", "llm"], default="rule",
-                    help="仅作用于类级/全局汇总解释；模板级 9 份固定 rule（V23-DESIGN-020）")
+    ap.add_argument("--backend", choices=["rule", "llm", "auto"], default="rule",
+                    help="模板级与汇总解释后端：rule（默认离线）/ llm / auto（有 key 走 llm）")
     ap.add_argument("--run-id", default=None, help="只接受该 run_id 的输入，防止混源")
     ap.add_argument("--no-manifest", action="store_true", help="不刷新 manifest.json")
     args = ap.parse_args(argv)
@@ -163,8 +168,8 @@ def main(argv: Optional[List[str]] = None) -> str:
             try:
                 if args.run_id:
                     LE.build_payload(k, g, run_id=args.run_id)  # 先校验同源
-                # 模板级固定 rule：不再逐模板调用 LLM（V23-DESIGN-020）
-                results.append(explain_one(k, g, backend="rule"))
+                # 模板级后端由 --backend 贯通（rule/llm/auto）
+                results.append(explain_one(k, g, backend=args.backend))
             except Exception as exc:  # noqa: BLE001 - 逐模板记录，不掩盖
                 logger.error(f"[D6] {k}_{g} 解释生成失败：{type(exc).__name__}: {exc}")
                 errors.append(f"{k}_{g}: {type(exc).__name__}: {exc}")
@@ -192,7 +197,7 @@ def main(argv: Optional[List[str]] = None) -> str:
         "n_requested": len(classes) * len(groups),
         "n_ok": len(results),
         "n_failed": len(errors),
-        "template_backend": "rule",
+        "template_backend": args.backend,
         "summary_backend_requested": args.backend,
         "n_class_summaries": sum(1 for s in summaries if s["scope"] == "class"),
         "n_global_summaries": sum(1 for s in summaries if s["scope"] == "global"),

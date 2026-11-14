@@ -243,8 +243,30 @@ def generate_rca_report(k: str, g: str, run_id: Optional[str] = None,
             "see": "方案 §7.10",
         },
         "llm_explanation": llm_info,
+        "explanation_text": (llm_doc.get("text") if llm_doc is not None else None),
+        "explanation_backend": (llm_doc.get("backend") if llm_doc is not None else None),
+        "llm_disagreement": (llm_doc.get("llm_disagreement")
+                             if llm_doc is not None else None),
+        "claims": ((llm_doc.get("claims") or []) if llm_doc is not None else []),
+        "class_global_summary": {
+            "consumed": False,
+            "status": "not_used",
+            "reason": ("类级 3 份 + 全局 1 份 LLM 汇总产物本轮未进入模板报告正文，"
+                       "仅在 reports/llm_explanation_class_*.json 与 "
+                       "reports/llm_explanation_global.json 留档"),
+        },
         "warning": warning,
     }
+
+
+def _tail(report: Dict) -> str:
+    """尾句按 backend 条件化（禁止再把 LLM 正文标成规则模板）。"""
+    backend = report.get("explanation_backend")
+    if backend == "llm":
+        return ("（本报告正文由 LLM 依据同 run_id 的 v2.3 JSON 产物生成；"
+                "模型/温度/超时已记录在 llm_explanation 元数据。）")
+    return ("（本报告由规则模板生成，未调用大模型；"
+            "全部数字来自同 run_id 的 v2.3 JSON 产物。）")
 
 
 def report_to_text(report: Dict) -> str:
@@ -267,6 +289,32 @@ def report_to_text(report: Dict) -> str:
              "多量程/冗余通道（如 SGATR 的 NSGA/LSGA）可能被回归劈成对同一组目标反号、近等幅"
              "的系数，此类共线分裂不作物理强度解读（诊断标记见签名产物 "
              "redundancy_diagnostics，仅记录、不参与排序）。")
+    L.append("[类级/全局汇总] 类级 3 份 + 全局 1 份 LLM 汇总产物本轮未进入本报告正文"
+             "（仅留档，status=not_used）。")
+
+    # 正文优先六段文本（方案 §4.13.7）；缺解释产物时回退结构化章节
+    if report.get("explanation_text"):
+        L.append("")
+        L.append(report["explanation_text"])
+        L.append("")
+        L.append(f"七、{SECTION_TITLES['7_limitations']}")
+        for it in s["7_limitations"]["items"]:
+            L.append(f"  - {it}")
+        if not s["7_limitations"]["items"]:
+            L.append("  未登记局限项")
+        L.append("")
+        g8 = s["8_reproducibility"]
+        L.append(f"八、{SECTION_TITLES['8_reproducibility']}")
+        L.append(f"  run_id：{g8['run_id']}")
+        L.append(f"  命令：{g8['command']}")
+        L.append(f"  上游全链：{g8['upstream_command']}")
+        if g8["inputs"]:
+            L.append("  输入 sha256：")
+            for i in g8["inputs"]:
+                L.append(f"    {i['path']}  {i['sha256']}")
+        L.append("")
+        L.append(_tail(report))
+        return "\n".join(L)
 
     # 一、结论
     L.append(f"一、{SECTION_TITLES['1_conclusion_top5']}")
@@ -395,7 +443,7 @@ def report_to_text(report: Dict) -> str:
     else:
         L.append(f"  {_miss('未解析到输入文件')}")
     L.append("")
-    L.append("（本报告由规则模板生成，全部数字来自同 run_id 的 v2.3 JSON 产物。）")
+    L.append(_tail(report))
     return "\n".join(L)
 
 

@@ -328,15 +328,19 @@ def trace_roots(
     ordered = conductive + isolated
     selected = ordered[:top_k]
 
-    for i, c in enumerate(selected, 1):
-        c["rank"] = i
+    # 全量候选（门控需要“被剔除者不物理删除”）：所有变量都带旧口径 rank
+    for i, c in enumerate(ordered, 1):
         c.pop("_ranking_score", None)   # 临时排序键不外泄（保持默认产物字段不变）
+        c["rank"] = i
+    all_candidates = [dict(c) for c in ordered]
+    selected = ordered[:top_k]
     if prior_on:
         # 开启先验时显式标注作用范围（仅乘子），便于两版对照
         for c in selected:
             c["role_prior_applied"] = bool(RP.is_prior(c["variable"]))
     total_effect_all = {c["variable"]: c["total_effect"] for c in ordered}
-    return {"root_candidates": selected, "total_effect": total_effect_all,
+    return {"root_candidates": selected, "all_candidates": all_candidates,
+            "total_effect": total_effect_all,
             "diagnostics": diag, "role_prior": {
                 "enabled": prior_on, "weight": RP.ROLE_PRIOR_WEIGHT,
                 "source": RP.ROLE_PRIOR_SOURCE, "scope": "仅排序乘子（不改 B、不改 T）"}}

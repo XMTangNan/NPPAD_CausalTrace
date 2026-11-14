@@ -1,0 +1,986 @@
+schema: causaltrace/constraints/v1
+version: constraints_v1
+frozen_at: '2026-11-14'
+frozen_by: agent (V23-CODE-046)
+source: external_knowledge 两文件 → 硬禁边；AI 代审、非专家确认
+source_files_sha256:
+  positive_mechanisms.yaml: fdc095b7c575cc65599b3fefc3d6f7585cada9e41cdf8b70abc832a189288008
+  supplementary_mechanisms.yaml: 7e461d2f6ea417082e5c239edd9783e6587ec1b7fa3e02630f487447e06869e8
+n_entries: 47
+n_sourced_entries: 34
+injection_rule: 只注入 sourced=true 的 reverse_forbidden 反向与 forbidden_outgoing；unsourced 不进制约层
+hard_forbid_edge:
+  LOCA:
+  - from: VOL
+    to: WLR
+    basis: 外部知识 P1_LOCA_WLR_injection：断言 WLR→VOL 单向，禁其反向
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P1_LOCA_WLR_injection:VOL->WLR
+    source_entry_id: P1_LOCA_WLR_injection
+  - from: LVPZ
+    to: VOL
+    basis: 外部知识 P2_LOCA_VOL_inventory：断言 VOL→LVPZ 单向，禁其反向
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P2_LOCA_VOL_inventory:LVPZ->VOL
+    source_entry_id: P2_LOCA_VOL_inventory
+  - from: PRB
+    to: P
+    basis: 外部知识 S3_LOCA_PRB_response：PRB 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S3_LOCA_PRB_response:PRB->P
+    source_entry_id: S3_LOCA_PRB_response
+  - from: PRB
+    to: TAVG
+    basis: 外部知识 S3_LOCA_PRB_response：PRB 为响应/指示量，不得驱动 TAVG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S3_LOCA_PRB_response:PRB->TAVG
+    source_entry_id: S3_LOCA_PRB_response
+  - from: PRB
+    to: VOL
+    basis: 外部知识 S3_LOCA_PRB_response：PRB 为响应/指示量，不得驱动 VOL
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S3_LOCA_PRB_response:PRB->VOL
+    source_entry_id: S3_LOCA_PRB_response
+  - from: PRB
+    to: WLR
+    basis: 外部知识 S3_LOCA_PRB_response：PRB 为响应/指示量，不得驱动 WLR
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S3_LOCA_PRB_response:PRB->WLR
+    source_entry_id: S3_LOCA_PRB_response
+  - from: PRB
+    to: WHPI
+    basis: 外部知识 S3_LOCA_PRB_response：PRB 为响应/指示量，不得驱动 WHPI
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S3_LOCA_PRB_response:PRB->WHPI
+    source_entry_id: S3_LOCA_PRB_response
+  - from: PRB
+    to: WECS
+    basis: 外部知识 S3_LOCA_PRB_response：PRB 为响应/指示量，不得驱动 WECS
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S3_LOCA_PRB_response:PRB->WECS
+    source_entry_id: S3_LOCA_PRB_response
+  - from: PRB
+    to: LVPZ
+    basis: 外部知识 S3_LOCA_PRB_response：PRB 为响应/指示量，不得驱动 LVPZ
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S3_LOCA_PRB_response:PRB->LVPZ
+    source_entry_id: S3_LOCA_PRB_response
+  - from: PRB
+    to: RRCA
+    basis: 外部知识 S3_LOCA_PRB_response：PRB 为响应/指示量，不得驱动 RRCA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S3_LOCA_PRB_response:PRB->RRCA
+    source_entry_id: S3_LOCA_PRB_response
+  - from: PRB
+    to: PSGA
+    basis: 外部知识 S3_LOCA_PRB_response：PRB 为响应/指示量，不得驱动 PSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S3_LOCA_PRB_response:PRB->PSGA
+    source_entry_id: S3_LOCA_PRB_response
+  - from: PRB
+    to: RHMT
+    basis: 外部知识 S3_LOCA_PRB_response：PRB 为响应/指示量，不得驱动 RHMT
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S3_LOCA_PRB_response:PRB->RHMT
+    source_entry_id: S3_LOCA_PRB_response
+  - from: TRB
+    to: P
+    basis: 外部知识 S4_LOCA_TRB_response：TRB 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S4_LOCA_TRB_response:TRB->P
+    source_entry_id: S4_LOCA_TRB_response
+  - from: TRB
+    to: TAVG
+    basis: 外部知识 S4_LOCA_TRB_response：TRB 为响应/指示量，不得驱动 TAVG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S4_LOCA_TRB_response:TRB->TAVG
+    source_entry_id: S4_LOCA_TRB_response
+  - from: TRB
+    to: VOL
+    basis: 外部知识 S4_LOCA_TRB_response：TRB 为响应/指示量，不得驱动 VOL
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S4_LOCA_TRB_response:TRB->VOL
+    source_entry_id: S4_LOCA_TRB_response
+  - from: TRB
+    to: WLR
+    basis: 外部知识 S4_LOCA_TRB_response：TRB 为响应/指示量，不得驱动 WLR
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S4_LOCA_TRB_response:TRB->WLR
+    source_entry_id: S4_LOCA_TRB_response
+  - from: TRB
+    to: WHPI
+    basis: 外部知识 S4_LOCA_TRB_response：TRB 为响应/指示量，不得驱动 WHPI
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S4_LOCA_TRB_response:TRB->WHPI
+    source_entry_id: S4_LOCA_TRB_response
+  - from: TRB
+    to: WECS
+    basis: 外部知识 S4_LOCA_TRB_response：TRB 为响应/指示量，不得驱动 WECS
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S4_LOCA_TRB_response:TRB->WECS
+    source_entry_id: S4_LOCA_TRB_response
+  - from: TRB
+    to: LVPZ
+    basis: 外部知识 S4_LOCA_TRB_response：TRB 为响应/指示量，不得驱动 LVPZ
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S4_LOCA_TRB_response:TRB->LVPZ
+    source_entry_id: S4_LOCA_TRB_response
+  - from: TRB
+    to: RRCA
+    basis: 外部知识 S4_LOCA_TRB_response：TRB 为响应/指示量，不得驱动 RRCA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S4_LOCA_TRB_response:TRB->RRCA
+    source_entry_id: S4_LOCA_TRB_response
+  - from: TRB
+    to: PSGA
+    basis: 外部知识 S4_LOCA_TRB_response：TRB 为响应/指示量，不得驱动 PSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S4_LOCA_TRB_response:TRB->PSGA
+    source_entry_id: S4_LOCA_TRB_response
+  - from: TRB
+    to: RHMT
+    basis: 外部知识 S4_LOCA_TRB_response：TRB 为响应/指示量，不得驱动 RHMT
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S4_LOCA_TRB_response:TRB->RHMT
+    source_entry_id: S4_LOCA_TRB_response
+  - from: RM1
+    to: P
+    basis: 外部知识 S6_LOCA_RM1_indicator：RM1 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S6_LOCA_RM1_indicator:RM1->P
+    source_entry_id: S6_LOCA_RM1_indicator
+  - from: RM1
+    to: TAVG
+    basis: 外部知识 S6_LOCA_RM1_indicator：RM1 为响应/指示量，不得驱动 TAVG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S6_LOCA_RM1_indicator:RM1->TAVG
+    source_entry_id: S6_LOCA_RM1_indicator
+  - from: RM1
+    to: VOL
+    basis: 外部知识 S6_LOCA_RM1_indicator：RM1 为响应/指示量，不得驱动 VOL
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S6_LOCA_RM1_indicator:RM1->VOL
+    source_entry_id: S6_LOCA_RM1_indicator
+  - from: RM1
+    to: WLR
+    basis: 外部知识 S6_LOCA_RM1_indicator：RM1 为响应/指示量，不得驱动 WLR
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S6_LOCA_RM1_indicator:RM1->WLR
+    source_entry_id: S6_LOCA_RM1_indicator
+  - from: RM1
+    to: PRB
+    basis: 外部知识 S6_LOCA_RM1_indicator：RM1 为响应/指示量，不得驱动 PRB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S6_LOCA_RM1_indicator:RM1->PRB
+    source_entry_id: S6_LOCA_RM1_indicator
+  - from: RM1
+    to: TRB
+    basis: 外部知识 S6_LOCA_RM1_indicator：RM1 为响应/指示量，不得驱动 TRB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S6_LOCA_RM1_indicator:RM1->TRB
+    source_entry_id: S6_LOCA_RM1_indicator
+  - from: RM1
+    to: WHPI
+    basis: 外部知识 S6_LOCA_RM1_indicator：RM1 为响应/指示量，不得驱动 WHPI
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S6_LOCA_RM1_indicator:RM1->WHPI
+    source_entry_id: S6_LOCA_RM1_indicator
+  - from: RM1
+    to: WECS
+    basis: 外部知识 S6_LOCA_RM1_indicator：RM1 为响应/指示量，不得驱动 WECS
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S6_LOCA_RM1_indicator:RM1->WECS
+    source_entry_id: S6_LOCA_RM1_indicator
+  - from: RM1
+    to: LVPZ
+    basis: 外部知识 S6_LOCA_RM1_indicator：RM1 为响应/指示量，不得驱动 LVPZ
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S6_LOCA_RM1_indicator:RM1->LVPZ
+    source_entry_id: S6_LOCA_RM1_indicator
+  - from: RM1
+    to: PSGA
+    basis: 外部知识 S6_LOCA_RM1_indicator：RM1 为响应/指示量，不得驱动 PSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S6_LOCA_RM1_indicator:RM1->PSGA
+    source_entry_id: S6_LOCA_RM1_indicator
+  - from: RM1
+    to: RHMT
+    basis: 外部知识 S6_LOCA_RM1_indicator：RM1 为响应/指示量，不得驱动 RHMT
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S6_LOCA_RM1_indicator:RM1->RHMT
+    source_entry_id: S6_LOCA_RM1_indicator
+  - from: RM1
+    to: RRCA
+    basis: 外部知识 S6_LOCA_RM1_indicator：RM1 为响应/指示量，不得驱动 RRCA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S6_LOCA_RM1_indicator:RM1->RRCA
+    source_entry_id: S6_LOCA_RM1_indicator
+  - from: RM1
+    to: FRCL
+    basis: 外部知识 S6_LOCA_RM1_indicator：RM1 为响应/指示量，不得驱动 FRCL
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S6_LOCA_RM1_indicator:RM1->FRCL
+    source_entry_id: S6_LOCA_RM1_indicator
+  - from: RM1
+    to: FRZR
+    basis: 外部知识 S6_LOCA_RM1_indicator：RM1 为响应/指示量，不得驱动 FRZR
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S6_LOCA_RM1_indicator:RM1->FRZR
+    source_entry_id: S6_LOCA_RM1_indicator
+  - from: FRCL
+    to: P
+    basis: 外部知识 S7_LOCA_FRCL_consequence：FRCL 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S7_LOCA_FRCL_consequence:FRCL->P
+    source_entry_id: S7_LOCA_FRCL_consequence
+  - from: FRCL
+    to: TAVG
+    basis: 外部知识 S7_LOCA_FRCL_consequence：FRCL 为响应/指示量，不得驱动 TAVG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S7_LOCA_FRCL_consequence:FRCL->TAVG
+    source_entry_id: S7_LOCA_FRCL_consequence
+  - from: FRCL
+    to: VOL
+    basis: 外部知识 S7_LOCA_FRCL_consequence：FRCL 为响应/指示量，不得驱动 VOL
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S7_LOCA_FRCL_consequence:FRCL->VOL
+    source_entry_id: S7_LOCA_FRCL_consequence
+  - from: FRCL
+    to: WLR
+    basis: 外部知识 S7_LOCA_FRCL_consequence：FRCL 为响应/指示量，不得驱动 WLR
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S7_LOCA_FRCL_consequence:FRCL->WLR
+    source_entry_id: S7_LOCA_FRCL_consequence
+  - from: FRZR
+    to: P
+    basis: 外部知识 S8_LOCA_FRZR_consequence：FRZR 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S8_LOCA_FRZR_consequence:FRZR->P
+    source_entry_id: S8_LOCA_FRZR_consequence
+  - from: FRZR
+    to: TAVG
+    basis: 外部知识 S8_LOCA_FRZR_consequence：FRZR 为响应/指示量，不得驱动 TAVG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S8_LOCA_FRZR_consequence:FRZR->TAVG
+    source_entry_id: S8_LOCA_FRZR_consequence
+  - from: FRZR
+    to: VOL
+    basis: 外部知识 S8_LOCA_FRZR_consequence：FRZR 为响应/指示量，不得驱动 VOL
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S8_LOCA_FRZR_consequence:FRZR->VOL
+    source_entry_id: S8_LOCA_FRZR_consequence
+  - from: FRZR
+    to: WLR
+    basis: 外部知识 S8_LOCA_FRZR_consequence：FRZR 为响应/指示量，不得驱动 WLR
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S8_LOCA_FRZR_consequence:FRZR->WLR
+    source_entry_id: S8_LOCA_FRZR_consequence
+  - from: WECS
+    to: WHPI
+    basis: 外部知识 S22_LOCA_WHPI_ecs：断言 WHPI→WECS 单向，禁其反向
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S22_LOCA_WHPI_ecs:WECS->WHPI
+    source_entry_id: S22_LOCA_WHPI_ecs
+  SGATR:
+  - from: NSGA
+    to: WTRA
+    basis: 外部知识 P3_SGATR_WTRA_leak：断言 WTRA→NSGA 单向，禁其反向
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P3_SGATR_WTRA_leak:NSGA->WTRA
+    source_entry_id: P3_SGATR_WTRA_leak
+  - from: PSGA
+    to: WTRA
+    basis: 外部知识 P3_SGATR_WTRA_leak：断言 WTRA→PSGA 单向，禁其反向
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P3_SGATR_WTRA_leak:PSGA->WTRA
+    source_entry_id: P3_SGATR_WTRA_leak
+  - from: RM2
+    to: WTRA
+    basis: 外部知识 P3_SGATR_WTRA_leak：断言 WTRA→RM2 单向，禁其反向
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P3_SGATR_WTRA_leak:RM2->WTRA
+    source_entry_id: P3_SGATR_WTRA_leak
+  - from: VOL
+    to: WTRA
+    basis: 外部知识 P3_SGATR_WTRA_leak：断言 WTRA→VOL 单向，禁其反向
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P3_SGATR_WTRA_leak:VOL->WTRA
+    source_entry_id: P3_SGATR_WTRA_leak
+  - from: NSGA
+    to: P
+    basis: 外部知识 P4_SGATR_NSGA_level_rise：NSGA 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P4_SGATR_NSGA_level_rise:NSGA->P
+    source_entry_id: P4_SGATR_NSGA_level_rise
+  - from: NSGA
+    to: VOL
+    basis: 外部知识 P4_SGATR_NSGA_level_rise：NSGA 为响应/指示量，不得驱动 VOL
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P4_SGATR_NSGA_level_rise:NSGA->VOL
+    source_entry_id: P4_SGATR_NSGA_level_rise
+  - from: NSGA
+    to: LVPZ
+    basis: 外部知识 P4_SGATR_NSGA_level_rise：NSGA 为响应/指示量，不得驱动 LVPZ
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P4_SGATR_NSGA_level_rise:NSGA->LVPZ
+    source_entry_id: P4_SGATR_NSGA_level_rise
+  - from: NSGA
+    to: WRCA
+    basis: 外部知识 P4_SGATR_NSGA_level_rise：NSGA 为响应/指示量，不得驱动 WRCA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P4_SGATR_NSGA_level_rise:NSGA->WRCA
+    source_entry_id: P4_SGATR_NSGA_level_rise
+  - from: LSGA
+    to: P
+    basis: 外部知识 P5_SGATR_LSGA_level_rise：LSGA 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P5_SGATR_LSGA_level_rise:LSGA->P
+    source_entry_id: P5_SGATR_LSGA_level_rise
+  - from: LSGA
+    to: VOL
+    basis: 外部知识 P5_SGATR_LSGA_level_rise：LSGA 为响应/指示量，不得驱动 VOL
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P5_SGATR_LSGA_level_rise:LSGA->VOL
+    source_entry_id: P5_SGATR_LSGA_level_rise
+  - from: LSGA
+    to: LVPZ
+    basis: 外部知识 P5_SGATR_LSGA_level_rise：LSGA 为响应/指示量，不得驱动 LVPZ
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P5_SGATR_LSGA_level_rise:LSGA->LVPZ
+    source_entry_id: P5_SGATR_LSGA_level_rise
+  - from: LSGA
+    to: WRCA
+    basis: 外部知识 P5_SGATR_LSGA_level_rise：LSGA 为响应/指示量，不得驱动 WRCA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P5_SGATR_LSGA_level_rise:LSGA->WRCA
+    source_entry_id: P5_SGATR_LSGA_level_rise
+  - from: RM2
+    to: NSGA
+    basis: 外部知识 P6_SGATR_RM2_radiation：RM2 为响应/指示量，不得驱动 NSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P6_SGATR_RM2_radiation:RM2->NSGA
+    source_entry_id: P6_SGATR_RM2_radiation
+  - from: RM2
+    to: LSGA
+    basis: 外部知识 P6_SGATR_RM2_radiation：RM2 为响应/指示量，不得驱动 LSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P6_SGATR_RM2_radiation:RM2->LSGA
+    source_entry_id: P6_SGATR_RM2_radiation
+  - from: RM2
+    to: PSGA
+    basis: 外部知识 P6_SGATR_RM2_radiation：RM2 为响应/指示量，不得驱动 PSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P6_SGATR_RM2_radiation:RM2->PSGA
+    source_entry_id: P6_SGATR_RM2_radiation
+  - from: RM2
+    to: P
+    basis: 外部知识 P6_SGATR_RM2_radiation：RM2 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P6_SGATR_RM2_radiation:RM2->P
+    source_entry_id: P6_SGATR_RM2_radiation
+  - from: RM2
+    to: VOL
+    basis: 外部知识 P6_SGATR_RM2_radiation：RM2 为响应/指示量，不得驱动 VOL
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P6_SGATR_RM2_radiation:RM2->VOL
+    source_entry_id: P6_SGATR_RM2_radiation
+  - from: RM2
+    to: RH
+    basis: 外部知识 P6_SGATR_RM2_radiation：RM2 为响应/指示量，不得驱动 RH
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P6_SGATR_RM2_radiation:RM2->RH
+    source_entry_id: P6_SGATR_RM2_radiation
+  - from: RM2
+    to: HTR
+    basis: 外部知识 P6_SGATR_RM2_radiation：RM2 为响应/指示量，不得驱动 HTR
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P6_SGATR_RM2_radiation:RM2->HTR
+    source_entry_id: P6_SGATR_RM2_radiation
+  - from: RM2
+    to: WSPY
+    basis: 外部知识 P6_SGATR_RM2_radiation：RM2 为响应/指示量，不得驱动 WSPY
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P6_SGATR_RM2_radiation:RM2->WSPY
+    source_entry_id: P6_SGATR_RM2_radiation
+  - from: RM2
+    to: TKLV
+    basis: 外部知识 P6_SGATR_RM2_radiation：RM2 为响应/指示量，不得驱动 TKLV
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P6_SGATR_RM2_radiation:RM2->TKLV
+    source_entry_id: P6_SGATR_RM2_radiation
+  - from: RM2
+    to: VOID
+    basis: 外部知识 P6_SGATR_RM2_radiation：RM2 为响应/指示量，不得驱动 VOID
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P6_SGATR_RM2_radiation:RM2->VOID
+    source_entry_id: P6_SGATR_RM2_radiation
+  - from: RM2
+    to: WRCA
+    basis: 外部知识 P6_SGATR_RM2_radiation：RM2 为响应/指示量，不得驱动 WRCA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P6_SGATR_RM2_radiation:RM2->WRCA
+    source_entry_id: P6_SGATR_RM2_radiation
+  - from: RM2
+    to: WHPI
+    basis: 外部知识 P6_SGATR_RM2_radiation：RM2 为响应/指示量，不得驱动 WHPI
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P6_SGATR_RM2_radiation:RM2->WHPI
+    source_entry_id: P6_SGATR_RM2_radiation
+  - from: RM2
+    to: WECS
+    basis: 外部知识 P6_SGATR_RM2_radiation：RM2 为响应/指示量，不得驱动 WECS
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P6_SGATR_RM2_radiation:RM2->WECS
+    source_entry_id: P6_SGATR_RM2_radiation
+  - from: RM2
+    to: LVPZ
+    basis: 外部知识 P6_SGATR_RM2_radiation：RM2 为响应/指示量，不得驱动 LVPZ
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P6_SGATR_RM2_radiation:RM2->LVPZ
+    source_entry_id: P6_SGATR_RM2_radiation
+  - from: PSGA
+    to: VOL
+    basis: 外部知识 P7_SGATR_PSGA_ambiguous：PSGA 为响应/指示量，不得驱动 VOL
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P7_SGATR_PSGA_ambiguous:PSGA->VOL
+    source_entry_id: P7_SGATR_PSGA_ambiguous
+  - from: PSGA
+    to: LVPZ
+    basis: 外部知识 P7_SGATR_PSGA_ambiguous：PSGA 为响应/指示量，不得驱动 LVPZ
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P7_SGATR_PSGA_ambiguous:PSGA->LVPZ
+    source_entry_id: P7_SGATR_PSGA_ambiguous
+  - from: HTR
+    to: WTRA
+    basis: 外部知识 P8_SGATR_HTR_pressure_response：HTR 为响应/指示量，不得驱动 WTRA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P8_SGATR_HTR_pressure_response:HTR->WTRA
+    source_entry_id: P8_SGATR_HTR_pressure_response
+  - from: HTR
+    to: NSGA
+    basis: 外部知识 P8_SGATR_HTR_pressure_response：HTR 为响应/指示量，不得驱动 NSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P8_SGATR_HTR_pressure_response:HTR->NSGA
+    source_entry_id: P8_SGATR_HTR_pressure_response
+  - from: HTR
+    to: LSGA
+    basis: 外部知识 P8_SGATR_HTR_pressure_response：HTR 为响应/指示量，不得驱动 LSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P8_SGATR_HTR_pressure_response:HTR->LSGA
+    source_entry_id: P8_SGATR_HTR_pressure_response
+  - from: HTR
+    to: PSGA
+    basis: 外部知识 P8_SGATR_HTR_pressure_response：HTR 为响应/指示量，不得驱动 PSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P8_SGATR_HTR_pressure_response:HTR->PSGA
+    source_entry_id: P8_SGATR_HTR_pressure_response
+  - from: HTR
+    to: VOL
+    basis: 外部知识 P8_SGATR_HTR_pressure_response：HTR 为响应/指示量，不得驱动 VOL
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P8_SGATR_HTR_pressure_response:HTR->VOL
+    source_entry_id: P8_SGATR_HTR_pressure_response
+  - from: HTR
+    to: P
+    basis: 外部知识 P8_SGATR_HTR_pressure_response：HTR 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P8_SGATR_HTR_pressure_response:HTR->P
+    source_entry_id: P8_SGATR_HTR_pressure_response
+  - from: HTR
+    to: LVPZ
+    basis: 外部知识 P8_SGATR_HTR_pressure_response：HTR 为响应/指示量，不得驱动 LVPZ
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P8_SGATR_HTR_pressure_response:HTR->LVPZ
+    source_entry_id: P8_SGATR_HTR_pressure_response
+  - from: LVPZ
+    to: VOL
+    basis: 外部知识 S10_SGATR_LVPZ_response：断言 VOL→LVPZ 单向，禁其反向
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S10_SGATR_LVPZ_response:LVPZ->VOL
+    source_entry_id: S10_SGATR_LVPZ_response
+  - from: WECS
+    to: WHPI
+    basis: 外部知识 S11_SGATR_WHPI_ecs：断言 WHPI→WECS 单向，禁其反向
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S11_SGATR_WHPI_ecs:WECS->WHPI
+    source_entry_id: S11_SGATR_WHPI_ecs
+  - from: TKLV
+    to: WTRA
+    basis: 外部知识 S12_SGATR_TKLV_response：TKLV 为响应/指示量，不得驱动 WTRA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S12_SGATR_TKLV_response:TKLV->WTRA
+    source_entry_id: S12_SGATR_TKLV_response
+  - from: TKLV
+    to: NSGA
+    basis: 外部知识 S12_SGATR_TKLV_response：TKLV 为响应/指示量，不得驱动 NSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S12_SGATR_TKLV_response:TKLV->NSGA
+    source_entry_id: S12_SGATR_TKLV_response
+  - from: TKLV
+    to: LSGA
+    basis: 外部知识 S12_SGATR_TKLV_response：TKLV 为响应/指示量，不得驱动 LSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S12_SGATR_TKLV_response:TKLV->LSGA
+    source_entry_id: S12_SGATR_TKLV_response
+  - from: TKLV
+    to: PSGA
+    basis: 外部知识 S12_SGATR_TKLV_response：TKLV 为响应/指示量，不得驱动 PSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S12_SGATR_TKLV_response:TKLV->PSGA
+    source_entry_id: S12_SGATR_TKLV_response
+  - from: TKLV
+    to: P
+    basis: 外部知识 S12_SGATR_TKLV_response：TKLV 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S12_SGATR_TKLV_response:TKLV->P
+    source_entry_id: S12_SGATR_TKLV_response
+  - from: TKLV
+    to: VOL
+    basis: 外部知识 S12_SGATR_TKLV_response：TKLV 为响应/指示量，不得驱动 VOL
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S12_SGATR_TKLV_response:TKLV->VOL
+    source_entry_id: S12_SGATR_TKLV_response
+  - from: TKLV
+    to: WHPI
+    basis: 外部知识 S12_SGATR_TKLV_response：TKLV 为响应/指示量，不得驱动 WHPI
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S12_SGATR_TKLV_response:TKLV->WHPI
+    source_entry_id: S12_SGATR_TKLV_response
+  - from: TKLV
+    to: WECS
+    basis: 外部知识 S12_SGATR_TKLV_response：TKLV 为响应/指示量，不得驱动 WECS
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S12_SGATR_TKLV_response:TKLV->WECS
+    source_entry_id: S12_SGATR_TKLV_response
+  - from: TKLV
+    to: LVPZ
+    basis: 外部知识 S12_SGATR_TKLV_response：TKLV 为响应/指示量，不得驱动 LVPZ
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S12_SGATR_TKLV_response:TKLV->LVPZ
+    source_entry_id: S12_SGATR_TKLV_response
+  - from: WSPY
+    to: WTRA
+    basis: 外部知识 S13_SGATR_WSPY_control：WSPY 为响应/指示量，不得驱动 WTRA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S13_SGATR_WSPY_control:WSPY->WTRA
+    source_entry_id: S13_SGATR_WSPY_control
+  - from: WSPY
+    to: NSGA
+    basis: 外部知识 S13_SGATR_WSPY_control：WSPY 为响应/指示量，不得驱动 NSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S13_SGATR_WSPY_control:WSPY->NSGA
+    source_entry_id: S13_SGATR_WSPY_control
+  - from: WSPY
+    to: LSGA
+    basis: 外部知识 S13_SGATR_WSPY_control：WSPY 为响应/指示量，不得驱动 LSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S13_SGATR_WSPY_control:WSPY->LSGA
+    source_entry_id: S13_SGATR_WSPY_control
+  - from: WSPY
+    to: PSGA
+    basis: 外部知识 S13_SGATR_WSPY_control：WSPY 为响应/指示量，不得驱动 PSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S13_SGATR_WSPY_control:WSPY->PSGA
+    source_entry_id: S13_SGATR_WSPY_control
+  - from: WSPY
+    to: VOL
+    basis: 外部知识 S13_SGATR_WSPY_control：WSPY 为响应/指示量，不得驱动 VOL
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S13_SGATR_WSPY_control:WSPY->VOL
+    source_entry_id: S13_SGATR_WSPY_control
+  - from: WSPY
+    to: P
+    basis: 外部知识 S13_SGATR_WSPY_control：WSPY 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S13_SGATR_WSPY_control:WSPY->P
+    source_entry_id: S13_SGATR_WSPY_control
+  FLB:
+  - from: WFWA
+    to: WFLB
+    basis: 外部知识 P9_FLB_WFLB_break：断言 WFLB→WFWA 单向，禁其反向
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P9_FLB_WFLB_break:WFWA->WFLB
+    source_entry_id: P9_FLB_WFLB_break
+  - from: WSTB
+    to: WFLB
+    basis: 外部知识 P9_FLB_WFLB_break：断言 WFLB→WSTB 单向，禁其反向
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P9_FLB_WFLB_break:WSTB->WFLB
+    source_entry_id: P9_FLB_WFLB_break
+  - from: PSGA
+    to: WFLB
+    basis: 外部知识 P9_FLB_WFLB_break：断言 WFLB→PSGA 单向，禁其反向
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P9_FLB_WFLB_break:PSGA->WFLB
+    source_entry_id: P9_FLB_WFLB_break
+  - from: NSGA
+    to: WFLB
+    basis: 外部知识 P9_FLB_WFLB_break：断言 WFLB→NSGA 单向，禁其反向
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P9_FLB_WFLB_break:NSGA->WFLB
+    source_entry_id: P9_FLB_WFLB_break
+  - from: WCHG
+    to: WFLB
+    basis: 外部知识 P13_FLB_WCHG_charging：WCHG 为响应/指示量，不得驱动 WFLB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P13_FLB_WCHG_charging:WCHG->WFLB
+    source_entry_id: P13_FLB_WCHG_charging
+  - from: WCHG
+    to: WFWA
+    basis: 外部知识 P13_FLB_WCHG_charging：WCHG 为响应/指示量，不得驱动 WFWA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P13_FLB_WCHG_charging:WCHG->WFWA
+    source_entry_id: P13_FLB_WCHG_charging
+  - from: WCHG
+    to: WSTB
+    basis: 外部知识 P13_FLB_WCHG_charging：WCHG 为响应/指示量，不得驱动 WSTB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P13_FLB_WCHG_charging:WCHG->WSTB
+    source_entry_id: P13_FLB_WCHG_charging
+  - from: WCHG
+    to: PSGA
+    basis: 外部知识 P13_FLB_WCHG_charging：WCHG 为响应/指示量，不得驱动 PSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P13_FLB_WCHG_charging:WCHG->PSGA
+    source_entry_id: P13_FLB_WCHG_charging
+  - from: WCHG
+    to: TAVG
+    basis: 外部知识 P13_FLB_WCHG_charging：WCHG 为响应/指示量，不得驱动 TAVG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P13_FLB_WCHG_charging:WCHG->TAVG
+    source_entry_id: P13_FLB_WCHG_charging
+  - from: WCHG
+    to: P
+    basis: 外部知识 P13_FLB_WCHG_charging：WCHG 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P13_FLB_WCHG_charging:WCHG->P
+    source_entry_id: P13_FLB_WCHG_charging
+  - from: WUP
+    to: WFLB
+    basis: 外部知识 P14_FLB_WUP_porv：WUP 为响应/指示量，不得驱动 WFLB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P14_FLB_WUP_porv:WUP->WFLB
+    source_entry_id: P14_FLB_WUP_porv
+  - from: WUP
+    to: WFWA
+    basis: 外部知识 P14_FLB_WUP_porv：WUP 为响应/指示量，不得驱动 WFWA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P14_FLB_WUP_porv:WUP->WFWA
+    source_entry_id: P14_FLB_WUP_porv
+  - from: WUP
+    to: WSTB
+    basis: 外部知识 P14_FLB_WUP_porv：WUP 为响应/指示量，不得驱动 WSTB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P14_FLB_WUP_porv:WUP->WSTB
+    source_entry_id: P14_FLB_WUP_porv
+  - from: WUP
+    to: PSGA
+    basis: 外部知识 P14_FLB_WUP_porv：WUP 为响应/指示量，不得驱动 PSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P14_FLB_WUP_porv:WUP->PSGA
+    source_entry_id: P14_FLB_WUP_porv
+  - from: WUP
+    to: TAVG
+    basis: 外部知识 P14_FLB_WUP_porv：WUP 为响应/指示量，不得驱动 TAVG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P14_FLB_WUP_porv:WUP->TAVG
+    source_entry_id: P14_FLB_WUP_porv
+  - from: WUP
+    to: P
+    basis: 外部知识 P14_FLB_WUP_porv：WUP 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P14_FLB_WUP_porv:WUP->P
+    source_entry_id: P14_FLB_WUP_porv
+  - from: WUP
+    to: WCHG
+    basis: 外部知识 P14_FLB_WUP_porv：WUP 为响应/指示量，不得驱动 WCHG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:P14_FLB_WUP_porv:WUP->WCHG
+    source_entry_id: P14_FLB_WUP_porv
+  - from: PRB
+    to: P
+    basis: 外部知识 S15_FLB_PRB_response：PRB 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S15_FLB_PRB_response:PRB->P
+    source_entry_id: S15_FLB_PRB_response
+  - from: PRB
+    to: TAVG
+    basis: 外部知识 S15_FLB_PRB_response：PRB 为响应/指示量，不得驱动 TAVG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S15_FLB_PRB_response:PRB->TAVG
+    source_entry_id: S15_FLB_PRB_response
+  - from: PRB
+    to: PSGA
+    basis: 外部知识 S15_FLB_PRB_response：PRB 为响应/指示量，不得驱动 PSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S15_FLB_PRB_response:PRB->PSGA
+    source_entry_id: S15_FLB_PRB_response
+  - from: PRB
+    to: WFLB
+    basis: 外部知识 S15_FLB_PRB_response：PRB 为响应/指示量，不得驱动 WFLB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S15_FLB_PRB_response:PRB->WFLB
+    source_entry_id: S15_FLB_PRB_response
+  - from: PRB
+    to: WFWA
+    basis: 外部知识 S15_FLB_PRB_response：PRB 为响应/指示量，不得驱动 WFWA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S15_FLB_PRB_response:PRB->WFWA
+    source_entry_id: S15_FLB_PRB_response
+  - from: PRB
+    to: WSTB
+    basis: 外部知识 S15_FLB_PRB_response：PRB 为响应/指示量，不得驱动 WSTB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S15_FLB_PRB_response:PRB->WSTB
+    source_entry_id: S15_FLB_PRB_response
+  - from: PRB
+    to: WHPI
+    basis: 外部知识 S15_FLB_PRB_response：PRB 为响应/指示量，不得驱动 WHPI
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S15_FLB_PRB_response:PRB->WHPI
+    source_entry_id: S15_FLB_PRB_response
+  - from: PRB
+    to: WCHG
+    basis: 外部知识 S15_FLB_PRB_response：PRB 为响应/指示量，不得驱动 WCHG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S15_FLB_PRB_response:PRB->WCHG
+    source_entry_id: S15_FLB_PRB_response
+  - from: PRB
+    to: WUP
+    basis: 外部知识 S15_FLB_PRB_response：PRB 为响应/指示量，不得驱动 WUP
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S15_FLB_PRB_response:PRB->WUP
+    source_entry_id: S15_FLB_PRB_response
+  - from: PRB
+    to: QMGB
+    basis: 外部知识 S15_FLB_PRB_response：PRB 为响应/指示量，不得驱动 QMGB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S15_FLB_PRB_response:PRB->QMGB
+    source_entry_id: S15_FLB_PRB_response
+  - from: PRB
+    to: PWNT
+    basis: 外部知识 S15_FLB_PRB_response：PRB 为响应/指示量，不得驱动 PWNT
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S15_FLB_PRB_response:PRB->PWNT
+    source_entry_id: S15_FLB_PRB_response
+  - from: TRB
+    to: P
+    basis: 外部知识 S16_FLB_TRB_response：TRB 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S16_FLB_TRB_response:TRB->P
+    source_entry_id: S16_FLB_TRB_response
+  - from: TRB
+    to: TAVG
+    basis: 外部知识 S16_FLB_TRB_response：TRB 为响应/指示量，不得驱动 TAVG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S16_FLB_TRB_response:TRB->TAVG
+    source_entry_id: S16_FLB_TRB_response
+  - from: TRB
+    to: PSGA
+    basis: 外部知识 S16_FLB_TRB_response：TRB 为响应/指示量，不得驱动 PSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S16_FLB_TRB_response:TRB->PSGA
+    source_entry_id: S16_FLB_TRB_response
+  - from: TRB
+    to: WFLB
+    basis: 外部知识 S16_FLB_TRB_response：TRB 为响应/指示量，不得驱动 WFLB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S16_FLB_TRB_response:TRB->WFLB
+    source_entry_id: S16_FLB_TRB_response
+  - from: TRB
+    to: WFWA
+    basis: 外部知识 S16_FLB_TRB_response：TRB 为响应/指示量，不得驱动 WFWA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S16_FLB_TRB_response:TRB->WFWA
+    source_entry_id: S16_FLB_TRB_response
+  - from: TRB
+    to: WSTB
+    basis: 外部知识 S16_FLB_TRB_response：TRB 为响应/指示量，不得驱动 WSTB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S16_FLB_TRB_response:TRB->WSTB
+    source_entry_id: S16_FLB_TRB_response
+  - from: TRB
+    to: WHPI
+    basis: 外部知识 S16_FLB_TRB_response：TRB 为响应/指示量，不得驱动 WHPI
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S16_FLB_TRB_response:TRB->WHPI
+    source_entry_id: S16_FLB_TRB_response
+  - from: TRB
+    to: WCHG
+    basis: 外部知识 S16_FLB_TRB_response：TRB 为响应/指示量，不得驱动 WCHG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S16_FLB_TRB_response:TRB->WCHG
+    source_entry_id: S16_FLB_TRB_response
+  - from: TRB
+    to: WUP
+    basis: 外部知识 S16_FLB_TRB_response：TRB 为响应/指示量，不得驱动 WUP
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S16_FLB_TRB_response:TRB->WUP
+    source_entry_id: S16_FLB_TRB_response
+  - from: TRB
+    to: QMGB
+    basis: 外部知识 S16_FLB_TRB_response：TRB 为响应/指示量，不得驱动 QMGB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S16_FLB_TRB_response:TRB->QMGB
+    source_entry_id: S16_FLB_TRB_response
+  - from: TRB
+    to: PWNT
+    basis: 外部知识 S16_FLB_TRB_response：TRB 为响应/指示量，不得驱动 PWNT
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S16_FLB_TRB_response:TRB->PWNT
+    source_entry_id: S16_FLB_TRB_response
+  - from: DNBR
+    to: P
+    basis: 外部知识 S17_FLB_DNBR_consequence：DNBR 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S17_FLB_DNBR_consequence:DNBR->P
+    source_entry_id: S17_FLB_DNBR_consequence
+  - from: DNBR
+    to: TAVG
+    basis: 外部知识 S17_FLB_DNBR_consequence：DNBR 为响应/指示量，不得驱动 TAVG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S17_FLB_DNBR_consequence:DNBR->TAVG
+    source_entry_id: S17_FLB_DNBR_consequence
+  - from: DNBR
+    to: PSGA
+    basis: 外部知识 S17_FLB_DNBR_consequence：DNBR 为响应/指示量，不得驱动 PSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S17_FLB_DNBR_consequence:DNBR->PSGA
+    source_entry_id: S17_FLB_DNBR_consequence
+  - from: DNBR
+    to: WFLB
+    basis: 外部知识 S17_FLB_DNBR_consequence：DNBR 为响应/指示量，不得驱动 WFLB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S17_FLB_DNBR_consequence:DNBR->WFLB
+    source_entry_id: S17_FLB_DNBR_consequence
+  - from: DNBR
+    to: WFWA
+    basis: 外部知识 S17_FLB_DNBR_consequence：DNBR 为响应/指示量，不得驱动 WFWA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S17_FLB_DNBR_consequence:DNBR->WFWA
+    source_entry_id: S17_FLB_DNBR_consequence
+  - from: DNBR
+    to: WSTB
+    basis: 外部知识 S17_FLB_DNBR_consequence：DNBR 为响应/指示量，不得驱动 WSTB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S17_FLB_DNBR_consequence:DNBR->WSTB
+    source_entry_id: S17_FLB_DNBR_consequence
+  - from: DNBR
+    to: WHPI
+    basis: 外部知识 S17_FLB_DNBR_consequence：DNBR 为响应/指示量，不得驱动 WHPI
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S17_FLB_DNBR_consequence:DNBR->WHPI
+    source_entry_id: S17_FLB_DNBR_consequence
+  - from: DNBR
+    to: WCHG
+    basis: 外部知识 S17_FLB_DNBR_consequence：DNBR 为响应/指示量，不得驱动 WCHG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S17_FLB_DNBR_consequence:DNBR->WCHG
+    source_entry_id: S17_FLB_DNBR_consequence
+  - from: DNBR
+    to: WUP
+    basis: 外部知识 S17_FLB_DNBR_consequence：DNBR 为响应/指示量，不得驱动 WUP
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S17_FLB_DNBR_consequence:DNBR->WUP
+    source_entry_id: S17_FLB_DNBR_consequence
+  - from: DNBR
+    to: QMGB
+    basis: 外部知识 S17_FLB_DNBR_consequence：DNBR 为响应/指示量，不得驱动 QMGB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S17_FLB_DNBR_consequence:DNBR->QMGB
+    source_entry_id: S17_FLB_DNBR_consequence
+  - from: DNBR
+    to: PWNT
+    basis: 外部知识 S17_FLB_DNBR_consequence：DNBR 为响应/指示量，不得驱动 PWNT
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S17_FLB_DNBR_consequence:DNBR->PWNT
+    source_entry_id: S17_FLB_DNBR_consequence
+  - from: RBLK
+    to: P
+    basis: 外部知识 S18_FLB_RBLK_consequence：RBLK 为响应/指示量，不得驱动 P
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S18_FLB_RBLK_consequence:RBLK->P
+    source_entry_id: S18_FLB_RBLK_consequence
+  - from: RBLK
+    to: TAVG
+    basis: 外部知识 S18_FLB_RBLK_consequence：RBLK 为响应/指示量，不得驱动 TAVG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S18_FLB_RBLK_consequence:RBLK->TAVG
+    source_entry_id: S18_FLB_RBLK_consequence
+  - from: RBLK
+    to: PSGA
+    basis: 外部知识 S18_FLB_RBLK_consequence：RBLK 为响应/指示量，不得驱动 PSGA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S18_FLB_RBLK_consequence:RBLK->PSGA
+    source_entry_id: S18_FLB_RBLK_consequence
+  - from: RBLK
+    to: WFLB
+    basis: 外部知识 S18_FLB_RBLK_consequence：RBLK 为响应/指示量，不得驱动 WFLB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S18_FLB_RBLK_consequence:RBLK->WFLB
+    source_entry_id: S18_FLB_RBLK_consequence
+  - from: RBLK
+    to: WFWA
+    basis: 外部知识 S18_FLB_RBLK_consequence：RBLK 为响应/指示量，不得驱动 WFWA
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S18_FLB_RBLK_consequence:RBLK->WFWA
+    source_entry_id: S18_FLB_RBLK_consequence
+  - from: RBLK
+    to: WSTB
+    basis: 外部知识 S18_FLB_RBLK_consequence：RBLK 为响应/指示量，不得驱动 WSTB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S18_FLB_RBLK_consequence:RBLK->WSTB
+    source_entry_id: S18_FLB_RBLK_consequence
+  - from: RBLK
+    to: WHPI
+    basis: 外部知识 S18_FLB_RBLK_consequence：RBLK 为响应/指示量，不得驱动 WHPI
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S18_FLB_RBLK_consequence:RBLK->WHPI
+    source_entry_id: S18_FLB_RBLK_consequence
+  - from: RBLK
+    to: WCHG
+    basis: 外部知识 S18_FLB_RBLK_consequence：RBLK 为响应/指示量，不得驱动 WCHG
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S18_FLB_RBLK_consequence:RBLK->WCHG
+    source_entry_id: S18_FLB_RBLK_consequence
+  - from: RBLK
+    to: WUP
+    basis: 外部知识 S18_FLB_RBLK_consequence：RBLK 为响应/指示量，不得驱动 WUP
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S18_FLB_RBLK_consequence:RBLK->WUP
+    source_entry_id: S18_FLB_RBLK_consequence
+  - from: RBLK
+    to: QMGB
+    basis: 外部知识 S18_FLB_RBLK_consequence：RBLK 为响应/指示量，不得驱动 QMGB
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S18_FLB_RBLK_consequence:RBLK->QMGB
+    source_entry_id: S18_FLB_RBLK_consequence
+  - from: RBLK
+    to: PWNT
+    basis: 外部知识 S18_FLB_RBLK_consequence：RBLK 为响应/指示量，不得驱动 PWNT
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S18_FLB_RBLK_consequence:RBLK->PWNT
+    source_entry_id: S18_FLB_RBLK_consequence
+  - from: WECS
+    to: WHPI
+    basis: 外部知识 S32_FLB_WHPI_ecs：断言 WHPI→WECS 单向，禁其反向
+    origin: hard_forbid_edge
+    constraint_id: constraints_v1:S32_FLB_WHPI_ecs:WECS->WHPI
+    source_entry_id: S32_FLB_WHPI_ecs
+hard_forbid_path: []
+prior_knowledge:
+  mode: bidirectional_only
+  entries: []
+  note: 本轮不使用 prior_knowledge=0（会翻序造边，E13）；预注册为空
+known_conflicts:
+- accident: SGATR
+  edge:
+  - RM2
+  - VOL
+  against: K3_expected_chain
+n_rules:
+  LOCA: 45
+  SGATR: 52
+  FLB: 62
+citable: false
+note: AI 代审、非专家确认；真人专家可逐条推翻

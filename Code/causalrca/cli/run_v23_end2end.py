@@ -225,7 +225,6 @@ def compute_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
     traced = ST.trace_roots(topology, marker, stable, variables, top_k=5)
     roots = traced["root_candidates"]
     diag = traced["diagnostics"]
-
     # 拓扑节点补 role（供图着色，不改排序）
     nodes = {
         v: {**topology[v], "role": ST.classify_role(topology[v]["in_degree"],
@@ -237,7 +236,8 @@ def compute_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
     return {
         "k": k, "g": g, "marker": marker, "variables": variables,
         "sig": sig, "stable": stable, "topology": topology, "nodes": nodes,
-        "roots": roots, "diag": diag, "gating": gating,
+        "roots": roots, "all_candidates": traced.get("all_candidates") or [],
+        "diag": diag, "gating": gating, "ontology": ontology,
         "baseline_coverage": cov, "n_severities": len(sevs),
         "n_consensus": n_cons, "n_conflict": n_conf,
     }
@@ -246,6 +246,18 @@ def compute_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
 def _root_entry(c: Dict) -> Dict:
     return {
         "rank": c["rank"],
+        "rank_v2": c.get("rank_v2"),
+        "rank_if_kept": c.get("rank_if_kept"),
+        "in_pool": c.get("in_pool"),
+        "gate_status": c.get("gate_status"),
+        "gate_reason": c.get("gate_reason"),
+        "gate_rule_id": c.get("gate_rule_id"),
+        "deviation_raw": c.get("deviation_raw"),
+        "sigma_source": c.get("sigma_source"),
+        "sigma_value": c.get("sigma_value"),
+        "sigma_rule_id": c.get("sigma_rule_id"),
+        "sigma_bucket": c.get("sigma_bucket"),
+        "tolerance_source": c.get("tolerance_source"),
         "variable": c["variable"],
         "entity": ST.enrich_entity(c["variable"]),
         "role": c["role"],
@@ -264,8 +276,37 @@ def _root_entry(c: Dict) -> Dict:
 def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
                  n_bootstrap: int, run_id: str, cons: Dict) -> Dict:
     """计算并写入 signature / root_candidates / topology / clip_sensitivity。"""
+    from causalrca.causal import gating as GATE
+    from causalrca.causal import path_audit as PA
+    from causalrca.evidence import deviation as DEV
+
     r = compute_template(k, g, gvars, inputs, n_bootstrap, cons)
     sig, diag, roots = r["sig"], r["diag"], r["roots"]
+
+    # ---- 候选池公差门（先筛后排；只改池子，不改分数）----
+    policy = GATE.load_policy()
+    tol = DEV.load_tolerance(k, run_id)
+    sev = DEV.max_severity_in_group(k, g)
+    dev_full = DEV.compute_deviation(k, sev, tol)
+    total_effect = {c["variable"]: c["total_effect"] for c in r["all_candidates"]}
+    gate = GATE.build_gate(k, g, r["variables"], total_effect, tol, dev_full, policy)
+    gate_res = GATE.apply_gate(r["all_candidates"], r["topology"], gate, policy)
+    by_var = {c["variable"]: c for c in gate_res["ranked_all"]}
+    for c in roots:
+        info = by_var.get(c["variable"]) or {}
+        for fld in ("rank_v2", "rank_if_kept", "in_pool", "gate_status", "gate_reason",
+                    "gate_rule_id", "deviation_raw", "sigma_source", "sigma_value",
+                    "sigma_rule_id", "sigma_bucket", "tolerance_source"):
+            c[fld] = info.get(fld)
+
+    # ---- 多跳后置审计（只读图，不回改 B/T/rank）----
+    audit = PA.audit_template(k, g, r["variables"], r["stable"],
+                              r["ontology"].get("forbidden") or [], policy, run_id)
+    audit_src = f"signatures/signature_{k}_{g}.json"
+    artifact.write_artifact(f"path_audit_{k}_{g}", audit, "signatures",
+                            run_id=run_id, accident_type=k, group=g,
+                            source=audit_src)
+
     # V23-ALGO-001：弃权门控（B_CLIP 保持 5，仅标记降级）
     stability = ST.stability_gate(diag, len(r["stable"]))
     sig.setdefault("auxiliary", {})["stability"] = stability
@@ -307,7 +348,15 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
         "cond_IminusB": diag["cond_IminusB"],
         "cond_IminusB_after_clip": diag["cond_IminusB_after_clip"],
         "clipped_edges": diag["clipped_edges"],
+        "gate_policy_version": gate.get("gate_policy_version"),
+        "gate_rule_id": gate.get("gate_rule_id"),
+        "tolerance_source": gate.get("tolerance_source"),
+        "candidate_pool": gate_res["candidate_pool"],
+        "pool_size": gate_res["candidate_pool"]["n_kept"],
+        "n_excluded": gate_res["candidate_pool"]["n_excluded"],
+        "sigma_buckets": tol.get("sigma_buckets"),
         "root_candidates": [_root_entry(c) for c in roots],
+        "top5_v2": [c["variable"] for c in gate_res["pool_order"][:5]],
         # 历史字段：取消遮蔽（2026-11-11）后仅作标识/兼容既有产物结构；
         # 名次直接从本榜单里该变量那一条取（未进 Top-K 时为 None）。
         "marker_info": {
@@ -319,9 +368,35 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
         },
         "method_note": ("排序键=总因果效应 T=(I-B)^-1 对症状端(marker+terminal)的"
                         "|效应| 之和；次级 in_degree ASC/weighted_reach DESC。"
+                        "候选池由冻结门策略收缩（gate_policy_v1，无 λ、无权重）。"
                         + (" " + CONSENSUS_NOTE if not cons["available"] else "")),
     })
     artifact.write_artifact(f"root_candidates_{k}_{g}", root_payload, "tracing",
+                            run_id=run_id, accident_type=k, group=g, source=sig_src)
+
+    # 全量候选（被剔除者不物理删除）：in_pool/rank_if_kept 可反查
+    all_payload = dict(common)
+    all_payload.update({
+        "n_nodes": len(gvars),
+        "gate_policy_version": gate.get("gate_policy_version"),
+        "gate_rule_id": gate.get("gate_rule_id"),
+        "candidate_pool": gate_res["candidate_pool"],
+        "variables": [dict(c) for c in gate_res["ranked_all"]],
+        "note": ("全量候选（含被门控剔除者）：in_pool=false 仍保留，"
+                 "rank 为旧全量口径，rank_v2 为池内口径，rank_if_kept 为不剔除时的位次"),
+    })
+    artifact.write_artifact(f"candidates_all_{k}_{g}", all_payload, "tracing",
+                            run_id=run_id, accident_type=k, group=g, source=sig_src)
+
+    # 门控 vs 全量对照（只进报告，不改运行口径）
+    before_order = [c["variable"] for c in sorted(gate_res["ranked_all"],
+                                                  key=lambda x: x["rank"])]
+    cmp_doc = GATE.gate_compare(before_order, gate_res["pool_order"], len(gvars))
+    cmp_doc.update({"template": f"{k}_{g}", "run_id": run_id,
+                    "gate_policy_version": gate.get("gate_policy_version"),
+                    "gate_rule_id": gate.get("gate_rule_id"),
+                    "g": gate.get("g")})
+    artifact.write_artifact(f"gate_compare_{k}_{g}", cmp_doc, "reports",
                             run_id=run_id, accident_type=k, group=g, source=sig_src)
 
     topo_payload = dict(common)
@@ -348,6 +423,13 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
         "cond_IminusB_after_clip": diag["cond_IminusB_after_clip"],
         "top5": [c["variable"] for c in roots],
         "top1": roots[0]["variable"] if roots else None,
+        "top1_v2": (gate_res["pool_order"][0]["variable"]
+                    if gate_res["pool_order"] else None),
+        "top5_v2": [c["variable"] for c in gate_res["pool_order"][:5]],
+        "pool_size": gate_res["candidate_pool"]["n_kept"],
+        "n_excluded": gate_res["candidate_pool"]["n_excluded"],
+        "path_audit_counts": audit["counts"],
+        "path_audit_truncated": audit["truncated"],
         "n_consensus": r["n_consensus"],
         "top1_stable_clip": sens["top1_stable"],
         "min_rank_overlap_at_5": sens["min_rank_overlap_at_5"],

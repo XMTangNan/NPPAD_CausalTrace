@@ -114,13 +114,35 @@ def compute_deviation(accident_type: str, severity: int,
 
     raw: Dict[str, Dict] = {}
     for var, th in thresholds.items():
-        if th.get("saturated"):
-            continue
         if var not in df.columns:
             continue
         vals = df[var].to_numpy(dtype=float)
         mu = th["mu"]
-        sigma = float(th["sigma_robust"])
+        sv = th.get("sigma_v2") or {}
+        sigma_bucket = sv.get("bucket")
+        sigma_source = sv.get("sigma_source")
+        sigma_rule_id = sv.get("sigma_rule_id")
+        sigma_value = sv.get("sigma_value")
+        # σ 五桶（§4.3.12）：不可评估不造数，直接判 not_evaluable
+        if th.get("saturated") or sv.get("evaluability") != "ok":
+            reason = (sv.get("not_evaluable_reason")
+                      or ("saturated" if th.get("saturated") else "not_calibrated"))
+            raw[var] = {
+                "d_raw": None, "d": None,
+                "d_status": "not_evaluable", "d_status_reason": reason,
+                "evaluability": "not_evaluable",
+                "sigma_bucket": sigma_bucket, "sigma_source": sigma_source,
+                "sigma_value": sigma_value, "sigma_rule_id": sigma_rule_id,
+                "value_at_max": None, "mu": round(mu, 4),
+                "sigma_robust": (round(float(sigma_value), 6)
+                                 if sigma_value is not None else None),
+                "sigma_floor_source": str(th.get("sigma_floor_source") or "unknown"),
+                "quantile_at_max": None, "time_idx_max": None,
+                "z_pathology": bool(th.get("z_pathology")),
+                "constant_pre_inject": bool(th.get("constant_pre_inject")),
+            }
+            continue
+        sigma = float(sigma_value)
         sigma_mad = float(th.get("sigma_mad") or 0.0)
         floor_src = str(th.get("sigma_floor_source") or "unknown")
         _q = th.get("quantiles") or {}
@@ -134,6 +156,9 @@ def compute_deviation(accident_type: str, severity: int,
             raw[var] = {
                 "d_raw": None, "d": None,
                 "d_status": D_STATUS_NOT_COMPARABLE, "d_status_reason": why,
+                "evaluability": "not_evaluable",
+                "sigma_bucket": sigma_bucket, "sigma_source": sigma_source,
+                "sigma_value": sigma_value, "sigma_rule_id": sigma_rule_id,
                 "value_at_max": None, "mu": round(mu, 4),
                 "sigma_robust": round(sigma, 6), "sigma_floor_source": floor_src,
                 "quantile_at_max": None, "time_idx_max": None,
@@ -156,6 +181,9 @@ def compute_deviation(accident_type: str, severity: int,
             "d_raw": d_raw,
             "d": round(min(d_raw, D_TRUNCATION), 3),
             "d_status": D_STATUS_OK,
+            "evaluability": "ok",
+            "sigma_bucket": sigma_bucket, "sigma_source": sigma_source,
+            "sigma_value": sigma_value, "sigma_rule_id": sigma_rule_id,
             "value_at_max": round(val_at_max, 4),
             "mu": round(mu, 4),
             "sigma_robust": round(sigma, 4),
@@ -200,9 +228,12 @@ def compute_deviation(accident_type: str, severity: int,
     level_counts = {name: 0 for name in LEVEL_NAMES}
     abs_level_counts = {name: 0 for _, name in ABS_LEVELS}
     n_not_comparable = 0
+    n_not_evaluable = 0
     for v in sorted_dev.values():
         if v["d_raw"] is None:
             n_not_comparable += 1
+            if v.get("d_status") == "not_evaluable":
+                n_not_evaluable += 1
             continue
         level_counts[v["level"]] += 1
         abs_level_counts[v["d_abs_level"]] += 1
@@ -212,6 +243,7 @@ def compute_deviation(accident_type: str, severity: int,
         "severity": severity,
         "n_variables": len(sorted_dev),
         "n_not_comparable": n_not_comparable,
+        "n_not_evaluable": n_not_evaluable,
         "not_comparable": [v for v, d in sorted_dev.items() if d["d_raw"] is None],
         "level_counts": level_counts,
         "abs_level_counts": abs_level_counts,
@@ -244,6 +276,7 @@ def deviation_for_group(accident_type: str, group: str, tolerance: Dict,
         "severity": sev,
         "n_variables": dev["n_variables"],
         "n_not_comparable": dev.get("n_not_comparable", 0),
+        "n_not_evaluable": dev.get("n_not_evaluable", 0),
         "not_comparable": dev.get("not_comparable", []),
         "level_counts": dev["level_counts"],
         "abs_level_counts": dev["abs_level_counts"],

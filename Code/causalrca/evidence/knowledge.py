@@ -426,13 +426,37 @@ def build_ontology(accident_type: str, variables: List[str]) -> Dict:
         if a in vset and b in vset:
             competitive.append({"pair": [a, b], "basis": "物理反馈环/L3方向不预设，双向保留"})
 
+    forbidden = _forbidden_rules(variables)
+    # constraints_v1（外部知识硬禁边）：估完再清零 B[i,j]，与 K1 去重后合并。
+    from causalrca.evidence import constraints as CONS
+    seen = {(f["from"], f["to"]) for f in forbidden}
+    n_ext = 0
+    for rule in CONS.constraints_for(accident_type):
+        src, dst = rule.get("from"), rule.get("to")
+        if src not in vset or dst not in vset or (src, dst) in seen:
+            continue
+        seen.add((src, dst))
+        forbidden.append({"from": src, "to": dst,
+                          "basis": rule.get("basis", "外部知识禁边"),
+                          "origin": rule.get("origin", "hard_forbid_edge"),
+                          "constraint_id": rule.get("constraint_id"),
+                          "source_entry_id": rule.get("source_entry_id")})
+        n_ext += 1
+
     ontology = {
         "accident_type": accident_type,
         "variables": variables,
         "entities": entities,
         "allowed": allowed,
         "competitive": competitive,
-        "forbidden": _forbidden_rules(variables),
+        "forbidden": forbidden,
+        "constraints": {
+            "version": CONS.CONSTRAINTS_VERSION,
+            "n_hard_forbid_edge_applied": n_ext,
+            "n_hard_forbid_path": 0,
+            "note": ("外部知识只落硬禁边（估完清零 B[i,j]）；路径级禁边预注册为空，"
+                     "不使用 prior_knowledge=0（E13）；AI 代审、非专家确认"),
+        },
     }
     return ontology
 

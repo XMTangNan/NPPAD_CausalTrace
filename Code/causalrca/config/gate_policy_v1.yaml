@@ -1,0 +1,41 @@
+schema: causaltrace/gate_policy/v1
+version: gate_policy_v1
+frozen_at: "2026-11-14"
+frozen_by: "agent (V23-CODE-046)"
+source: "方案 §4.3.2/§4.3.8/§4.3.12 用户裁决：先筛后排，无 λ、无权重"
+gate_rule_id: gate_v1_strict_d1
+# 门槛 g 只回答“谁有资格进候选池”，不改变任何变量的分数；随本文件冻结。
+g: 1.0
+# not_evaluable 的处置：保守 = 不进池（方案 §4.3.2(4) 默认）
+not_evaluable_policy: exclude
+# V 定义：模板全部入模变量（不是 96 变量本体）
+V_definition: template_in_model_variables
+# 池内排序：只有效应分 E_v，其次键逐位沿用旧 rank
+ranking:
+  primary: total_effect_desc
+  tie_breakers:
+    - in_degree_asc
+    - weighted_reach_desc
+    - reach_size_desc
+    - consensus_rate_desc
+    - variable_asc
+  conductive_first: true
+sigma:
+  # σ 只是门的尺子，不进入任何排序分数（方案 §4.3.12）
+  mad_multiplier: 1.4826
+  insufficient_ratio: 10.0
+  bucket_priority: [b4, b5, b3, b2, b1]
+  not_evaluable_reasons: [insufficient_baseline, saturated, not_calibrated]
+tolerance_source: data_proxy
+path_audit:
+  # 计算上限，不是物理跳数约束（方案 §4.2.7）
+  max_paths: 1000
+  max_hops: 8
+  top_n: 20
+  include_all_violating: true
+llm:
+  # 显式 pin：不依赖运行时环境变量改模型
+  model: deepseek-flash
+  temperature: 0.0
+  timeout_s: 60
+  max_retries: 1

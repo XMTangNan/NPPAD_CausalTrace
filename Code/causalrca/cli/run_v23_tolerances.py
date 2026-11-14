@@ -30,6 +30,26 @@ def run_classes(classes: Sequence[str], run_id: str) -> Dict[str, Dict]:
         artifact.write_artifact(
             f"tolerance_{k}", tol, "tolerances", run_id=run_id, accident_type=k,
             source=f"nppad_repo/Operation_csv_data/{k}/{k}_1.csv")
+        # v2 尺子（§4.3.12）：逐变量 sigma_source/value/rule_id/evaluability，冻结后只读
+        v2 = {
+            "schema": "causaltrace/tolerance_v2/v1",
+            "accident_type": k,
+            "tolerance_source": tol.get("tolerance_source", "data_proxy"),
+            "sigma_buckets": tol.get("sigma_buckets"),
+            "variables": {
+                v: {"mu": th.get("mu"),
+                    **(th.get("sigma_v2") or {}),
+                    "sigma_floor": th.get("sigma_floor"),
+                    "sigma_floor_source": th.get("sigma_floor_source"),
+                    "sigma_mad": th.get("sigma_mad"),
+                    "saturated": th.get("saturated")}
+                for v, th in (tol.get("thresholds") or {}).items()},
+            "note": ("σ 只作候选池门的尺子，不进入排序分数；不可评估不造下限"
+                     "（方案 §4.3.12，V23-CODE-046）"),
+        }
+        artifact.write_artifact(
+            f"tolerance_{k}_v2", v2, "tolerances", run_id=run_id, accident_type=k,
+            source=f"tolerances/tolerance_{k}.json")
         results[k] = tol
     return results
 

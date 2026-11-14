@@ -42,6 +42,41 @@ Z_PATHOLOGY_RATIO = 0.01        # σ/|μ| < 1% 标记 Z 病态
 Z_PATHOLOGY_MAX_PCT = 0.30      # 病态变量比例上限 30%（诊断口径，不阻断产物）
 MIN_VARIABLES_PASS = 10         # 最少可用变量数
 
+# ==================== σ 五桶（方案 §4.3.12，V23-CODE-046）====================
+# 尺子只服务候选池门（gate），不进入任何排序分数。优先级 b4 > b5 > b3 > b2 > b1。
+SIGMA_MAD_MULTIPLIER = 1.4826
+SIGMA_INSUFFICIENT_RATIO = 10.0   # fallback 且 MAD < floor/10 → 样本不足
+
+
+def classify_sigma_bucket(sigma_mad: float, sigma_floor: float,
+                          floor_source: str, saturated: bool) -> Dict:
+    """按 §4.3.12 判 σ 桶；该判不可评估就判，不编下限。"""
+    if saturated:
+        return {"bucket": "b4", "sigma_source": None, "sigma_value": None,
+                "sigma_rule_id": "sigma_b4_saturated",
+                "evaluability": "not_evaluable",
+                "not_evaluable_reason": "saturated"}
+    if (floor_source != "physical"
+            and float(sigma_mad) < float(sigma_floor) / SIGMA_INSUFFICIENT_RATIO):
+        return {"bucket": "b3", "sigma_source": None, "sigma_value": None,
+                "sigma_rule_id": "sigma_b3_insufficient_baseline",
+                "evaluability": "not_evaluable",
+                "not_evaluable_reason": "insufficient_baseline"}
+    if float(sigma_floor) >= float(sigma_mad):
+        if float(sigma_floor) <= 0.0:
+            return {"bucket": "b5", "sigma_source": None, "sigma_value": None,
+                    "sigma_rule_id": "sigma_b5_not_calibrated",
+                    "evaluability": "not_evaluable",
+                    "not_evaluable_reason": "not_calibrated"}
+        return {"bucket": "b2", "sigma_source": "physical_floor",
+                "sigma_value": float(sigma_floor),
+                "sigma_rule_id": "sigma_b2_physical_floor",
+                "evaluability": "ok", "not_evaluable_reason": None}
+    return {"bucket": "b1", "sigma_source": "measured_mad",
+            "sigma_value": float(sigma_mad),
+            "sigma_rule_id": "sigma_b1_measured_mad",
+            "evaluability": "ok", "not_evaluable_reason": None}
+
 # V23-DATA-004：注入前固定基线（TIME_STEP=10s → 0,10,…,100 共 11 点）
 PRE_INJECT_BASELINE_START = 0.0
 PRE_INJECT_BASELINE_END = 100.0
@@ -184,6 +219,8 @@ def compute_tolerance(accident_type: str) -> Dict:
             "sigma_mad": float(sigma_mad),
             "sigma_floor": float(sigma_floor),
             "sigma_floor_source": floor_source,
+            "sigma_v2": classify_sigma_bucket(sigma_mad, sigma_floor,
+                                              floor_source, is_saturated),
             "quantiles": quantiles,
             "z_pathology": is_z_pathology,
             "saturated": is_saturated,
@@ -213,9 +250,26 @@ def compute_tolerance(accident_type: str) -> Dict:
         ),
     }
 
+    bucket_counts: Dict[str, int] = {}
+    for th in thresholds.values():
+        b = th["sigma_v2"]["bucket"]
+        bucket_counts[b] = bucket_counts.get(b, 0) + 1
+    n_not_evaluable = sum(1 for th in thresholds.values()
+                          if th["sigma_v2"]["evaluability"] == "not_evaluable")
+
     return {
         "accident_type": accident_type,
         "t_inject": t_inject,
+        "tolerance_source": "data_proxy",
+        "sigma_buckets": {
+            "counts": dict(sorted(bucket_counts.items())),
+            "n_variables": len(thresholds),
+            "n_not_evaluable": n_not_evaluable,
+            "mad_multiplier": SIGMA_MAD_MULTIPLIER,
+            "insufficient_ratio": SIGMA_INSUFFICIENT_RATIO,
+            "bucket_priority": ["b4", "b5", "b3", "b2", "b1"],
+            "note": "σ 只是门的尺子，不进入排序分数；不可评估不造数（§4.3.12）",
+        },
         "baseline_source": f"{accident_type}_1.csv 注入前 [0,100]s 固定基线",
         "baseline_rule": ("V23-DATA-004：基线=注入前 [0,100]s 共 11 点；"
                           "μ=基线均值，σ=max(1.4826*MAD, σ_floor(v))；"

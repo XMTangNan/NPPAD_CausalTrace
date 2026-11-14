@@ -2477,3 +2477,101 @@ gitignore），`pytest` 161 passed。
 - 方案落点：`方案/NPPAD-CausalTrace-v2.3-外部知识贯穿与排序公差方案-2026-11-14.md` §4.13.7、台账 E23/E24/N38。
 - 未跑链路、未改代码、未推送。
 - 状态：✅ closed。
+
+**V23-DESIGN-104（open）·【用户裁决 + 自主决定】预注册阈值与门控口径（跑前冻结）**
+
+- 用户裁决：排序分只有 ，次键沿用旧顺序；知识只落禁边改  与公差门改候选池；
+  **不得引入任何权重或可调系数**；被剔除者不物理删除。
+- 冻结值（跑前定，跑后不改）：
+  - 门策略 ，sha256 = ；
+  - （门槛只回答“有资格进池”，不改分数）；（保守，不进池）；
+  - σ：；样本不足判据 ；桶优先级 b4 > b5 > b3 > b2 > b1；
+  - 审计上限 、、，全部违规路径全收；
+  - 约束冻结件 ，sha256 = 。
+- 影响档位：D2/D3/D4（排序口径、禁边、解释证据包）；与  的排名**不可直接混用**。
+- 状态：✅ closed（见下方“V23 实施收口 2026-11-15”）。
+
+**V23-DESIGN-104（open）·【用户裁决 + 自主决定】预注册阈值与门控口径（跑前冻结）**
+
+- 用户裁决：排序分只有 `E_v = Σ_s |T[s,v]|`，次键沿用旧顺序；知识只落禁边改 `B` 与公差门改候选池；
+  **不得引入任何权重或可调系数**；被剔除者不物理删除。
+- 冻结值（跑前定，跑后不改）：
+  - 门策略 `gate_policy_v1.yaml`，sha256 = `b4ad550b8183ce0f159531c5c7d58939f3a75ac6ac81f13238744b744a9331d3`；
+  - `g = 1.0`（门槛只回答“有资格进池”，不改分数）；`not_evaluable_policy = exclude`（保守，不进池）；
+  - σ：`1.4826·MAD`；样本不足判据 `MAD < σ_floor/10`；桶优先级 b4 > b5 > b3 > b2 > b1；
+  - 审计上限 `max_paths=1000`、`max_hops=8`、`top_n=20`，全部违规路径全收；
+  - 约束冻结件 `constraints_v1.yaml`，sha256 = `909650755a13afe21ad16e0d2f7386d4fa301d94272bfd950eb435c52fa1846c`。
+- 影响档位：D2/D3/D4（排序口径、禁边、解释证据包）；与 `v23-20261112T185258` 的排名**不可直接混用**。
+- 状态：✅ closed（见下方“V23 实施收口 2026-11-15”）。
+
+**V23-DESIGN-105（open）·【自主决定】偏离方案处（保守解，逐条待复核）**
+
+- `hard_forbid_path` 预注册为空：路径级禁令缺少可靠依据，且 `prior_knowledge=0` 会先定序再删边（E13）；
+  本轮只做“多跳后置审计”，不做事前路径禁边。
+- `prior_knowledge` 不使用（条目为空），只保留“双向禁”这一安全用法定义；避免单边 pk=0 翻序造边。
+- 路径审计角色映射为 6→4 类草案（injection/response_control→driver；response_conduction/response→response；
+  response_state→consequence；response_indicator→observation）；角色转移表按方案默认（driver→response/consequence、
+  response→response/consequence/observation 允许，其余判 violating）。该映射未经专家确认，属于**可被推翻**的自主决定。
+- 极性冲突只在“断言边 sign 与所在条目 expected_direction 自相矛盾”时判 violating；不使用变量级方向推断边级极性
+  （方案明确禁止）；无边级 sign 一律 `unsupported`。
+- `tolerance_source` 全部记 `data_proxy`，不写“专家公差”。
+- 影响：D4 审计三档计数偏保守（unsupported 偏多）；不改变排名。
+- 状态：✅ closed（见下方“V23 实施收口 2026-11-15”）。
+
+**V23-CODE-046（open）·【自主决定】实现 σ 五桶 / 门控 / 外部约束 / 多跳审计 / 六段解释**
+
+- 新增：`causal/gating.py`、`causal/path_audit.py`、`evidence/constraints.py`、`config/gate_policy_v1.yaml`、
+  `external_knowledge/constraints_v1.yaml(+.sha256)`。
+- 修改：`evidence/tolerance.py`（sigma_v2）、`evidence/deviation.py`（不可评估不造数）、
+  `cli/run_v23_tolerances.py`（tolerance_*_v2.json）、`evidence/knowledge.py`（合并 constraints）、
+  `causal/source_tracing.py`（all_candidates）、`cli/run_v23_end2end.py`（gate/path_audit/全量候选）、
+  `reporting/llm_explanation.py`（六段/payload/claims/llm_disagreement）、
+  `reporting/report_template.py`（六段正文 + 尾句条件化 + 类级/全局标未使用）、
+  `cli/run_v23_all.py`（--backend + 跑前冻结校验）、`cli/run_v23_llm_explanation.py`（backend 贯通）。
+- 状态：✅ closed（见下方“V23 实施收口 2026-11-15”）。
+
+**V23-CODE-047（open）·【自主决定】解释模型显式 pin 为 `deepseek-flash`**
+
+- 方案 §4.13.7 写 “DeepSeek V4.1-Flash”；旧代码默认 `deepseek-chat`，服务端回显 `deepseek-flash`（E23）。
+  为对齐方案名并去掉运行时别名漂移，常量 `LLM_MODEL_PIN=deepseek-flash`、温度 0.0、超时 60s、重试 1 次；
+  一次最小请求已验证 HTTP 200（`PROBE_OK`）。若专家要求用 `deepseek-chat`，改常量并重跑即可。
+- 状态：✅ closed（见下方“V23 实施收口 2026-11-15”）。
+
+**V23-CODE-048（closed）·【自主决定】新产物命名与评测通配符冲突（步骤 9 失败后修复重跑）**
+
+- 现象：`run_v23_end2end` 新增全量候选产物原名 `root_candidates_all_{k}_{g}.json`，被
+  `evaluation._template_rankings()` 的 `root_candidates_*.json` 通配符命中，解析出
+  `k="all_FLB"`，进而误加载 `tracing/topology_all_FLB_high.json`，第 9 步
+  `FileNotFoundError` 失败（前 8 步 ok）。
+- 处理：改名 `candidates_all_{k}_{g}.json`；同 run_id 重跑第 9/10 步，未重跑上游、未改任何
+  阈值/策略/排名；summary 的这两步标记 `repaired_rerun=true` 并写 `repair_log`。
+- 影响：不影响任何数值产物；仅产物文件名。旧名文件已在本 run 内改名（9 个）。
+- 状态：✅ closed。
+
+**V23-CODE-049（closed）·【自主决定】路径审计与约束层同口径：competitive 对豁免反向禁令**
+
+- 现象：审计的 `_forbidden_check` 只看原始知识的 `reverse_forbidden`，会把约束层
+  已按 competitive 双向对豁免的反向边（如 LOCA 的 `P→WLR`）误判 `violating`。
+- 处理：审计读取 `COMPETITIVE_PAIRS_BY_CLASS`，命中 competitive 对则跳过反向禁令；
+  直接硬禁边仍按 `ontology["forbidden"]` 判。
+- 影响核验：对 `v23-20261115T000542` 9 个模板离线重算，三档计数完全不变
+  （旧/新均为 compliant 0 / unsupported 63 / violating 2471），故本次已落盘审计数字无需修订。
+- 状态：✅ closed。
+
+**V23 实施收口 2026-11-15（V23-DESIGN-104/105、V23-CODE-046/047/048/049）**
+
+- 全链：`run_id=v23-20261115T000542`，`n_bootstrap=5`，`citable=null`，10/10 步 ok
+  （第 9/10 步为修复后同 run_id 重跑，见 V23-CODE-048）。
+- 冻结：`gate_policy_v1` sha256 `b4ad550b…9331d3`；`constraints_v1` sha256 `90965075…a1846c`；
+  σ 桶 LOCA b1=6/b2=41/b3=33/b4=5/b5=8，SGATR 与 FLB 各 b1=5/b2=41/b3=34/b4=5/b5=8
+  （93 通道口径；模板内 15 变量另有 b5 计入）。
+- 门控：9 个模板池 6–10 / 剔除 5–9；被剔除者全部保留并带 `rank_if_kept`。
+- 路径审计：9 个模板全部 `truncated=false`；compliant 0 / unsupported 63 / violating 2471。
+  `violating` 主要来自草案角色映射下的 `response→driver`（如进入 WHPI）与无 edge-level sign
+  的 `unsupported`；这是映射草案的已知代价，**未按结果回调**（V23-DESIGN-105）。
+- 解释：9 模板 + 3 类级 + 1 全局全部 `backend=llm`、`degraded=false`、`faithful=true`；
+  `llm_disagreement` 存在且 `ranking_modified=false`（模型未输出结构化异议）。
+- 与 `v23-20261112T185258`：按门控前旧序 Top-1 变 6/9（LOCA_low/mid/high、SGATR_low/mid、
+  FLB_high），按池内 `rank_v2` Top-1 变 8/9（仅 LOCA_high 保持 LVPZ）；Top-5 集合 9/9 均变；
+  排名口径不可与旧 run 混用。
+- 未改 `方案/` 下任何文档；未 force push；未推送。

@@ -214,7 +214,7 @@ def step_deviation(run_id: str, classes: List[str], groups: List[str]) -> Dict:
 
 def step_explanation_reports(run_id: str, classes: List[str], groups: List[str],
                              backend: str, run_note: Optional[str] = None) -> Dict:
-    """D6 解释 + D7 报告：模板级固定 rule；类级汇总 ×N + 全局结论 ×1（V23-DESIGN-020）。"""
+    """D6 解释 + D7 报告：模板级按 --backend 贯通；类级 ×N + 全局 ×1。"""
     from causalrca.cli.run_v23_llm_explanation import (
         explain_one, explain_class, explain_global,
     )
@@ -223,7 +223,7 @@ def step_explanation_reports(run_id: str, classes: List[str], groups: List[str],
     for k in classes:
         for g in groups:
             try:
-                expl.append(explain_one(k, g, backend="rule"))
+                expl.append(explain_one(k, g, backend=backend))
             except Exception as exc:  # noqa: BLE001
                 exploerr.append(f"{k}_{g}: {type(exc).__name__}: {exc}")
     summaries: List[Dict] = []
@@ -244,7 +244,8 @@ def step_explanation_reports(run_id: str, classes: List[str], groups: List[str],
         reports, rep_err = [], [f"{type(exc).__name__}: {exc}"]
     if exploerr or rep_err:
         raise RuntimeError(f"解释/报告未全成功：explanations={exploerr} reports={rep_err}")
-    return {"template_backend": "rule",
+    return {"template_backend_requested": backend,
+            "template_backends_actual": sorted({e["backend"] for e in expl}),
             "n_explanations": len(expl),
             "n_templates_degraded": sum(1 for e in expl if e["degraded"]),
             "n_unfaithful": sum(1 for e in expl if not e["faithful"]),
@@ -336,6 +337,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help=f"严重度组，默认 {GROUPS}")
     ap.add_argument("--skip-llm", action="store_true",
                     help="解释只用 rule 离线后端（等价于 --backend rule）")
+    ap.add_argument("--backend", choices=["rule", "llm", "auto"], default="rule",
+                    help="解释后端（贯通到模板级）：rule=离线规则稿（默认）；"
+                         "llm=调模型，失败显式降级 rule；auto=有 key 走 llm，否则 rule")
     ap.add_argument("--dry-run", action="store_true", help="只打印步骤计划，不写盘")
     ap.add_argument("--with-ab", action="store_true",
                     help="追加一次性 A/B 消融（auto vs v2.1 变量集）；默认不跑")
@@ -375,10 +379,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     if unknown:
         raise SystemExit(f"未知 accident_type：{unknown}")
     groups = list(args.groups or GROUPS)
-    backend = "rule"  # 默认离线；llm 后端由 run_v23_llm_explanation --backend llm 显式启用
-    llm_note = ("--skip-llm：解释后端固定 rule（离线）" if args.skip_llm
-                else f"解释后端 rule（离线）；llm 可用性："
-                     f"{LE.llm_unavailable_reason() or '环境变量齐全，可另行 --backend llm'}")
+    backend = "rule" if args.skip_llm else args.backend
+    llm_note = (f"解释后端 {backend}；llm 可用性："
+                f"{LE.llm_unavailable_reason() or '环境变量齐全'}")
 
     if args.dry_run:
         _print_plan(_plan_steps(args.with_ab), classes, groups,
@@ -394,6 +397,21 @@ def main(argv: Optional[List[str]] = None) -> int:
             "E-R4 跨阶段对不上，并写清具体项。未声明原因的重跑视为违规，产物不得引用。")
 
     run_id = artifact.new_run_id(args.run_prefix)
+    # ---- 预注册冻结校验（缺失/版本/哈希不符即中止，不出排序）----
+    from causalrca.causal import gating as GATE
+    from causalrca.evidence import constraints as CONS
+    policy = GATE.load_policy()
+    cons_doc = CONS.load_constraints(verify=True)
+    if cons_doc is None:
+        raise SystemExit(f"缺少冻结约束文件：{CONS.CONSTRAINTS_PATH}（先运行 constraints 生成器）")
+    freeze_info = {
+        "gate_policy_version": policy.get("version"),
+        "gate_policy_sha256": GATE.policy_sha256(),
+        "constraints_version": cons_doc.get("version"),
+        "constraints_sha256": CONS.sha256_file(CONS.CONSTRAINTS_PATH),
+        "constraints_n_rules": cons_doc.get("n_rules"),
+    }
+    logger.info(f"[D10] 冻结校验通过：{freeze_info}")
     run_mode = run_mode_for(args.n_bootstrap)
     if args.citable and run_mode != RUN_MODE_SPEC:
         raise SystemExit(
@@ -456,6 +474,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                        "run_note": args.run_note,
                        "explanation_backend": backend,
                        "note": llm_note},
+        "freeze": freeze_info,
         "steps": results,
         "n_steps_planned": len(steps),
         "with_ab": args.with_ab,

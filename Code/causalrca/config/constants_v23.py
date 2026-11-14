@@ -36,6 +36,14 @@ LLM_FLOAT_TOL = 1e-3              # 解释文本数值抽取的浮点比较容�
 LLM_FAITHFUL_DECIMALS = 2         # 数值对拍：保留 2 位小数后相等
 LLM_TIMEOUT_S = 30                # 标准库 urllib 硬超时（测试可 monkeypatch）
 
+# ==================== 六段正文 LLM 口径（方案 §4.13.7，V23-CODE-046）====================
+# 显式 pin，不依赖运行时环境变量改模型；DeepSeek V4.1-Flash 的 API 模型名
+LLM_MODEL_PIN = "deepseek-flash"
+LLM_TEMPERATURE_PIN = 0.0
+LLM_TIMEOUT_PIN_S = 60
+LLM_MAX_RETRIES = 1               # 失败重试次数（不含首次）
+LLM_SEED = 0                      # 仅记录；兼容接口不保证接受 seed
+
 # ==================== bootstrap 次数（方案 §6.4.6 / §7.7，V23-DESIGN-041/044）====================
 # 正式口径（spec）：方案里描述的方法学口径，值 = v2.1 冻结值 100。
 # **仅为口径声明，默认不执行**；只有显式 `--n-bootstrap 100`（或环境变量）才开启。
