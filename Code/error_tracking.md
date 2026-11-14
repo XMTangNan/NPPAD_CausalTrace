@@ -2348,3 +2348,57 @@ gitignore），`pytest` 161 passed。
 - 外部评审两份文件由 `方案/` 移入 `issues/`，`issues/README.md` 登记。
 - 验证：`pytest tests` → **175 passed / 0 failed**。
 - 状态：✅ closed。
+
+**V23-DESIGN-098（closed）·【用户裁决】外部知识补强 + 首轮注入对照的边界**
+
+- 用户裁决（原话要点）：主代码一行不改；用 `work/` 下注入脚本；产物 `citable=null`、不刷 `latest`、
+  与 `v23-20261112T185258` 分目录；100 bootstrap、全 10 步、9 模板；不改真值表/任务口径/根因定义；
+  不动反事实验证稿；知识条目与注入方式先冻结记哈希再跑，跑完不许改知识凑结论；专家审核由 AI 代做，
+  一律写“AI 代审、非专家确认”；不推送。
+- 评价纪律（用户裁决）：不得引用方案自定门槛（`cond<1e4`、`clip_ratio<0.35`、“Top-5 违反 ≤1 席”）
+  作否决理由；只允许两类否定理由——知识条目可信度、结果与知识的直接逻辑冲突；数量指标只作披露。
+- 执行：run `v23k-20261114T200109`（100 boot、10/10 ok、citable=null、latest 未刷）。
+- 状态：✅ closed。
+
+**V23-DESIGN-099（closed）·【自主决定】注入接法选“排序期禁边”，不选另外三种**
+
+- 判断依据：主代码里唯一能改变数值的入口是 `ontology["forbidden"]`（`signatures.py` 每个 bootstrap
+  调 `apply_ontology_constraint` 清零）；`allowed` 只标记不添加（§5.2.2）；方向先验与 K2/K3 都只做事后披露。
+- 选择：`asserted_edges[*].reverse_forbidden` 的反向 + `forbidden_outgoing`，均要求 `sourced: true`；
+  与按类 `competitive` 冲突的边自动跳过。零参数（无 shrink 系数）、可逆、逐条可回溯。
+- 明确不做：强制加边、方向加权、soft prior——都要改学习器或引入可调系数，属“按知识硬掰”。
+- 代价（已写入结果文档）：知识只能删错边、不能补缺边；断言边召回因此偏低。
+- 状态：✅ closed。
+
+**V23-CODE-041（closed）·【自主决定】知识条目补强（数据层，非主代码）**
+
+- `Code/external_knowledge/supplementary_mechanisms.yaml`：5 条 → 18 条（新增 SGATR S9–S13、
+  FLB S14–S18、LOCA S6–S8）；补 `asserted_edges`（from/to/sign/sourced/source_ref/reverse_forbidden）、
+  `forbidden_outgoing`、`sources` 注册表（E1–E7）、`reviewed_by: ai_agent`、`expert_confirmed: false`、
+  `review_verdict`、`review_note`。
+- `positive_mechanisms.yaml`：14 条全部补同上字段与断言边。
+- 统计：32 条，`sourced` 23、`unsourced` 9（标 `unsourced_reason`，**不入约束层**）。
+- 未改：K2 `physics_relations.yaml`、K3 `fault_templates.yaml`、`forbidden_edges.yaml`、真值表、主代码。
+- 验证：`validate_against_entity_table()` → `ok=True, errors=[], warnings=[]`；
+  `pytest tests/test_v23_knowledge_external.py tests/test_v23_explanation_verdict.py` → 23 passed。
+- 状态：✅ closed。
+
+**V23-CODE-042（closed）·【自主决定】禁边注入运行器与对照脚本（work/，不入库）**
+
+- `work/knowledge_inject.py`：YAML → 禁边规则的唯一转换器 + 冻结（sha256、规则全量、已知冲突）；
+  `work/run_knowledge.py`：开跑前校验哈希，包裹 `run_v23_end2end.build_ontology` 注入；
+  跑完把 `knowledge_freeze.json` 与 `knowledge_injection_applied.json` 写进 run 目录。
+- `work/compare_knowledge.py` / `k_report.py` / `k_cover.py` / `k_self_test` 等：只读对照与自检。
+- 自检：合成 B 下注入规则全部被 `apply_ontology_constraint` 清零（LOCA 32、SGATR 30、FLB 51）。
+- 状态：✅ closed。
+
+**V23-DESIGN-100（closed）·【自主决定】首轮对照结论：约束成立、核心冲突未解**
+
+- 约束成立：每 bootstrap 删边数 LOCA 9.5→25.2、SGATR 8.5–11.3→13.6–23.1、FLB 0.9–7.4→7.3–26.6；
+  实际触发规则 9–13 → 18–36；Top-1 变动 5/9（种子固定 42，差异可归因于注入）。
+- 未解冲突：Top-1 与知识“不可作根因”明确对撞 6 → 4 处（另 1 处 ambiguous 不计）；FLB_high 的改善是名义的。
+- 知识可信度：9/32 无出处；出处只到小节/主题章级；断言边召回 LOCA 2/7、SGATR 0–1/9、FLB 0–1/5；
+  覆盖不均（`WHPI→WECS` 只在 SGATR 有条目）。
+- 结论：知识当前是**负向约束层**（删错边），不是能纠正排序的知识先验；不得据此宣称方案有效或无效。
+- 结果文档：`submit/外部知识补强-注入对照-v23k-2026-11-14.md`；入口页 `submit/产物入口-v23k-knowledge-20261114.html`。
+- 状态：✅ closed。

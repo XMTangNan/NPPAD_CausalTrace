@@ -1,13 +1,53 @@
-schema: "causaltrace/supplementary_mechanisms/v1"
-source: "本次补充（正向机理，2026-11-11）"
+schema: "causaltrace/positive_mechanisms/v1"
+source: "本次补充（正向机理，2026-11-11）+ 外部知识补强（2026-11-14，V23-DESIGN-098）"
 note: >-
   本文件只放**正向**机理条目（“谁先动、经哪条路径传递”），与否定性条目
-  `supplementary_mechanisms.yaml`（S1–S5）分开管理。字段与 S 系列一致，另加
+  `supplementary_mechanisms.yaml`（S 系列）分开管理。字段与 S 系列一致，另加
   `assertion: starts_chain | not_start | ambiguous` 区分方向（允许写“不是起点”）。
-  依据只用守恒关系、因果次序或公开教材的通用结论，不写页码与引文；有争议的直接标 ambiguous。
-  不新增数值约束、不改 K2 数值口径、不改 K3 expected_chain、不参与排序融合。
-  全部条目 verification 为 pending_expert。根因定义见方案 §0.5。
+  2026-11-14 补强：逐条补 `asserted_edges`（含 sign / sourced / source_ref / reverse_forbidden）
+  与 `forbidden_outgoing`（该变量不得反向驱动的目标）；出处见本文件 `sources` 注册表。
+  查不到出处的标 `sourced: false`，**不得作为约束使用**，只留库备查。
+  审核：`reviewed_by: ai_agent`、`expert_confirmed: false`——AI 代审，非专家确认；真人专家可逐条推翻。
+  注入纪律：只有 `sourced: true` 且 `reverse_forbidden: true` 的边反向、以及 `sourced: true` 的
+  `forbidden_outgoing` 进入排序期禁边层；其余只作解释层与覆盖率披露。
+  不新增数值约束、不改 K2 数值口径、不改 K3 expected_chain。根因定义见方案 §0.5。
 n_entries: 14
+sources:
+  E1:
+    doc: "USNRC NUREG-0800, Standard Review Plan, §15.6.5 Loss-of-Coolant Accidents Resulting From Spectrum of Postulated Piping Breaks Within the Reactor Coolant Pressure Boundary"
+    anchor: "§15.6.5 主文：破口失水→一回路装量/压力下降→低压安注投入"
+    confidence: section
+    supports: "WLR→VOL、VOL→P、P→TAVG、P→WHPI、WHPI→WECS、装量/压力类响应次序"
+  E2:
+    doc: "USNRC NUREG-0800, Standard Review Plan, §15.6.3 Steam Generator Tube Rupture"
+    anchor: "§15.6.3 主文：一次侧向二次侧泄漏→SG 水位/压力与蒸汽管线放射性响应、一回路缓失装量"
+    confidence: section
+    supports: "WTRA→NSGA/LSGA/PSGA/RM2/VOL、VOL→LVPZ"
+  E3:
+    doc: "USNRC NUREG-0800, Standard Review Plan, §15.6.4 Steam System Piping Failures Inside and Outside of Containment"
+    anchor: "§15.6.4 主文：蒸汽/给水管道破口→二次侧质量与能量流失→SG 压力与一回路温度/压力响应"
+    confidence: section
+    supports: "WFLB→WFWA/WSTB、PSGA→TAVG、PSGA→P"
+  E4:
+    doc: "USNRC Regulatory Guide 1.97 Rev.4, Criteria for Accident Monitoring Instrumentation for Nuclear Power Plants"
+    anchor: "事故监测变量清单（安全壳压力/温度、SG 水位、蒸汽管线与安全壳放射性等指示量）"
+    confidence: section
+    supports: "PRB/TRB/RM1/RM2/DNBR/RBLK 等为事故监测指示量，属后果读数"
+  E5:
+    doc: "USNRC Reactor Concepts Manual — Pressurized Water Reactor Systems（NRC 公开培训教材）"
+    anchor: "Chemical and Volume Control System / Emergency Core Cooling System / Pressurizer 三节的控制动作描述"
+    confidence: topic
+    supports: "WCHG、WUP、WSPY、HTR、WHPI、TKLV 为控制/安全动作或其水源状态"
+  E6:
+    doc: "Todreas & Kazimi, Nuclear Systems I: Thermal Hydraulic Fundamentals, 2nd ed."
+    anchor: "热力学性质与两相流动章节（饱和压力-温度关系、装量-压力耦合）"
+    confidence: topic
+    supports: "P↔TAVG 的饱和关系、装量与压力耦合的定性方向"
+  E7:
+    doc: "Lamarsh & Baratta, Introduction to Nuclear Engineering, 3rd ed."
+    anchor: "反应性系数与反应堆动力学章节（温度反馈、硼浓度与反应性）"
+    confidence: topic
+    supports: "RHMT/RH 类变量的响应属性"
 entries:
   - id: P1_LOCA_WLR_injection
     kind: positive_mechanism
@@ -21,13 +61,19 @@ entries:
     can_be_root: true
     assertion: starts_chain
     asserted_edges:
-      - {from: WLR, to: P}
-      - {from: WLR, to: VOL}
+      - {from: WLR, to: VOL, sign: neg, reverse_forbidden: true, sourced: true, source_ref: E1}
+      - {from: WLR, to: P, sign: neg, reverse_forbidden: false, sourced: true, source_ref: E1, note: "P↔WLR 为已登记竞争边，禁反向会与该设定冲突"}
+    forbidden_outgoing: []
+    sourced: true
+    source_ref: [E1, E6]
     basis: "破口流量是 LOCA 的注入起点：冷却剂经破口外流，先造成一回路装量与压力下降，再经安注与传热反馈传递到其余变量；按“最先动起来的变量”定义，它是本类事故的根因候选。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：WLR→VOL 为质量守恒，出处充分；反向后 VOL→WLR 已被 K1 R3 覆盖，此处重复登记只为口径完整。"
   - id: P2_LOCA_VOL_inventory
     kind: positive_mechanism
     variable: VOL
@@ -40,13 +86,19 @@ entries:
     can_be_root: false
     assertion: not_start
     asserted_edges:
-      - {from: VOL, to: P}
-      - {from: VOL, to: LVPZ}
+      - {from: VOL, to: P, sign: pos, reverse_forbidden: false, sourced: true, source_ref: E1}
+      - {from: VOL, to: LVPZ, sign: pos, reverse_forbidden: true, sourced: true, source_ref: E1}
+    forbidden_outgoing: []
+    sourced: true
+    source_ref: [E1]
     basis: "装量下降先于压力与稳压器水位的变化，是破口之后最早的装量级响应；可作传导节点，但最终驱动仍是破口本身（WLR），故不升格为根因。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：VOL→P 为双向热力学耦合（竞争边），故不禁反向；VOL→LVPZ 单向，禁反向成立。"
   - id: P3_SGATR_WTRA_leak
     kind: positive_mechanism
     variable: WTRA
@@ -59,13 +111,22 @@ entries:
     can_be_root: true
     assertion: starts_chain
     asserted_edges:
-      - {from: WTRA, to: NSGA}
-      - {from: WTRA, to: RM2}
-    basis: "一次侧压力高于二次侧，传热管破裂后一回路冷却剂经破口流入二次侧；破口流量是质量传递的起点，二次侧水位与蒸汽管线辐射都随它变化。按“最先动起来”定义，它是本类事故的根因候选。"
+      - {from: WTRA, to: NSGA, sign: pos, reverse_forbidden: true, sourced: true, source_ref: E2}
+      - {from: WTRA, to: LSGA, sign: pos, reverse_forbidden: true, sourced: true, source_ref: E2}
+      - {from: WTRA, to: PSGA, sign: pos, reverse_forbidden: true, sourced: true, source_ref: E2}
+      - {from: WTRA, to: RM2, sign: pos, reverse_forbidden: true, sourced: true, source_ref: E2}
+      - {from: WTRA, to: VOL, sign: neg, reverse_forbidden: true, sourced: true, source_ref: E2}
+    forbidden_outgoing: []
+    sourced: true
+    source_ref: [E2]
+    basis: "一次侧压力高于二次侧，传热管破裂后一回路冷却剂经破口流入二次侧；破口流量是质量传递的起点，二次侧水位、压力与蒸汽管线辐射都随它变化。按“最先动起来”定义，它是本类事故的根因候选。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：五条出边均由 SRP 15.6.3 支持；反向边已由 K1 R3 覆盖，登记用于口径完整。"
   - id: P4_SGATR_NSGA_level_rise
     kind: positive_mechanism
     variable: NSGA
@@ -78,12 +139,25 @@ entries:
     can_be_root: false
     assertion: not_start
     asserted_edges:
-      - {from: NSGA, to: QMGB}
+      - from: NSGA
+        to: QMGB
+        sign: pos
+        reverse_forbidden: false
+        sourced: false
+        source_ref: []
+        unsourced_reason: "水位→另一列排热功率的定量关联未找到可核对锚点；且 QMGB 不入 SGATR 模型变量集，本轮无实际作用。"
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: []
+    unsourced_reason: "NSGA→QMGB 无出处；条目角色（响应、不可作根因）本身成立，但不产生约束。"
     basis: "二次侧水位上升的直接原因是高压一回路冷却剂经破口进入二次侧，属质量守恒下的响应；水位本身不驱动破口流量，故不是起点。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted_with_caveat
+    review_note: "AI 代审：角色判断保留；断言边无出处，不进入约束层。"
   - id: P5_SGATR_LSGA_level_rise
     kind: positive_mechanism
     variable: LSGA
@@ -96,11 +170,18 @@ entries:
     can_be_root: false
     assertion: not_start
     asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E2]
+    unsourced_reason: "“宽量程只在超出窄量程后才有读数变化”的次序结论无可核对锚点；E2 只支持水位上升方向。"
     basis: "宽量程水位与窄量程水位同源：破口流入导致二次侧装量增加。宽量程只在超出窄量程时才有读数变化，响应次序更晚，不能作为起点。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted_with_caveat
+    review_note: "AI 代审：方向成立、次序无出处，故不产生约束。"
   - id: P6_SGATR_RM2_radiation
     kind: positive_mechanism
     variable: RM2
@@ -113,11 +194,21 @@ entries:
     can_be_root: false
     assertion: not_start
     asserted_edges: []
+    forbidden_outgoing:
+      targets: [WTRA, NSGA, LSGA, PSGA, P, VOL, RH, HTR, WSPY, TKLV, VOID, WRCA, WHPI, WECS, LVPZ]
+      basis: "蒸汽管线辐射计数是泄漏的指示读数，不驱动任何一/二回路过程量（RG 1.97 事故监测变量）。"
+      sourced: true
+      source_ref: E4
+    sourced: true
+    source_ref: [E4, E2]
     basis: "一回路冷却剂中的活化产物（如 N-16 与裂变产物）随破口进入二次侧，蒸汽管线辐射计数随之上升；它是泄漏的早期指示，但计数上升不是泄漏的原因。争议点：若破裂由二次侧向一次侧反向发生，方向与读数含义不同，故仅作指示量。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：指示量出边全禁；如真人专家认为存在“辐射高→隔离动作”的联锁链，应作为单独条目登记，不改变本条。"
   - id: P7_SGATR_PSGA_ambiguous
     kind: positive_mechanism
     variable: PSGA
@@ -130,11 +221,18 @@ entries:
     can_be_root: false
     assertion: ambiguous
     asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E2]
+    unsourced_reason: "净方向取决于破口流量与蒸汽负荷之比，无可核对锚点给出单一次序；E2 只说明压力有响应。"
     basis: "二次侧压力有两个相反作用：高压一回路流体闪蒸会抬高压力，蒸汽排放/凝结又会降低压力，净方向取决于破口流量与蒸汽负荷之比。学界没有“先升后降”的统一次序结论，故标 ambiguous，不写成支持或反对。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：mixed 保留；不产生约束。"
   - id: P8_SGATR_HTR_pressure_response
     kind: positive_mechanism
     variable: HTR
@@ -147,11 +245,21 @@ entries:
     can_be_root: false
     assertion: not_start
     asserted_edges: []
+    forbidden_outgoing:
+      targets: [WTRA, NSGA, LSGA, PSGA, VOL, P, LVPZ]
+      basis: "电加热是压力控制的执行动作，不驱动破口流量或系统状态量。"
+      sourced: true
+      source_ref: E5
+    sourced: true
+    source_ref: [E5]
     basis: "一回路压力因破口失水下降后，稳压器压力控制投入电加热以维持压力；电加热是控制系统的动作，随压力偏差变化，不是事故链条的起点。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：控制动作出边禁到过程量；HTR→压力不禁（加热升压真实）。"
   - id: P9_FLB_WFLB_break
     kind: positive_mechanism
     variable: WFLB
@@ -164,13 +272,21 @@ entries:
     can_be_root: true
     assertion: starts_chain
     asserted_edges:
-      - {from: WFLB, to: NSGA}
-      - {from: WFLB, to: PSGA}
+      - {from: WFLB, to: WFWA, sign: neg, reverse_forbidden: true, sourced: true, source_ref: E3}
+      - {from: WFLB, to: WSTB, sign: neg, reverse_forbidden: true, sourced: true, source_ref: E3}
+      - {from: WFLB, to: PSGA, sign: neg, reverse_forbidden: true, sourced: true, source_ref: E3}
+      - {from: WFLB, to: NSGA, sign: neg, reverse_forbidden: true, sourced: true, source_ref: E3, note: "NSGA 不入 FLB 模型变量集，登记为类级机理"}
+    forbidden_outgoing: []
+    sourced: true
+    source_ref: [E3]
     basis: "给水管道破裂后，给水经破口外泄，二次侧给水装量与流量首先改变，随后才出现水位、压力与一回路温度的变化；破口流量是质量损失的起点，按定义为本类事故的根因候选。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：WFLB→WFWA（破口分流）证据最强；→WSTB/→PSGA 见 SRP 15.6.4；反向边由 K1 R3 覆盖。"
   - id: P10_FLB_NSGA_level_drop
     kind: positive_mechanism
     variable: NSGA
@@ -183,11 +299,18 @@ entries:
     can_be_root: false
     assertion: not_start
     asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E3]
+    unsourced_reason: "水位下降方向可由质量守恒推出，但“给水流失→水位”的具体锚点未逐条核对；且 NSGA 不入 FLB 模型变量集，本轮无作用。"
     basis: "给水流失后二次侧装量减少，水位下降是质量守恒的直接结果；水位不改变破口流量，故不是起点，只能作传导节点。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：角色保留；无约束。"
   - id: P11_FLB_QMGB_heat_transfer
     kind: positive_mechanism
     variable: QMGB
@@ -200,11 +323,18 @@ entries:
     can_be_root: false
     assertion: ambiguous
     asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E3]
+    unsourced_reason: "两列负荷再分配与整体降压两种作用相反，无可核对锚点给出单一符号。"
     basis: "A 侧给水丧失后 A 侧排热下降，B 侧承担更多负荷、排热功率可能上升；若破口导致二次侧整体降压，排热又可能下降。净方向取决于破口规模与两列负荷分配，故标 ambiguous。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：mixed 保留；不产生约束。"
   - id: P12_FLB_WRCA_flow
     kind: positive_mechanism
     variable: WRCA
@@ -217,11 +347,18 @@ entries:
     can_be_root: false
     assertion: not_start
     asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E3]
+    unsourced_reason: "流量漂移方向随排热变化与泵特性而变，无可核对锚点给出单一次序。"
     basis: "二次侧排热变化改变一回路平均温度与冷却剂密度，环路流量随之漂移；流量是排热变化的响应，不是给水破口的原因。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：mixed 保留；不产生约束。"
   - id: P13_FLB_WCHG_charging
     kind: positive_mechanism
     variable: WCHG
@@ -234,11 +371,21 @@ entries:
     can_be_root: false
     assertion: not_start
     asserted_edges: []
+    forbidden_outgoing:
+      targets: [WFLB, WFWA, WSTB, PSGA, TAVG, P]
+      basis: "上充是化容系统的控制动作，不驱动给水破口流量或二次侧状态量。"
+      sourced: true
+      source_ref: E5
+    sourced: true
+    source_ref: [E5]
     basis: "一回路因排热恶化而膨胀/压力变化后，上充与下泄的平衡由化学容积控制系统调整；上充流量是控制动作，随一回路压力与水位偏差变化，不是起点。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：控制动作出边禁到过程量与 marker；WCHG→一回路压力不禁（补水真实影响压力）。"
   - id: P14_FLB_WUP_porv
     kind: positive_mechanism
     variable: WUP
@@ -251,8 +398,18 @@ entries:
     can_be_root: false
     assertion: not_start
     asserted_edges: []
+    forbidden_outgoing:
+      targets: [WFLB, WFWA, WSTB, PSGA, TAVG, P, WCHG]
+      basis: "PORV/安全阀排放是压力超限后的保护动作，不驱动给水破口或二次侧状态量。"
+      sourced: true
+      source_ref: E5
+    sourced: true
+    source_ref: [E5]
     basis: "排热下降使一回路压力上升，压力超过整定值后 PORV/安全阀开启排放；排放是压力超限的结果，不是事故起点。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：保护动作出边禁到过程量；WUP→压力不禁（排放降压真实）。"

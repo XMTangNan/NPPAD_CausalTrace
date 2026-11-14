@@ -1,15 +1,54 @@
 schema: "causaltrace/supplementary_mechanisms/v1"
-source: "本次人工审核补充（2026-11-11，台账 V23-DESIGN-061）"
+source: "本次人工审核补充（2026-11-11，台账 V23-DESIGN-061）+ 外部知识补强（2026-11-14，V23-DESIGN-098）"
 note: >-
-  只标注“变量在具体事故中的角色与方向”，不新增数值约束、不改 K2 数值口径、不改 K3 expected_chain。
-  字段风格与 physics_relations.yaml / fault_templates.yaml 对齐（id/name_cn/applicable_accidents/
-  expected_direction/basis/source），但独立成文件：K2 的 5 条与代码
-  physics_constraints.PHYSICS_RELATIONS 一一对应（yaml 自称“禁止在此改动”），直接加条会破坏
-  一致性校验；故补充条目在此登记，供解释层引用，**排序融合本轮不启用**。
-  审核结论：本节 5 条均为“响应量/响应兼传导”标注，can_be_root 一律 false；
-  作为根因，这 5 个变量在本轮均为“无机理支撑”，不得为了填满而升格为驱动量。
-n_entries: 5
+  只标注“变量在具体事故中的角色与方向”。本轮（2026-11-14）新增两件事：
+  (1) 每条条目补 `asserted_edges`（带方向与符号）与 `forbidden_outgoing`（该变量不得反向驱动的目标）；
+  (2) 每条给出处（`sources` 注册表 + 条目/边级 `source_ref`），查不到出处的标 `sourced: false`，
+      **不得作为约束使用**，只留库备查。
+  审核字段：`reviewed_by: ai_agent`、`expert_confirmed: false`——本文件全部条目为 AI 代审，非专家确认；
+  真人专家可逐条推翻（推翻即把 `review_verdict` 改为 rejected 并写 review_note，条目自动退出约束）。
+  注入纪律：只有 `sourced: true` 且 `reverse_forbidden: true` 的边反向、以及 `sourced: true` 的
+  `forbidden_outgoing` 会进入排序期禁边层；其余一律只作解释层与覆盖率披露。
+  不改 K2 数值口径、不改 K3 expected_chain、不改真值表。
+n_entries: 18
+sources:
+  E1:
+    doc: "USNRC NUREG-0800, Standard Review Plan, §15.6.5 Loss-of-Coolant Accidents Resulting From Spectrum of Postulated Piping Breaks Within the Reactor Coolant Pressure Boundary"
+    anchor: "§15.6.5 主文：破口失水→一回路装量/压力下降→低压安注投入"
+    confidence: section
+    supports: "WLR→VOL、VOL→P、P→TAVG、P→WHPI、WHPI→WECS、装量/压力类响应次序"
+  E2:
+    doc: "USNRC NUREG-0800, Standard Review Plan, §15.6.3 Steam Generator Tube Rupture"
+    anchor: "§15.6.3 主文：一次侧向二次侧泄漏→SG 水位/压力与蒸汽管线放射性响应、一回路缓失装量"
+    confidence: section
+    supports: "WTRA→NSGA/LSGA/PSGA/RM2/VOL、VOL→LVPZ"
+  E3:
+    doc: "USNRC NUREG-0800, Standard Review Plan, §15.6.4 Steam System Piping Failures Inside and Outside of Containment"
+    anchor: "§15.6.4 主文：蒸汽/给水管道破口→二次侧质量与能量流失→SG 压力与一回路温度/压力响应"
+    confidence: section
+    supports: "WFLB→WFWA/WSTB、PSGA→TAVG、PSGA→P"
+  E4:
+    doc: "USNRC Regulatory Guide 1.97 Rev.4, Criteria for Accident Monitoring Instrumentation for Nuclear Power Plants"
+    anchor: "事故监测变量清单（安全壳压力/温度、SG 水位、蒸汽管线与安全壳放射性等指示量）"
+    confidence: section
+    supports: "PRB/TRB/RM1/RM2/DNBR/RBLK 等为事故监测指示量，属后果读数"
+  E5:
+    doc: "USNRC Reactor Concepts Manual — Pressurized Water Reactor Systems（NRC 公开培训教材）"
+    anchor: "Chemical and Volume Control System / Emergency Core Cooling System / Pressurizer 三节的控制动作描述"
+    confidence: topic
+    supports: "WCHG、WUP、WSPY、HTR、WHPI、TKLV 为控制/安全动作或其水源状态"
+  E6:
+    doc: "Todreas & Kazimi, Nuclear Systems I: Thermal Hydraulic Fundamentals, 2nd ed."
+    anchor: "热力学性质与两相流动章节（饱和压力-温度关系、装量-压力耦合）"
+    confidence: topic
+    supports: "P↔TAVG 的饱和关系、装量与压力耦合的定性方向"
+  E7:
+    doc: "Lamarsh & Baratta, Introduction to Nuclear Engineering, 3rd ed."
+    anchor: "反应性系数与反应堆动力学章节（温度反馈、硼浓度与反应性）"
+    confidence: topic
+    supports: "RHMT/RH 类变量的响应属性"
 entries:
+  # ==================== LOCA ====================
   - id: S1_LOCA_P_response
     kind: response_role
     variable: P
@@ -20,12 +59,20 @@ entries:
     expected_direction: neg
     role_in_accident: response_conduction
     can_be_root: false
-    asserted_edges: []
+    asserted_edges:
+      - {from: P, to: TAVG, sign: pos, reverse_forbidden: false, sourced: true, source_ref: E1}
+      - {from: P, to: WHPI, sign: trigger, reverse_forbidden: false, sourced: true, source_ref: E1}
+    forbidden_outgoing: []
+    sourced: true
+    source_ref: [E1, E6]
     basis: "破口后一回路装量与温度下降，饱和压力随之降低；压力低信号再触发安注，故 P 是破口的结果、可作为传导节点，但不是根因。"
     conflicts_with: []
     source: "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：P→TAVG 方向与饱和关系一致；P→WHPI 属控制逻辑，安注投入不改变压力信号在先的次序。反向 P←TAVG 物理上成立（温度反馈），故不禁反向。"
   - id: S2_LOCA_LVPZ_response
     kind: response_role
     variable: LVPZ
@@ -36,12 +83,23 @@ entries:
     expected_direction: neg
     role_in_accident: response
     can_be_root: false
-    asserted_edges: []
+    asserted_edges:
+      - {from: VOL, to: LVPZ, sign: pos, reverse_forbidden: true, sourced: true, source_ref: E1}
+    forbidden_outgoing:
+      targets: [VOL]
+      basis: "稳压器水位是装量的表征，水位读数不产生装量；水位→装量方向物理不成立。"
+      sourced: true
+      source_ref: E1
+    sourced: true
+    source_ref: [E1]
     basis: "稳压器水位由一回路装量与汽腔压力决定，持续失水后总体下降（初期可能因闪蒸短时波动），属装量损失的表征而非驱动。"
     conflicts_with: []
     source: "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：装量→水位单向；水位→压力不列入禁边（汽腔体积对压力有真实耦合），只禁水位→装量。"
   - id: S3_LOCA_PRB_response
     kind: response_role
     variable: PRB
@@ -53,11 +111,21 @@ entries:
     role_in_accident: response
     can_be_root: false
     asserted_edges: []
+    forbidden_outgoing:
+      targets: [P, TAVG, VOL, WLR, WHPI, WECS, LVPZ, RRCA, PSGA, RHMT]
+      basis: "安全壳压力是破口介质排入壳内的环境后果读数；壳内压力不驱动一回路过程量（RG 1.97 将其列为事故监测指示量）。"
+      sourced: true
+      source_ref: E4
+    sourced: true
+    source_ref: [E4, E1]
     basis: "破口介质排入安全壳使壳内压力上升，PRB 是LOCA 的环境后果指标，不参与一回路侧的因果链。"
     conflicts_with: []
     source: "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：仅禁 PRB 向下游过程量出边；PRB→TRB（壳内热工耦合）不禁，避免过度约束。"
   - id: S4_LOCA_TRB_response
     kind: response_role
     variable: TRB
@@ -69,11 +137,21 @@ entries:
     role_in_accident: response
     can_be_root: false
     asserted_edges: []
+    forbidden_outgoing:
+      targets: [P, TAVG, VOL, WLR, WHPI, WECS, LVPZ, RRCA, PSGA, RHMT]
+      basis: "安全壳温度与安全壳压力同属壳内环境响应，同样不反向驱动一回路过程量。"
+      sourced: true
+      source_ref: E4
+    sourced: true
+    source_ref: [E4]
     basis: "高温介质与蒸汽排入安全壳使壳内温度上升，TRB 与 PRB 同属壳内环境响应，不能作为破口类根因。"
     conflicts_with: []
     source: "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：与 S3 同规则；TRB→PRB 不禁（壳内热工耦合真实存在）。"
   - id: S5_LOCA_RHMT_response
     kind: response_role
     variable: RHMT
@@ -85,8 +163,347 @@ entries:
     role_in_accident: response
     can_be_root: false
     asserted_edges: []
+    forbidden_outgoing: []
+    sourced: false
+    source_ref: [E7]
+    unsourced_reason: "符号随初始工况/硼浓度改变，未找到给出单一方向的可核对锚点；E7 只支持“温度反馈存在”，不支持具体符号。"
     basis: "慢化剂温度反应性由温度反馈系数决定，失水降温使其朝正方向变化，但符号与幅度随初始工况与硼浓度而变，不构成单向驱动量。"
     conflicts_with: []
     source: "本次审核补充（NPPAD README Table 1/2 + 压水堆通用机理）"
     date: "2026-11-11"
-    verification: pending_expert
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted_with_caveat
+    review_note: "AI 代审：保留 mixed 与 can_be_root=false；因无单向出处，不产生任何禁边。"
+  - id: S6_LOCA_RM1_indicator
+    kind: response_role
+    variable: RM1
+    name_cn: 安全壳空气辐射监测
+    unit: CPM
+    subsystem: 辐射监测
+    applicable_accidents: [LOCA]
+    expected_direction: pos
+    role_in_accident: response_indicator
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing:
+      targets: [P, TAVG, VOL, WLR, PRB, TRB, WHPI, WECS, LVPZ, PSGA, RHMT, RRCA, FRCL, FRZR]
+      basis: "辐射监测计数是事故释放的指示读数，不产生任何过程量（RG 1.97 事故监测变量）。"
+      sourced: true
+      source_ref: E4
+    sourced: true
+    source_ref: [E4]
+    basis: "一回路冷却剂经破口释放后安全壳空气放射性上升；RM1 是释放的指示量，不是原因。"
+    conflicts_with: []
+    source: "外部知识补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：指示量出边全禁，属定义性判断；真人专家若认为存在探测器→联锁的真实动作链，可推翻本条。"
+  - id: S7_LOCA_FRCL_consequence
+    kind: response_role
+    variable: FRCL
+    name_cn: 包壳破损份额
+    unit: "%"
+    subsystem: 安全指标
+    applicable_accidents: [LOCA]
+    expected_direction: pos
+    role_in_accident: response
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing:
+      targets: [P, TAVG, VOL, WLR, PRB, TRB, RM1, WHPI, WECS, LVPZ, PSGA, RRCA]
+      basis: "包壳破损份额是 ECCS 验收准则下的后果量，不由它驱动一回路过程量。"
+      sourced: false
+      source_ref: []
+      unsourced_reason: "“后果量”属定义性判断，未找到单一可核对锚点（SRP 15.6.5 只给验收准则，不给因果方向）。"
+    sourced: false
+    source_ref: []
+    unsourced_reason: "同上：角色判断缺单一文献锚点，本轮不作约束。"
+    basis: "燃料包壳破损是失水后传热恶化的结果；作为后果指标，不应被当作驱动量。"
+    conflicts_with: []
+    source: "外部知识补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted_with_caveat
+    review_note: "AI 代审：角色判为响应可信，但无出处，故 targets 不进入禁边层。"
+  - id: S8_LOCA_FRZR_consequence
+    kind: response_role
+    variable: FRZR
+    name_cn: 锆氧化份额
+    unit: "%"
+    subsystem: 安全指标
+    applicable_accidents: [LOCA]
+    expected_direction: pos
+    role_in_accident: response
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing:
+      targets: [P, TAVG, VOL, WLR, PRB, TRB, RM1, WHPI, WECS, LVPZ, PSGA, RRCA]
+      basis: "锆氧化份额是高温下的后果量，不驱动一回路过程量。"
+      sourced: false
+      source_ref: []
+      unsourced_reason: "定义性判断，无单一可核对锚点。"
+    sourced: false
+    source_ref: []
+    unsourced_reason: "同上；本轮不作约束。"
+    basis: "锆水反应程度由温度历史决定，是事故后果指标。"
+    conflicts_with: []
+    source: "外部知识补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted_with_caveat
+    review_note: "AI 代审：角色可信但无出处，不进入禁边层。"
+  # ==================== SGATR ====================
+  - id: S9_SGATR_P_response
+    kind: response_role
+    variable: P
+    name_cn: 一回路压力
+    unit: bar
+    subsystem: 一回路热工
+    applicable_accidents: [SGATR]
+    expected_direction: neg
+    role_in_accident: response_conduction
+    can_be_root: false
+    asserted_edges:
+      - {from: P, to: WHPI, sign: trigger, reverse_forbidden: false, sourced: true, source_ref: E2}
+    forbidden_outgoing: []
+    sourced: true
+    source_ref: [E2]
+    basis: "传热管破裂造成一回路缓失装量，压力随之下降；低压信号触发安注。P 是传导节点而非起点。"
+    conflicts_with: []
+    source: "外部知识补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：与 LOCA 同类判据；只断言触发关系，不禁反向（安注对压力有真实影响）。"
+  - id: S10_SGATR_LVPZ_response
+    kind: response_role
+    variable: LVPZ
+    name_cn: 稳压器水位
+    unit: "%"
+    subsystem: 一回路热工
+    applicable_accidents: [SGATR]
+    expected_direction: neg
+    role_in_accident: response
+    can_be_root: false
+    asserted_edges:
+      - {from: VOL, to: LVPZ, sign: pos, reverse_forbidden: true, sourced: true, source_ref: E2}
+    forbidden_outgoing: []
+    sourced: true
+    source_ref: [E2]
+    basis: "一回路缓失装量后稳压器水位下降，属装量表征。"
+    conflicts_with: []
+    source: "外部知识补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：沿用 LOCA 同一判据（S2）。"
+  - id: S11_SGATR_WHPI_ecs
+    kind: response_role
+    variable: WHPI
+    name_cn: 高压安注流量
+    unit: t/h
+    subsystem: 安全系统
+    applicable_accidents: [SGATR]
+    expected_direction: pos
+    role_in_accident: response_control
+    can_be_root: false
+    asserted_edges:
+      - {from: WHPI, to: WECS, sign: pos, reverse_forbidden: true, sourced: true, source_ref: E2}
+    forbidden_outgoing: []
+    sourced: true
+    source_ref: [E2, E5]
+    basis: "高压安注是安全动作，其流量汇入安全注入总流量；总流量不反向决定高压安注流量（求和关系）。"
+    conflicts_with: []
+    source: "外部知识补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：WECS→WHPI 为求和关系的反向，物理不成立，禁反向依据充分。"
+  - id: S12_SGATR_TKLV_response
+    kind: response_role
+    variable: TKLV
+    name_cn: 换料水箱水位
+    unit: m3
+    subsystem: 安全壳
+    applicable_accidents: [SGATR]
+    expected_direction: neg
+    role_in_accident: response
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing:
+      targets: [WTRA, NSGA, LSGA, PSGA, P, VOL, WHPI, WECS, LVPZ]
+      basis: "换料水箱水位是安注水源的存量状态，水位不驱动安注流量或一回路过程量。"
+      sourced: true
+      source_ref: E5
+    sourced: true
+    source_ref: [E5]
+    basis: "安注取水使换料水箱水位下降，属水源存量响应。"
+    conflicts_with: []
+    source: "外部知识补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：只禁向下游的驱动方向；TKLV 与 WHPI 的“存量-流量”关系保留为禁边。"
+  - id: S13_SGATR_WSPY_control
+    kind: response_role
+    variable: WSPY
+    name_cn: 稳压器喷淋流量
+    unit: t/h
+    subsystem: 一回路热工
+    applicable_accidents: [SGATR]
+    expected_direction: pos
+    role_in_accident: response_control
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing:
+      targets: [WTRA, NSGA, LSGA, PSGA, VOL, P]
+      basis: "喷淋是压力/水位偏差下的控制动作，不驱动破口流量或二次侧状态。"
+      sourced: true
+      source_ref: E5
+    sourced: true
+    source_ref: [E5]
+    basis: "稳压器喷淋由压力偏差触发，属控制动作。"
+    conflicts_with: []
+    source: "外部知识补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：控制动作出边只禁到过程量与 marker；喷淋→压力不在禁用列表（降压作用真实）。"
+  # ==================== FLB ====================
+  - id: S14_FLB_P_response
+    kind: response_role
+    variable: P
+    name_cn: 一回路压力
+    unit: bar
+    subsystem: 一回路热工
+    applicable_accidents: [FLB]
+    expected_direction: neg
+    role_in_accident: response_conduction
+    can_be_root: false
+    asserted_edges:
+      - {from: P, to: WHPI, sign: trigger, reverse_forbidden: false, sourced: true, source_ref: E3}
+    forbidden_outgoing: []
+    sourced: true
+    source_ref: [E3]
+    basis: "二次侧失冷使一回路温度/压力变化，低压信号触发安注；P 是传导节点。"
+    conflicts_with: []
+    source: "外部知识补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：与 LOCA/SGATR 同判据。"
+  - id: S15_FLB_PRB_response
+    kind: response_role
+    variable: PRB
+    name_cn: 安全壳压力
+    unit: bar
+    subsystem: 安全壳
+    applicable_accidents: [FLB]
+    expected_direction: pos
+    role_in_accident: response
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing:
+      targets: [P, TAVG, PSGA, WFLB, WFWA, WSTB, WHPI, WCHG, WUP, QMGB, PWNT]
+      basis: "安全壳压力在给水/蒸汽管道破裂下是环境后果读数，不驱动一回路或二回路过程量。"
+      sourced: true
+      source_ref: E4
+    sourced: true
+    source_ref: [E4, E3]
+    basis: "壳内介质释放使安全壳压力变化，PRB 是后果指标。"
+    conflicts_with: []
+    source: "外部知识补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：与 LOCA S3 同规则。"
+  - id: S16_FLB_TRB_response
+    kind: response_role
+    variable: TRB
+    name_cn: 安全壳温度
+    unit: degC
+    subsystem: 安全壳
+    applicable_accidents: [FLB]
+    expected_direction: pos
+    role_in_accident: response
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing:
+      targets: [P, TAVG, PSGA, WFLB, WFWA, WSTB, WHPI, WCHG, WUP, QMGB, PWNT]
+      basis: "安全壳温度与安全壳压力同属壳内环境响应，不反向驱动过程量。"
+      sourced: true
+      source_ref: E4
+    sourced: true
+    source_ref: [E4]
+    basis: "壳内温度随释放介质上升，属环境后果。"
+    conflicts_with: []
+    source: "外部知识补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：与 S15 同规则。"
+  - id: S17_FLB_DNBR_consequence
+    kind: response_role
+    variable: DNBR
+    name_cn: 偏离泡核沸腾比
+    unit: "-"
+    subsystem: 安全指标
+    applicable_accidents: [FLB]
+    expected_direction: mixed
+    role_in_accident: response
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing:
+      targets: [P, TAVG, PSGA, WFLB, WFWA, WSTB, WHPI, WCHG, WUP, QMGB, PWNT]
+      basis: "DNBR 是热工安全裕度的计算指标，不驱动任何过程量（RG 1.97 类事故监测指示量）。"
+      sourced: true
+      source_ref: E4
+    sourced: true
+    source_ref: [E4]
+    basis: "DNBR 由局部热工水力状态计算得到，是后果指标。"
+    conflicts_with: []
+    source: "外部知识补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：指标量出边全禁；真人专家若认为存在保护动作链（DNBR 低触发停堆），应改为经保护系统的间接链，而非直接边。"
+  - id: S18_FLB_RBLK_consequence
+    kind: response_role
+    variable: RBLK
+    name_cn: 安全壳总泄漏质量
+    unit: kg
+    subsystem: 安全壳
+    applicable_accidents: [FLB]
+    expected_direction: pos
+    role_in_accident: response
+    can_be_root: false
+    asserted_edges: []
+    forbidden_outgoing:
+      targets: [P, TAVG, PSGA, WFLB, WFWA, WSTB, WHPI, WCHG, WUP, QMGB, PWNT]
+      basis: "安全壳总泄漏质量是累积后果量，不驱动过程量。"
+      sourced: true
+      source_ref: E4
+    sourced: true
+    source_ref: [E4]
+    basis: "泄漏质量由释放过程积分得到，是后果指标。"
+    conflicts_with: []
+    source: "外部知识补强（2026-11-14）"
+    date: "2026-11-14"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：积分型后果量，出边全禁。"
