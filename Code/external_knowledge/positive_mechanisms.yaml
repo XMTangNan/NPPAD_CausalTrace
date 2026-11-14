@@ -146,10 +146,13 @@ entries:
         sourced: false
         source_ref: []
         unsourced_reason: "水位→另一列排热功率的定量关联未找到可核对锚点；且 QMGB 不入 SGATR 模型变量集，本轮无实际作用。"
-    forbidden_outgoing: []
-    sourced: false
-    source_ref: []
-    unsourced_reason: "NSGA→QMGB 无出处；条目角色（响应、不可作根因）本身成立，但不产生约束。"
+    forbidden_outgoing:
+      targets: [P, VOL, LVPZ, WRCA]
+      basis: "窄量程水位是二次侧装量的指示量，不直接产生一回路压力/装量/环路流量；跨回路只能经传热与压力间接影响，那属于多跳，不在禁边范围。"
+      sourced: true
+      source_ref: E2
+    sourced: true
+    source_ref: [E2, E4]
     basis: "二次侧水位上升的直接原因是高压一回路冷却剂经破口进入二次侧，属质量守恒下的响应；水位本身不驱动破口流量，故不是起点。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
@@ -157,7 +160,7 @@ entries:
     reviewed_by: ai_agent
     expert_confirmed: false
     review_verdict: caveat
-    review_note: "AI 代审：角色判断保留；断言边无出处，不进入约束层。"
+    review_note: "AI 代审（2026-11-14 复核）：正值断言边仍无出处、不进入约束层；新增的禁边（NSGA 不直接驱动 P/VOL/LVPZ/WRCA）有 E2+E4 支撑，进入约束层。"
   - id: P5_SGATR_LSGA_level_rise
     kind: positive_mechanism
     variable: LSGA
@@ -170,10 +173,13 @@ entries:
     can_be_root: false
     assertion: not_start
     asserted_edges: []
-    forbidden_outgoing: []
-    sourced: false
-    source_ref: [E2]
-    unsourced_reason: "“宽量程只在超出窄量程后才有读数变化”的次序结论无可核对锚点；E2 只支持水位上升方向。"
+    forbidden_outgoing:
+      targets: [P, VOL, LVPZ, WRCA]
+      basis: "宽量程水位同样是指示量，不直接驱动一回路压力/装量/流量；‘宽档响应更晚’的次序结论仍无出处，不写入。"
+      sourced: true
+      source_ref: E2
+    sourced: true
+    source_ref: [E2, E4]
     basis: "宽量程水位与窄量程水位同源：破口流入导致二次侧装量增加。宽量程只在超出窄量程时才有读数变化，响应次序更晚，不能作为起点。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
@@ -181,7 +187,7 @@ entries:
     reviewed_by: ai_agent
     expert_confirmed: false
     review_verdict: caveat
-    review_note: "AI 代审：方向成立、次序无出处，故不产生约束。"
+    review_note: "AI 代审（2026-11-14 复核）：“宽档响应更晚”的次序结论仍无出处、不写入；新增的禁边有 E2+E4 支撑，进入约束层。"
   - id: P6_SGATR_RM2_radiation
     kind: positive_mechanism
     variable: RM2
@@ -221,10 +227,13 @@ entries:
     can_be_root: false
     assertion: ambiguous
     asserted_edges: []
-    forbidden_outgoing: []
-    sourced: false
-    source_ref: [E2]
-    unsourced_reason: "净方向取决于破口流量与蒸汽负荷之比，无可核对锚点给出单一次序；E2 只说明压力有响应。"
+    forbidden_outgoing:
+      targets: [VOL, LVPZ]
+      basis: "二次侧压力不直接产生一回路装量或稳压器水位；两者之间只能经传热间接耦合（多跳，不在禁边范围）。"
+      sourced: true
+      source_ref: E2
+    sourced: true
+    source_ref: [E2, E4]
     basis: "二次侧压力有两个相反作用：高压一回路流体闪蒸会抬高压力，蒸汽排放/凝结又会降低压力，净方向取决于破口流量与蒸汽负荷之比。学界没有“先升后降”的统一次序结论，故标 ambiguous，不写成支持或反对。"
     conflicts_with: []
     source: "本次补充（正向机理，2026-11-11）"
@@ -232,7 +241,7 @@ entries:
     reviewed_by: ai_agent
     expert_confirmed: false
     review_verdict: accepted
-    review_note: "AI 代审：mixed 保留；不产生约束。"
+    review_note: "AI 代审（2026-11-14 复核）：方向仍标 mixed、不写正向边；新增禁边（PSGA 不直接驱动 VOL/LVPZ）有 E2 支撑，进入约束层。"
   - id: P8_SGATR_HTR_pressure_response
     kind: positive_mechanism
     variable: HTR

@@ -2427,3 +2427,39 @@ gitignore），`pytest` 161 passed。
   （较上轮 +1 / 0 / +1，新增 2 条 `WECS→WHPI` 求和关系反向禁边）。
 - 未跑链路、未改代码、未推送。
 - 状态：✅ closed。
+
+**V23-DESIGN-102（closed）·【用户裁决】21 条 unsourced 三类处置与 SGATR 约束补强**
+
+- 用户裁决（原话要点）：21 条无出处逐条处置——能查到可靠出处的补具体出处并转 `sourced: true`；
+  查不到但物理成立的保留 `sourced: false` 并写清原因、不进约束层；查了站不住的判 `rejected`。
+  目标不是比例好看，是"进约束层的每一条都有出处"。SGATR 约束层零增量要查清原因并补可派生的约束；
+  仍按结构性覆盖，不许看 run 的 Top-5 或覆盖数字决定补哪条。
+- 出处标准（用户裁决）：只有标题、没有章节页的，算 `sourced: false`。
+- 纪律：只动两个 YAML 与台账；不跑链路、不推送；一律 AI 代审、非专家确认。
+- 状态：✅ closed。
+
+**V23-CODE-044（closed）·【自主决定】补 8 条出处、SGATR 挂 7 条禁边、更新可被推翻清单**
+
+- 补出处 8 条：
+  - S7/S8（FRCL/FRZR）→ 新增 `E8 = 10 CFR 50.46(b)(1)(2)`，出边目标由 12 个收窄到 `P/TAVG/VOL/WLR`（避免过度删边）；
+  - S28/S30/S33 → 挂 `E3 = NUREG-0800 SRP §15.6.4` 主文（SG 压力/一回路温度/主蒸汽流量响应）；
+  - P4/P5/P7 的**否定部分**挂 `E2 + E4`，条目级转 `sourced: true`，正值断言边仍 `sourced: false`。
+- 保留 unsourced 13 条（含 2 条 rejected）；本轮改判 rejected 0 条。
+- 判定：accepted 33 / caveat 12 / rejected 2；`expert_confirmed: true` 仍为 0。
+- SGATR 零增量原因：①上轮新增 S24–S27 全为角色条目、无边界可派生；②`S10` 的 `VOL→LVPZ`
+  派生了但对不上变量集（SGATR 无 `VOL`）。
+- SGATR 补法：P4（NSGA）、P5（LSGA）各禁 `→P/VOL/LVPZ/WRCA`；P7（PSGA）禁 `→VOL/LVPZ`；
+  依据 SRP §15.6.3 + RG 1.97（指示量不直接驱动一回路过程量，跨回路只能经传热间接影响）。
+- 派生规则：LOCA 37→45、SGATR 42→52、FLB 62→62；实际可注入（变量集过滤后）LOCA +8、SGATR +7、FLB 0。
+- 新哈希：`positive_mechanisms.yaml` = `fdc095b7c575cc65599b3fefc3d6f7585cada9e41cdf8b70abc832a189288008`；
+  `supplementary_mechanisms.yaml` = `7e461d2f6ea417082e5c239edd9783e6587ec1b7fa3e02630f487447e06869e8`。
+- 验证：`validate_against_entity_table()` → `ok=True, errors=[]`；`pytest tests/test_v23_knowledge_external.py` → 13 passed。
+- 多跳问题（回答用户）：现注入只清零直接边；`T=(I−B)⁻¹` 会让删边效果自然传播到多跳，但**没有**多跳级校验，
+  一条 2–3 跳路径违反"不该有因果"目前查不出来。要做需新增路径级审计，属新能力。
+- 更新后的**可被推翻清单**（真人专家不同意即撤）：
+  1. 13 条 `sourced: false`（S5、S19、S20、S21、S24、S25、S27、S29、S31、P11、P12，及 rejected 的 P10、S14）；
+  2. 全部 `forbidden_outgoing` 否定判断（S3/S4/S6/P6/S12/S13/S15/S16/S17/S18/P8/P13/P14/S23/S26 及新增 P4/P5/P7/S7/S8）；
+  3. 全部 `reverse_forbidden: true` 的边（WLR→VOL、VOL→LVPZ、WTRA→…、WFLB→…、WHPI→WECS）；
+  4. `E8 = 10 CFR 50.46(b)` 只支持"后果量"身份，不支持具体因果方向，若专家认为不能据此禁边，应撤 S7/S8 的约束部分。
+- 未跑链路、未改代码、未推送。
+- 状态：✅ closed。

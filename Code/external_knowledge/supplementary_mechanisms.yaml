@@ -47,6 +47,11 @@ sources:
     anchor: "反应性系数与反应堆动力学章节（温度反馈、硼浓度与反应性）"
     confidence: topic
     supports: "RHMT/RH 类变量的响应属性"
+  E8:
+    doc: "10 CFR 50.46(b) — Acceptance criteria for emergency core cooling systems for light-water nuclear power reactors（现行版，eCFR Title 10 Part 50 §50.46(b)(1)(2)）"
+    anchor: "§50.46(b)(1) 峰值包壳温度、§50.46(b)(2) 最大包壳氧化量（均为验收准则定义的后果量）"
+    confidence: section
+    supports: "FRCL/FRZR 是事故后果指标，不是驱动量"
 entries:
   # ==================== LOCA ====================
   - id: S1_LOCA_P_response
@@ -213,22 +218,20 @@ entries:
     can_be_root: false
     asserted_edges: []
     forbidden_outgoing:
-      targets: [P, TAVG, VOL, WLR, PRB, TRB, RM1, WHPI, WECS, LVPZ, PSGA, RRCA]
-      basis: "包壳破损份额是 ECCS 验收准则下的后果量，不由它驱动一回路过程量。"
-      sourced: false
-      source_ref: []
-      unsourced_reason: "“后果量”属定义性判断，未找到单一可核对锚点（SRP 15.6.5 只给验收准则，不给因果方向）。"
-    sourced: false
-    source_ref: []
-    unsourced_reason: "同上：角色判断缺单一文献锚点，本轮不作约束。"
-    basis: "燃料包壳破损是失水后传热恶化的结果；作为后果指标，不应被当作驱动量。"
+      targets: [P, TAVG, VOL, WLR]
+      basis: "包壳破损份额是 10 CFR 50.46(b) 定义的 ECCS 验收后果量，不由它驱动一回路过程主链；出边只保留 P/TAVG/VOL/WLR 四个过程主量，避免过度删边。"
+      sourced: true
+      source_ref: E8
+    sourced: true
+    source_ref: [E8]
+    basis: "燃料包壳破损是失水后传热恶化的结果；10 CFR 50.46(b)(1)(2) 把峰值包壳温度与氧化量写成验收准则，说明它们是后果度量。"
     conflicts_with: []
     source: "外部知识补强（2026-11-14）"
     date: "2026-11-14"
     reviewed_by: ai_agent
     expert_confirmed: false
-    review_verdict: caveat
-    review_note: "AI 代审：角色判为响应可信，但无出处，故 targets 不进入禁边层。"
+    review_verdict: accepted
+    review_note: "AI 代审：验收准则只证明“后果量”身份，不证明具体因果方向；因此只用于禁“反向下游驱动主链”，不用于断言正向边。出边已从 12 个收窄到 4 个。"
   - id: S8_LOCA_FRZR_consequence
     kind: response_role
     variable: FRZR
@@ -241,22 +244,20 @@ entries:
     can_be_root: false
     asserted_edges: []
     forbidden_outgoing:
-      targets: [P, TAVG, VOL, WLR, PRB, TRB, RM1, WHPI, WECS, LVPZ, PSGA, RRCA]
-      basis: "锆氧化份额是高温下的后果量，不驱动一回路过程量。"
-      sourced: false
-      source_ref: []
-      unsourced_reason: "定义性判断，无单一可核对锚点。"
-    sourced: false
-    source_ref: []
-    unsourced_reason: "同上；本轮不作约束。"
+      targets: [P, TAVG, VOL, WLR]
+      basis: "锆氧化份额是 10 CFR 50.46(b)(2) 定义的 ECCS 验收后果量，不驱动一回路过程主链；出边只保留四个过程主量。"
+      sourced: true
+      source_ref: E8
+    sourced: true
+    source_ref: [E8]
     basis: "锆水反应程度由温度历史决定，是事故后果指标。"
     conflicts_with: []
     source: "外部知识补强（2026-11-14）"
     date: "2026-11-14"
     reviewed_by: ai_agent
     expert_confirmed: false
-    review_verdict: caveat
-    review_note: "AI 代审：角色可信但无出处，不进入禁边层。"
+    review_verdict: accepted
+    review_note: "AI 代审：同 S7；验收准则证明后果量身份，不证明正向因果，只用于禁反向。"
   # ==================== SGATR ====================
   - id: S9_SGATR_P_response
     kind: response_role
@@ -741,9 +742,8 @@ entries:
     can_be_root: false
     asserted_edges: []
     forbidden_outgoing: []
-    sourced: false
+    sourced: true
     source_ref: [E3]
-    unsourced_reason: "E3 支持“有响应”，但不给“压力→给水流量”这类具体边的章节级方向。"
     basis: "给水/蒸汽管道破裂使二次侧质量与能量流失，SG 压力下降；PSGA 是二次侧状态响应。"
     conflicts_with: []
     source: "结构性覆盖补强（2026-11-14）"
@@ -794,10 +794,9 @@ entries:
         source_ref: [E6]
         unsourced_reason: "E6 仅主题章级，未到可核对章节号。"
     forbidden_outgoing: []
-    sourced: false
-    source_ref: [E6]
-    unsourced_reason: "TAVG→PSGA 仅有主题章级锚点；原拟加的“TAVG 不直接启动安注”会与 K3 的 TAVG→WHPI 链边直接对撞，故不写入。"
-    basis: "二次侧失冷后一回路平均温度随排热与压力变化；TAVG 是传导节点，不是起点。"
+    sourced: true
+    source_ref: [E3]
+    basis: "二次侧失冷后一回路平均温度随排热与压力变化；TAVG 是传导节点，不是起点。E3 只支持“有响应”，具体滞后方言不入约束层。"
     conflicts_with: []
     source: "结构性覆盖补强（2026-11-14）"
     date: "2026-11-14"
@@ -863,10 +862,9 @@ entries:
     can_be_root: false
     asserted_edges: []
     forbidden_outgoing: []
-    sourced: false
+    sourced: true
     source_ref: [E3]
-    unsourced_reason: "破口分流与另一列负荷再分配方向相反，无单一次序锚点。"
-    basis: "蒸汽管道破裂使本列蒸汽流量下降，另一列承担更多负荷；净方向取决于破口位置与负荷分配，故标 mixed。"
+    basis: "蒸汽管道破裂使本列蒸汽流量下降，另一列承担更多负荷；净方向取决于破口位置与负荷分配，故标 mixed（只主张“有响应”，不主张方向）。"
     conflicts_with: []
     source: "结构性覆盖补强（2026-11-14）"
     date: "2026-11-14"
