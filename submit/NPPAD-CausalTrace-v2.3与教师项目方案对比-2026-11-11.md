@@ -69,7 +69,7 @@
 |---|---|---|
 | 图数 | **1 张**（`main()` 只调一次 `learn_graph`，`evaluate` 对 12 类共用同一 `graph`） | 9 张（3 类 × low/mid/high），每模板独立建图 |
 | 训练矩阵 | `Normal/1.csv` + 每类最多 4 个文件拼接，`max_rows=5000` 抽样，`analysis_rows=300` | 每模板训练轨迹（`train_template_severities`），学图窗 `[60,1500]`（`LEARN_WINDOW`，145 点/轨迹） |
-| 规模 | 57 节点、191 条保留边（`run_info.json`） | 15 节点，稳定边 31–74（`121858/100`）；诊断档 wide 为 30/18/15（LOCA/SGATR/FLB），**不可与 15 并排** |
+| 规模 | 57 节点、191 条保留边（`run_info.json`） | 15 节点，稳定边 31–74（`121858/100`）；诊断档 wide 为 30/18/15（LOCA/SGATR/FLB），其中 LOCA `p=30` 违反现行 W5（`p ≤ n_train_trajectories`）已判**不成立**、仅作欠定观察，FLB 退化回 v23；**不可与 15 并排** |
 | 标准化 | `build_scale`：`max(robust_scale(Normal 前 300 行), 0.01·global_range)`，变量级、12 类共用 | `unified`：每模板训练段池化 `mean/std(ddof=0)`，逐模板、逐变量；无 floor、无 MAD |
 | 算法 | Bootstrap DirectLiNGAM（`causallearn`） | Bootstrap DirectLiNGAM（同算法） |
 
@@ -197,7 +197,7 @@
 
 | 环节 | 教师项目 | 本方案 v2.3 | 差别性质 |
 |------|----------|-------------|----------|
-| 变量选取 | 57 全局、12 类共用 | 15/模板、V0–V7 门控、9 模板（诊断档 wide 30/18/15，`citable=null`） | 全集 vs 子集 |
+| 变量选取 | 57 全局、12 类共用 | 15/模板、V0–V7 门控、9 模板（诊断档 wide 仅 SGATR p=18 有效；LOCA `p=30` 违反 W5 已判不成立，FLB 退化回 v23；`citable=null`） | 全集 vs 子集 |
 | 建图 | 1 张全局图（191 边 / 56 节点） | 9 张逐模板图（31–74 稳定边） | 单图 vs 多图 |
 | bootstrap | 3（产物） | 100 正式（`121858/100` 已实跑）/ 5 执行 | 分辨率 1/3 vs 1/100 |
 | 标准化 | 变量级 `build_scale`，12 类共用 | `unified`：每模板训练段池化 `mean/std` | 共用 vs 逐模板 |
