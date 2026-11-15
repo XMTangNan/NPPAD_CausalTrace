@@ -58,19 +58,21 @@ CONSENSUS_NOTE = "单引擎稳定边，不等同共识边"
 def _load_frozen_input(name: str) -> Dict:
     """读 v2.3 registry 里的冻结输入；缺文件才回退 v2.1 根（只读，不许回写）。
 
-    S1 契约：split_manifest / shared_baseline / marker_scale 由 A 阶段写入
+    S1 契约：split_manifest / shared_baseline / signal_scale 由 A 阶段写入
     本 run 的 registry/，C 阶段只认 v2.3 根；v2.1 仅作旧产物兼容回退。
+    V23-DESIGN-109：v2.3 侧名 signal_scale，v2.1 冻结源文件名仍是 marker_scale。
     """
     path = artifact.subdir_path("registry") / f"{name}.json"
     if path.exists():
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    logger.warning(f"[v23c] 回退 v2.1 只读输入: {name}.json（未在 v2.3 registry 找到）")
-    return D.load_json(f"{name}.json")
+    legacy_name = {"signal_scale": "marker_scale"}.get(name, name)
+    logger.warning(f"[v23c] 回退 v2.1 只读输入: {legacy_name}.json（未在 v2.3 registry 找到）")
+    return D.load_json(f"{legacy_name}.json")
 
 
 def load_inputs() -> Dict:
-    """C 阶段输入（A/B 阶段已冻结的划分、共享基线、marker 尺度、变量集）。"""
+    """C 阶段输入（A/B 阶段已冻结的划分、共享基线、信号尺度、变量集）。"""
     vs_summary = _vs_summary_path()
     if not vs_summary.exists():
         raise FileNotFoundError(f"缺变量选取结果: {vs_summary}（先跑 A 阶段）")
@@ -79,7 +81,7 @@ def load_inputs() -> Dict:
     return {
         "manifest": _load_frozen_input("split_manifest"),
         "baseline": _load_frozen_input("shared_baseline"),
-        "scale": _load_frozen_input("marker_scale"),
+        "scale": _load_frozen_input("signal_scale"),
         "selected_vars": vs["selected_vars"],
         "vs_report": {
             k: artifact.repo_relative(artifact.subdir_path("variable_sets")
@@ -221,8 +223,8 @@ def compute_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
 
     stable = sig["stable_edges"]
     variables = list(gvars)
-    topology = ST.compute_topology(stable, variables, marker, cons["clf"])
-    traced = ST.trace_roots(topology, marker, stable, variables, top_k=5)
+    topology = ST.compute_topology(stable, variables, cons["clf"])
+    traced = ST.trace_roots(topology, stable, variables, top_k=5)
     roots = traced["root_candidates"]
     diag = traced["diagnostics"]
     # 拓扑节点补 role（供图着色，不改排序）
@@ -234,7 +236,7 @@ def compute_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
     }
     n_cons, n_conf = consensus_counts(stable, cons)
     return {
-        "k": k, "g": g, "marker": marker, "variables": variables,
+        "k": k, "g": g, "signal_channel": marker, "variables": variables,
         "sig": sig, "stable": stable, "topology": topology, "nodes": nodes,
         "roots": roots, "all_candidates": traced.get("all_candidates") or [],
         "diag": diag, "gating": gating, "ontology": ontology,
@@ -292,7 +294,7 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
     gate = GATE.build_gate(
         k, g, r["variables"], total_effect, tol, dev_full, policy,
         n_post_inject_points=dev_full.get("n_post_inject_points"),
-        marker=r.get("marker"), safety_vars=SAFETY_STEP_VARS)
+        safety_vars=SAFETY_STEP_VARS)
     gate_res = GATE.apply_gate(r["all_candidates"], r["topology"], gate, policy)
     by_var = {c["variable"]: c for c in gate_res["ranked_all"]}
     for c in roots:
@@ -321,7 +323,7 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
         source=inputs["vs_report"].get(k, "variable_sets/"))
 
     common = {
-        "template": {"k": k, "g": g, "marker": r["marker"],
+        "template": {"k": k, "g": g, "signal_channel": r["signal_channel"],
                      "n_vars": len(gvars), "n_train_trajectories": sig["n_train_trajectories"]},
         "engine": "lingam",
         "n_bootstrap": n_bootstrap,
@@ -360,19 +362,10 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
         "sigma_buckets": tol.get("sigma_buckets"),
         "root_candidates": [_root_entry(c) for c in roots],
         "top5_v2": [c["variable"] for c in gate_res["pool_order"][:5]],
-        # 历史字段：取消遮蔽（2026-11-11）后仅作标识/兼容既有产物结构；
-        # 名次直接从本榜单里该变量那一条取（未进 Top-K 时为 None）。
-        "marker_info": {
-            "variable": r["marker"],
-            "role": "injection_source",
-            "rank": next((c["rank"] for c in roots
-                          if c["variable"] == r["marker"]), None),
-            "note": "取消遮蔽（2026-11-11），名次正常参与排序；历史字段，仅作标识",
-        },
-        "method_note": ("排序键=总因果效应 T=(I-B)^-1 对症状端(marker+terminal)的"
+        "method_note": ("排序键=总因果效应 T=(I-B)^-1 对症状端（终端节点）的"
                         "|效应| 之和；次级 in_degree ASC/weighted_reach DESC。"
-                        "候选池由冻结门策略收缩（gate_policy_v2，门槛按 σ 尺度来源分档，"
-                        "无 λ、无权重；V23-DESIGN-107）。"
+                        "候选池由冻结门策略收缩（gate_policy_v3，门槛按 σ 尺度来源分档，"
+                        "无 λ、无权重；V23-DESIGN-107/109）。"
                         + (" " + CONSENSUS_NOTE if not cons["available"] else "")),
     })
     artifact.write_artifact(f"root_candidates_{k}_{g}", root_payload, "tracing",
@@ -414,7 +407,7 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
     artifact.write_artifact(f"topology_{k}_{g}", topo_payload, "tracing",
                             run_id=run_id, accident_type=k, group=g, source=sig_src)
 
-    sens = ST.clip_sensitivity(r["topology"], r["marker"], r["stable"], r["variables"])
+    sens = ST.clip_sensitivity(r["topology"], r["stable"], r["variables"])
     sens_payload = dict(common)
     sens_payload.update(sens)
     artifact.write_artifact(f"clip_sensitivity_{k}_{g}", sens_payload, "tracing",
@@ -461,7 +454,7 @@ def repro_check(k: str, g: str, gvars: Sequence[str], inputs: Dict,
 def smoke_partial(code: str, inputs: Dict) -> Dict:
     """PARTIAL 类只允许单模板 smoke：单次拟合、描述性、不写签名/榜单。"""
     cfg = get_accident(code)
-    marker = cfg["marker"]
+    marker = cfg["signal_channel"]
     sevs = D.list_class_severities(code)
     if not sevs:
         return {"code": code, "status": "partial", "partial": True,

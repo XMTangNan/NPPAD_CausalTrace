@@ -34,7 +34,7 @@ def explain_one(k: str, g: str, backend: str = "rule") -> Dict:
     faith = res["faithfulness"]
     doc = {
         "template": f"{k}_{g}",
-        "marker": payload["marker"],
+        "signal_channel": payload["signal_channel"],
         "requested_backend": res["requested_backend"],
         "backend": res["backend"],
         "degraded": res["degraded"],

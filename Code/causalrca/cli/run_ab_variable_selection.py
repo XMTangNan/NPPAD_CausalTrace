@@ -3,9 +3,9 @@
 同一下游流水线（bootstrap_lingam_template + select_root_candidates）、同一 Bootstrap 次数，
 对比指标：
   - 稳定边数（f_e>=0.70, dir_e>=0.90）
-  - marker 稳定出边数
+  - 注入变量稳定出边数
   - frontier 可达域大小
-  - 根因 Top-1（marker 遮蔽后）
+  - 根因 Top-1（注入变量与其它变量同等排序）
   - 本体允许边方向一致率
 
 用法（cd Code）：PYTHONPATH=. python -m rca.v21.run_ab_variable_selection
@@ -78,13 +78,13 @@ def _run_one_set(manifest, baseline, scale, k, g, gvars, label):
         n_bootstrap=AB_N_BOOTSTRAP, seed=GLOBAL_SEED, use_ontology=True)
 
     stable = sig["stable_edges"]
-    marker_out_edges = [e for e in stable if e["from"] == marker]
+    signal_out_edges = [e for e in stable if e["from"] == marker]
     frontier = bfs_frontier([(e["from"], e["to"]) for e in stable], marker)
     reach_size = len(frontier["reach"])
 
-    # 根因排名（marker 遮蔽，基于总因果效应排序）
-    topology = compute_topology(stable, gvars, marker, {})
-    roots = select_root_candidates(topology, marker, stable, gvars, top_k=5)
+    # 根因排名（V23-DESIGN-109：故障指示器为普通变量，基于总因果效应排序）
+    topology = compute_topology(stable, gvars, {})
+    roots = select_root_candidates(topology, stable, gvars, top_k=5)
     top1 = roots[0]["variable"] if roots else None
 
     # 本体方向一致率（诊断指标，V23-DESIGN-009）
@@ -94,7 +94,7 @@ def _run_one_set(manifest, baseline, scale, k, g, gvars, label):
         "label": label,
         "n_vars": len(gvars),
         "n_stable_edges": len(stable),
-        "n_marker_out_edges": len(marker_out_edges),
+        "n_signal_out_edges": len(signal_out_edges),
         "frontier_reach_size": reach_size,
         "root_cause_top1": top1,
         "root_cause_top5": [r["variable"] for r in roots],
@@ -110,7 +110,7 @@ def main() -> None:
     run_id = A.new_run_id("v23a-ab")
     manifest = D.load_json("split_manifest.json")
     baseline = D.load_json("shared_baseline.json")
-    scale = D.load_json("marker_scale.json")
+    scale = D.load_json("signal_scale.json")
     vsets = D.load_json("variable_sets.json")
     with open(_vs_summary(), encoding="utf-8") as f:
         vs_summary = json.load(f)
@@ -137,7 +137,7 @@ def main() -> None:
                 "v21": v21_metrics,
                 "diff": {
                     "stable_edges": auto_metrics["n_stable_edges"] - v21_metrics["n_stable_edges"],
-                    "marker_out_edges": auto_metrics["n_marker_out_edges"] - v21_metrics["n_marker_out_edges"],
+                    "signal_out_edges": auto_metrics["n_signal_out_edges"] - v21_metrics["n_signal_out_edges"],
                     "frontier_reach": auto_metrics["frontier_reach_size"] - v21_metrics["frontier_reach_size"],
                     "ontology_agreement": round(auto_metrics["ontology_agreement"] - v21_metrics["ontology_agreement"], 4),
                     "backbone_hit_ratio": round(auto_metrics["backbone_hit_ratio"] - v21_metrics["backbone_hit_ratio"], 4),

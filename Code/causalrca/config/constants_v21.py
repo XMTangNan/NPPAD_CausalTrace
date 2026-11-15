@@ -52,13 +52,13 @@ ALL_ACCIDENT_TYPES = list(ALL_CODES)
 READY_ACCIDENT_TYPES = list(READY_CODES)
 PARTIAL_ACCIDENT_TYPES = list(PARTIAL_CODES)
 MISSING_ACCIDENT_TYPES = list(MISSING_CODES)
-MARKERS = {code: get_accident(code)["marker"] for code in ALL_ACCIDENT_TYPES}
+MARKERS = {code: get_accident(code)["signal_channel"] for code in ALL_ACCIDENT_TYPES}
 # 仅专用故障指示器通道可入 MARKER_COLS；WSTA/WSTB/RHRD/PPM/TBLD/WLD 等过程量
-# 绝不能列入，否则 knowledge._forbidden_rules 会把正常过程变量当外生 marker 禁边。
+# 绝不能列入，否则会把正常过程变量误当外生注入源。
 # 去重保序（LOCA/LOCAC 共用 WLR）：结果 = ["WLR","WTRA","WTRB","WFLB"]
 MARKER_COLS = list(dict.fromkeys([
-    cfg["marker"] for cfg in (get_accident(c) for c in ALL_ACCIDENT_TYPES)
-    if cfg["marker_type"] == "indicator"
+    cfg["signal_channel"] for cfg in (get_accident(c) for c in ALL_ACCIDENT_TYPES)
+    if cfg["injection_kind"] == "indicator"
 ]))
 # v2.1 兼容别名：非 pilot 类别 marker 登记但不入模
 NON_PILOT_MARKERS = [m for m in MARKER_COLS

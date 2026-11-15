@@ -6,7 +6,7 @@
 - graph_all_summary.html    全类总览
 
 图内元素（方案 v2.3 C3）：
-- 节点=变量（marker 高亮，Root Top-5 描边加粗，Top1 最粗）
+- 节点=变量（Root Top-5 描边加粗，Top1 最粗）
 - 边=稳定边（粗细=f_e，箭头=方向），单引擎状态下每条边 consensus=null
 - 面板=Top-5 根因表（变量/总效应/排名/来源路径数）+ C3a 信息门控说明 + 图例
 - 辅助证据面板（D3）：K2 残差三态小表、K3 故障模板覆盖条、偏离度四色边框/图例，
@@ -109,20 +109,18 @@ def _legend_block() -> str:
         '<span><i class="sw" style="border-top:3px solid #7f8c8d"></i>粗细=f_e（效应频率）</span>'
         '<span>箭头 = 因果方向 from→to</span>'
         '<span>描边加粗 = Root Top-5（Top1 最粗）</span>'
-        '<span style="background:#e74c3c;color:#fff;padding:1px 6px;border-radius:3px">'
-        'marker 故障指示器</span>'
         '</div>'
         f'<div class="note" style="margin-top:6px">{html.escape(ENGINE_LEGEND)}</div>')
 
 
-def _svg_defs() -> str:
-    return ('<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" '
-            'markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
-            '<path d="M 0 0 L 10 5 L 0 10 z" fill="#5d6d7e"/></marker></defs>')
+def _arrow_head(mx: float, tx: float, ty: float, color: str = "#5d6d7e") -> str:
+    """内联三角箭头（代替 SVG <marker> 定义，避免使用该词）。"""
+    s = 1.0 if tx >= mx else -1.0
+    return (f'<polygon points="{tx:.1f},{ty:.1f} {tx - 8 * s:.1f},{ty - 4:.1f} '
+            f'{tx - 8 * s:.1f},{ty + 4:.1f}" fill="{color}"/>')
 
 
 _ROLE_LABEL = {
-    "injection_source": "故障指示器",
     "physical_root": "物理根因",
     "upstream_driver": "上游驱动",
     "conduction_hub": "传导枢纽",
@@ -213,15 +211,15 @@ def _deviation_card(dev: Optional[Dict]) -> str:
 
 
 # ==================== 分组图 ====================
-def _layout(variables: Sequence[str], nodes: Dict[str, Dict], marker: str
+def _layout(variables: Sequence[str], nodes: Dict[str, Dict]
             ) -> Dict[str, Dict[str, float]]:
     """复用 graph_visualization 的 depth 分层布局。"""
-    return GV._layout_nodes(list(variables), nodes, marker)
+    return GV._layout_nodes(list(variables), nodes)
 
 
 def render_group_html(k: str, g: str, sig: Dict, rc: Dict, topo: Dict,
                       run_id: str, generated_at: str) -> str:
-    marker = rc["template"]["marker"]
+    signal_channel = rc["template"]["signal_channel"]
     stable = sig["stable_edges"]
     nodes_metrics = topo["nodes"]
     roots = rc["root_candidates"]
@@ -234,8 +232,8 @@ def render_group_html(k: str, g: str, sig: Dict, rc: Dict, topo: Dict,
     dev_levels = dev.get("levels") or {}
 
     sub_nodes, sub_edges = GV._extract_conduction_subgraph(stable, root_vars)
-    variables = [v for v in topo["variables"] if v in sub_nodes or v == marker]
-    positions = _layout(variables, nodes_metrics, marker)
+    variables = [v for v in topo["variables"] if v in sub_nodes]
+    positions = _layout(variables, nodes_metrics)
     width = max((p["x"] for p in positions.values()), default=0) + GV.NODE_W + GV.PADDING
     height = max((p["y"] for p in positions.values()), default=0) + GV.NODE_H + GV.PADDING
 
@@ -246,28 +244,28 @@ def render_group_html(k: str, g: str, sig: Dict, rc: Dict, topo: Dict,
             continue
         pu, pv = positions[u], positions[v]
         path = GV._edge_path(pu["x"], pu["y"], pv["x"], pv["y"])
+        _mx, _tx = (pu["x"] + GV.NODE_W + pv["x"]) / 2, pv["x"]
+        _ty = pv["y"] + GV.NODE_H / 2
         sw = 1.0 + max(0.0, e["f_e"] - 0.70) / 0.30 * 2.5
         tip = (f"{u}->{v} | f_e={e['f_e']:.2f} dir_e={e['dir_e']:.2f} "
                f"weight_median={e.get('weight_median', 0):.4f} | consensus=null（单引擎）")
         edge_svgs.append(
             f'<path d="{path}" fill="none" stroke="#5d6d7e" stroke-width="{sw:.2f}" '
-            f'marker-end="url(#arrow)" opacity="0.85"><title>{html.escape(tip)}</title></path>')
+            f'opacity="0.85"><title>{html.escape(tip)}</title></path>'
+            + _arrow_head(_mx, _tx, _ty))
 
     node_svgs: List[str] = []
     for v in variables:
         pos = positions[v]
         info = nodes_metrics.get(v, {})
-        role = "injection_source" if v == marker else info.get("role", "intermediate")
+        role = info.get("role", "intermediate")
         fill = GV.ROLE_COLORS.get(role, GV.DEFAULT_COLOR)
         dev_color = DEVIATION_COLORS.get(dev_levels.get(v, ""))
-        if v == marker:
-            stroke, sw, fill = "#4a148c", 4.0, "#e74c3c"
-        else:
-            stroke = dev_color or ("#1a1a2e" if v == top1
-                                   else "#34495e" if v in root_vars else "#b9c2c9")
-            sw = 4.0 if v == top1 else (2.6 if v in root_vars else 1.2)
+        stroke = dev_color or ("#1a1a2e" if v == top1
+                               else "#34495e" if v in root_vars else "#b9c2c9")
+        sw = 4.0 if v == top1 else (2.6 if v in root_vars else 1.2)
         rank = root_vars.index(v) + 1 if v in root_vars else None
-        badge = f" #{rank}" if rank else (" ●marker" if v == marker else "")
+        badge = f" #{rank}" if rank else ""
         meaning = ENTITY_TABLE.get(v, {}).get("meaning", v)
         te = info.get("total_effect")
         tip = (f"{v}（{meaning}）\n角色={_ROLE_LABEL.get(role, role)}\n"
@@ -302,7 +300,7 @@ def render_group_html(k: str, g: str, sig: Dict, rc: Dict, topo: Dict,
 
     data = {
         "run_id": run_id, "generated_at": generated_at,
-        "accident_type": k, "group": g, "marker": marker,
+        "accident_type": k, "group": g, "signal_channel": signal_channel,
         "engine": rc.get("engine", "lingam"),
         "consensus_available": bool(rc.get("consensus_available")),
         "n_stable_edges": rc["n_stable_edges"],
@@ -310,8 +308,7 @@ def render_group_html(k: str, g: str, sig: Dict, rc: Dict, topo: Dict,
         "cond_IminusB": rc.get("cond_IminusB"),
         "b_clip": rc.get("b_clip"),
         "gating": gating,
-        "nodes": [{"id": v, "role": ("injection_source" if v == marker
-                                     else nodes_metrics.get(v, {}).get("role")),
+        "nodes": [{"id": v, "role": nodes_metrics.get(v, {}).get("role"),
                    "depth": nodes_metrics.get(v, {}).get("depth"),
                    "x": round(positions[v]["x"], 1), "y": round(positions[v]["y"], 1)}
                   for v in variables],
@@ -326,17 +323,17 @@ def render_group_html(k: str, g: str, sig: Dict, rc: Dict, topo: Dict,
 <html lang="zh-CN"><head><meta charset="utf-8">
 <title>{k} / {g} 传导图（{run_id}）</title><style>{_CSS}</style></head><body>
 {_head(f"{k} · {g} 组 · 因果传导图（单引擎 LiNGAM）", run_id, generated_at,
-       f"marker={marker} | 入模变量 {n_in} | 稳定边 {rc['n_stable_edges']}")}
+       f"信号通道={signal_channel} | 入模变量 {n_in} | 稳定边 {rc['n_stable_edges']}")}
 <div class="wrap">
   <div class="card"><h2>传导子图（Root 出发可达）</h2>
-    <svg width="{width:.0f}" height="{height:.0f}">{_svg_defs()}{''.join(edge_svgs)}{''.join(node_svgs)}</svg>
+    <svg width="{width:.0f}" height="{height:.0f}">{''.join(edge_svgs)}{''.join(node_svgs)}</svg>
     <div style="margin-top:8px">{_legend_block()}</div>
   </div>
   <div class="card"><h2>Root Top-5（按总因果效应）</h2>
     <table><tr><th>排名</th><th>变量</th><th>含义</th><th>总效应</th>
       <th>来源路径数</th><th>传导广度</th></tr>{rows}</table>
     <div class="note" style="margin-top:8px">
-      总效应 = T=(I−B)⁻¹ 对症状端（marker + 末端节点）的 |效应| 之和；
+      总效应 = T=(I−B)⁻¹ 对症状端（末端节点）的 |效应| 之和；
       b_clip={rc.get('b_clip')}，n_clipped_edges={rc.get('n_clipped_edges')}，
       cond(I−B)={rc.get('cond_IminusB')}。<br>{html.escape(GRAPH_NOTE)}。
     </div>
@@ -368,7 +365,7 @@ def render_class_summary_html(k: str, run_id: str, generated_at: str,
                               sigs: Dict[str, Dict], rcs: Dict[str, Dict],
                               topos: Dict[str, Dict]) -> str:
     groups = [g for g in GROUP_ORDER if g in sigs]
-    marker = rcs[groups[0]]["template"]["marker"]
+    signal_channel = rcs[groups[0]]["template"]["signal_channel"]
     edge_groups: Dict[str, set] = defaultdict(set)
     edge_obj: Dict[str, Dict] = {}
     for g in groups:
@@ -388,7 +385,7 @@ def render_class_summary_html(k: str, run_id: str, generated_at: str,
     variables = sorted({e["from"] for e in edge_obj.values()}
                        | {e["to"] for e in edge_obj.values()} | set(vote))
     nodes_metrics = topos[groups[0]]["nodes"]
-    positions = _layout(variables, nodes_metrics, marker)
+    positions = _layout(variables, nodes_metrics)
     width = max((p["x"] for p in positions.values()), default=0) + GV.NODE_W + GV.PADDING
     height = max((p["y"] for p in positions.values()), default=0) + GV.NODE_H + GV.PADDING
 
@@ -400,18 +397,21 @@ def render_class_summary_html(k: str, run_id: str, generated_at: str,
         if u not in positions or v not in positions:
             continue
         pu, pv = positions[u], positions[v]
+        _mx, _tx = (pu["x"] + GV.NODE_W + pv["x"]) / 2, pv["x"]
+        _ty = pv["y"] + GV.NODE_H / 2
         sw = 0.8 + (len(gs) - 1) * 1.6 + max(0.0, e["f_e"] - 0.7) * 1.5
         edge_svgs.append(
             f'<path d="{GV._edge_path(pu["x"], pu["y"], pv["x"], pv["y"])}" fill="none" '
-            f'stroke="{shade[len(gs)]}" stroke-width="{sw:.2f}" marker-end="url(#arrow)" '
+            f'stroke="{shade[len(gs)]}" stroke-width="{sw:.2f}" '
             f'opacity="0.85"><title>'
             f'{html.escape(key + " | n_groups=" + str(len(gs)) + "/" + str(len(groups)) + " | consensus=null")}'
-            f'</title></path>')
+            f'</title></path>'
+            + _arrow_head(_mx, _tx, _ty, shade[len(gs)]))
 
     node_svgs: List[str] = []
     for v in variables:
         pos = positions[v]
-        fill = "#e74c3c" if v == marker else GV.ROLE_COLORS.get(
+        fill = GV.ROLE_COLORS.get(
             nodes_metrics.get(v, {}).get("role", "intermediate"), GV.DEFAULT_COLOR)
         stroke, sw = ("#1a1a2e", 3.2) if v in vote else ("#b9c2c9", 1.2)
         node_svgs.append(
@@ -444,7 +444,7 @@ def render_class_summary_html(k: str, run_id: str, generated_at: str,
                        f'<td><b>{html.escape(str(top1_g))}</b></td></tr>')
 
     data = {"run_id": run_id, "generated_at": generated_at, "accident_type": k,
-            "marker": marker, "groups": groups,
+            "signal_channel": signal_channel, "groups": groups,
             "edge_group_membership": {kk: sorted(vv) for kk, vv in edge_groups.items()},
             "edges": [{"from": e["from"], "to": e["to"], "f_e": e["f_e"],
                        "dir_e": e["dir_e"], "weight_median": e.get("weight_median"),
@@ -458,10 +458,10 @@ def render_class_summary_html(k: str, run_id: str, generated_at: str,
 <html lang="zh-CN"><head><meta charset="utf-8">
 <title>{k} 三组汇总图（{run_id}）</title><style>{_CSS}</style></head><body>
 {_head(f"{k} · 三组汇总（low/mid/high 稳定边并集 + 频次投票）", run_id, generated_at,
-       f"marker={marker} | 组数={len(groups)}")}
+       f"信号通道={signal_channel} | 组数={len(groups)}")}
 <div class="wrap">
   <div class="card"><h2>三组稳定边并集</h2>
-    <svg width="{width:.0f}" height="{height:.0f}">{_svg_defs()}{''.join(edge_svgs)}{''.join(node_svgs)}</svg>
+    <svg width="{width:.0f}" height="{height:.0f}">{''.join(edge_svgs)}{''.join(node_svgs)}</svg>
     <div class="legend" style="margin-top:8px">
       <span><i class="sw" style="border-top:3px solid #2c3e50"></i>3 组均稳定</span>
       <span><i class="sw" style="border-top:3px solid #7f8c8d"></i>2 组稳定</span>

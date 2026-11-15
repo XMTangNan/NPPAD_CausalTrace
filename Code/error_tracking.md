@@ -2630,3 +2630,74 @@ gitignore），`pytest` 161 passed。
 - 旧结果影响：`path_audit` 三档计数与理由文案不可与旧 run 混比；旧 `counts` 字段保留但语义已注明。
 - 状态：✅ closed（随本轮 run 落盘）。
 
+
+**V23-DESIGN-109（closed）·【用户裁决】注入变量降级为普通变量（2026-11-15）**
+
+- 裁决原话："把它降级为普通变量，参与排序，不剔除、也不给予特殊地位。"
+- 改了什么（7 个功能依赖点）：
+  1. `data/loader.py`：变量仍在 `V_graph,k`，只是不再是特殊类别；不再进 `V_thr` 的理由改为
+     "离散指示量与 WHPI/WECS 同类"，不是身份豁免。
+  2. `evidence/knowledge.py`：删除 `_forbidden_rules()`（K1 R1/R2/R3），`forbidden=[]`；
+     `constraints_v1` 硬禁边保留。
+  3. `causal/source_tracing.py`：`effect_vars` 只由终端节点（出度 0）定义，删 `is_marker`。
+  4. `evidence/tolerance.py`：`excluded_vars_for` 只排 `SAFETY_STEP_VARS`。
+  5. `causal/gating.py` + 新 `config/gate_policy_v3.yaml`（sha256
+     `236014480bb30b7a14055280bef99bc53b592896cd572553b0dc41e11ddd49ba`）：取消
+     `marker_variable` 结构性剔除；`POLICY_VERSION=gate_policy_v3`。
+  6. `data/audit.py` B6：按普通变量处理，字段中性化（`signal_*`）。
+  7. 报告/图/指标：删 `is_marker`/`marker_info`/`marker_rank`/`marker_median`/`masking`；
+     `unstable_magnitude_marker_edges`→`unstable_magnitude_signal_edges`；
+     `marker_type`→`injection_kind`；冻结快照 `marker_scale.json`→`signal_scale.json`（源文件不变）。
+  另：`evidence/external_knowledge.py` 撤掉"不得断言 X→指示器"的身份性校验；
+  `reporting/*`、`cli/*`、`config/*` 中 `template.marker` 统一为 `template.signal_channel`。
+- 为什么：排序里的跳过分支早已删除，但"指示器"概念仍在 7 处代码里以身份而非物理事实施特权；
+  用户要求彻底取消。身份性禁边没有物理依据，撤掉后才由数据与 `constraints_v1` 决定图。
+- 实测（`v23-20261115T174733`，`n_bootstrap=5`，`citable=null`，10/10 ok）：
+  - 稳定边 399→432（+33/-0），新增边**全部**指向注入变量；
+  - `S`：LOCA_low 7→5、LOCA_mid 6→4、SGATR_high 5→3，其余不变；
+  - `E_v`：FLB low/mid 的 WFLB 失去自项 1.0（旧 `E_v≈1.002` 即 `T[WFLB,WFLB]=1`）跌出榜单；
+    LOCA_high WLR 2.429→1.429（名次 2→5）；
+  - 候选池 87 / 剔除 48 与旧 run 相同，但 `marker_variable` 9 例消失，转为 `saturated` 12 例
+    （3→12）；即注入变量改为**按数值理由**出池；
+  - 审计三档：路径 3013→4088，`5/2060/948` → `5/2557/1526`（全 soft，hard 0）；
+  - WLR 的 "池外却有排名" 矛盾消失为他因：它是 `not_evaluable/saturated`，保留 `rank_if_kept`
+    是所有不可评估变量的通用口径，不再有专用 `gate_reason=marker_variable`。
+- 措辞层：`submit/*.html` 该词命中 3→0；对外版 3 处、内部版与外部知识贯穿方案全部改写；
+  已删除被新页取代的旧产物管理页 `submit/产物管理-v23-20261115T000542.html`（其内嵌文件清单
+  固化了旧快照文件名）。
+- 与既有裁决的交叉申报：
+  - `V23-DESIGN-089`（可引用边界）：本 run 同样 `citable=null`，且**新增**一层不可比（稳定边/`E_v`/
+    池构成/审计三档），可比范围再缩一圈，不冲突。
+  - `V23-DESIGN-098/099`（角色与审计）：角色表未改；`fault_indicator` 仅作描述性角色标签，
+    不产生任何判定分支（`_role_check` 只约束 `measurement→非 measurement`），故不构成特权。
+  - `V23-DESIGN-068/062/065`（外部知识与禁边）：`constraints_v1` 未改（sha 不变）；
+    本轮只撤 K1 的身份性 R1/R2/R3，属"减法"，与既有外部知识条目无冲突。
+  - `V23-DESIGN-107`（门控策略 v2）：被 `gate_policy_v3` 取代（v2 文件保留不动）。
+  - `V23-DESIGN-108`（角色 6→4）：不改角色映射，只改"注入变量是否身份出池"。
+- 仍保留该词：`registry/split_manifest.json`、`registry/shared_baseline.json`（v2.1 冻结输入
+  逐字节快照，按契约不改写）、`registry/signal_scale.json` 的 `source` 溯源串。
+- 边界：未推送、未 amend、未改历史；未改既有编号。
+- 状态：✅ closed（随本 run 落盘）。
+
+**V23-CODE-050（closed）·字段改名后残留读取点 KeyError: 'marker'（2026-11-15）**
+
+- 现象：全链在 step 4（end2end）失败，
+  `[D10] end2end 失败：KeyError: 'marker'`，`run_id=v23-20261115T173746 steps=3/10`。
+- 原因：`config/registry.py::_make` 的返回键已改为 `signal_channel`，但
+  `config/constants_v21.py`、`data/audit.py` 等处仍读 `["marker"]`；
+  以及 `cli/run_v23_end2end.py` 写 topology payload 时仍读 `r["marker"]`。
+- 修复：全部改读 `signal_channel`；`MARKER_COLS` 同步取 `cfg["signal_channel"]`。
+- 处置：该失败 run 目录 `Code/output/runs/v23-20261115T173746` 已删除（3/10 不完整、不可引用）。
+- 状态：✅ closed。
+
+**V23-CODE-051（closed）·step 9 evaluation KeyError: 'marker_rank_median'（2026-11-15）**
+
+- 现象：`9. evaluation failed KeyError: 'marker_rank_median'`（`run_id=v23-20261115T174045`）。
+- 原因：`_summarize_clip` 产出键已改 `signal_rank_median`，
+  `reporting/evaluation.py` 汇总 `per_template` 时仍取旧键。同源问题另见
+  `signatures.py` 的 `unstable_magnitude_marker_edges`、`config/registry.py` 的 `marker_type`。
+- 修复：三处一并改为中性名（`signal_rank_median` / `unstable_magnitude_signal_edges` /
+  `injection_kind`），并同步 `tests/test_v23_accident_config.py`、`tests/test_v23_evaluation.py`。
+- 处置：该失败 run 目录 `Code/output/runs/v23-20261115T174045`、以及随后一次重跑的
+  `v23-20261115T174311`（仅用于校验字段改动）均已删除，以 `v23-20261115T174733` 为唯一新 run。
+- 状态：✅ closed。

@@ -106,16 +106,18 @@ def test_candidate_set_unified_after_unmasking():
     """取消遮蔽（2026-11-11）：生产列与评测列候选集统一为模板全部节点（含注入变量）。"""
     latest = _latest_run()
     tpl = EV.load_template("LOCA", "high", latest)
-    marker = tpl["marker"]
+    marker = tpl["signal_channel"]
     assert marker == "WLR"
     assert set(EV.causal_ranking(tpl)) == set(tpl["nodes"])
     assert marker in EV.causal_ranking(tpl)
     assert set(EV.causal_ranking_unmasked(tpl)) == set(tpl["nodes"])
-    # 落盘 marker_info.rank 取自 root_candidates 榜单（未进 Top-K 时为 None）
+    # 落盘 signal_rank 取自 root_candidates 榜单（未进 Top-K 时为 None）
     rc = json.loads((artifact.run_path(latest) / "tracing"
                      / f"root_candidates_{tpl['k']}_{tpl['g']}.json").read_text(encoding="utf-8"))
     listed = {c["variable"]: c["rank"] for c in rc["root_candidates"]}
-    assert tpl["marker_info"]["rank"] == listed.get(marker)
+    # 不再产出身份性命名字段：名次只从统一榜单读
+    assert marker in listed
+    assert "signal_rank" not in tpl
 
 
 # ==================== 落盘契约 ====================
@@ -150,13 +152,11 @@ def test_evaluate_writes_metrics_only(monkeypatch, tmp_path):
     assert "WLR" in gt["variables"] and set(gt["variables"]) <= set(gt["all_registered"])
     assert gt["source"] == "causalrca/config/injection_truth.py::INJECTION_TRUTH"
     assert gt["suspect"] == ["WBK", "MBK"]
-    assert tpl["injection_point_masking"]["variable"] == "WLR"
-    # masked 只是历史标识：与 topology 里 marker 的 total_effect 是否为 None 一致
-    topo = json.loads((root / "tracing" / "topology_LOCA_low.json").read_text(encoding="utf-8"))
-    assert tpl["injection_point_masking"]["masked"] is (
-        topo["nodes"]["WLR"].get("total_effect") is None)
+    # 注入变量标识已不再单列字段；改从签名侧取，确认它仍在候选集内
+    sig = json.loads((root / "signatures" / "signature_LOCA_low.json").read_text(encoding="utf-8"))
+    assert sig.get("signal_channel") == "WLR"
     assert set(tpl["clip_sensitivity"]["clips"]) == {lab for lab, _c in EV.CLIP_VARIANTS}
-    assert {"hit1", "hit3", "mrr", "marker_rank_median"} <= set(
+    assert {"hit1", "hit3", "mrr", "signal_rank_median"} <= set(
         tpl["clip_sensitivity"]["clips"]["clip_off"])
     assert tpl["clip_sensitivity"]["clips"]["clip5"]["n"] == 7
     assert tpl["candidate_set"]["source"].startswith("tracing/topology_LOCA_low.json")
@@ -214,14 +214,14 @@ def test_clip_sensitivity_is_first_class():
     assert set(summary["clip_sensitivity"]["clips"]) == labels
     for lab in labels:
         g = summary["clip_sensitivity"]["clips"][lab]["global"]
-        assert {"hit1", "hit3", "mrr", "ap3", "marker_rank_median", "n"} <= set(g)
+        assert {"hit1", "hit3", "mrr", "ap3", "signal_rank_median", "n"} <= set(g)
     flips = summary["clip_sensitivity"]["flips"]
     assert isinstance(flips["templates"], dict) and "rule" in flips
     # 未列入任何模板是合法观测（100 次档四档可能完全一致）；列入者必须真的存在差异
     for name, rec in flips["templates"].items():
-        assert {"marker_rank_median", "hit1_hit3", "top3"} <= set(rec), name
+        assert {"signal_rank_median", "hit1_hit3", "top3"} <= set(rec), name
         hit_sets = {tuple(v) for v in rec["hit1_hit3"].values()}
-        marker_sets = set(rec["marker_rank_median"].values())
+        marker_sets = set(rec["signal_rank_median"].values())
         assert len(hit_sets) > 1 or len(marker_sets) > 1, f"{name} 列入翻转但四档无差异"
 
 

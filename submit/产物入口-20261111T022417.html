@@ -177,7 +177,7 @@
 <table>
   <tr><th>字段</th><th>含义</th></tr>
   <tr><td><code>variables</code></td><td>该模板入模的 15 个变量（节点表）</td></tr>
-  <tr><td><code>marker</code></td><td>该模板的注入变量（事故机理指定的先响应变量）</td></tr>
+  <tr><td><code>signal_channel</code></td><td>该模板的注入变量（事故机理指定的先响应变量）。v2.3 起按普通变量对待：正常参与排序与剔除判定，不享有身份性豁免（见 V23-DESIGN-109）；旧产物里的旧字段名已废止</td></tr>
   <tr><td><code>stable_edges[]</code></td><td>稳定边（边表，按出现率门控后的图）：<code>from</code> 起点、<code>to</code> 终点、<code>weight_median</code> 跨 bootstrap 权重中位数（正负表示方向）、<code>weight_iqr</code> 四分位距、<code>count</code> 出现次数、<code>f_e</code>/<code>dir_e</code> 出现率与方向一致率</td></tr>
   <tr><td><code>all_edges[]</code></td><td>全部候选边（含未达稳定门槛者），字段同上</td></tr>
   <tr><td><code>n_bootstrap</code></td><td>该模板实际 bootstrap 次数（本轮为 100）</td></tr>

@@ -15,7 +15,7 @@ from causalrca.evidence.knowledge import ENTITY_TABLE
 
 # 13.10 冻结值 60：RRF 倒数排名融合常数 k_RRF（方案 §5 R5 / §13.10）；
 # 取值统一在 causalrca.config.constants_v23.RRF_K，本模块只做显式取用。
-# 13.10 措辞纪律：事故工况名（marker 只是故障指示器，不是根因）。
+# 13.10 措辞纪律：事故工况名（注入变量只是信号通道，不是根因）。
 ROOT_CAUSE_NAME = {
     "LOCA": "LOCA（一回路破口）工况",
     "SGATR": "SGATR（蒸汽发生器A传热管破裂）工况",
@@ -75,15 +75,15 @@ def _vname(v: str) -> str:
 def render_chain_text(rec: Dict) -> str:
     """四槽位冻结代码模板；措辞纪律见模块 docstring（RCA-019）。"""
     k, g = rec["template"]["k"], rec["template"]["g"]
-    marker = rec["template"]["marker"]
+    signal_channel = rec["template"]["signal_channel"]
     fl = rec["first_layer"]
     lines: List[str] = []
 
     # 槽位②：判定类与第一层三证据分（固定根因措辞）
-    lines.append(f"【判定】根因：{ROOT_CAUSE_NAME[k]}；直接证据：故障指示器 {marker}"
-                 f"（{_entity(marker)['meaning']}，故障指示器而非根因）激活；"
-                 f"传播链自 {marker} 起。")
-    e1_txt = "不适用（MASKED 条件 marker 已掩蔽）" if fl["E1"] is None \
+    lines.append(f"【判定】根因：{ROOT_CAUSE_NAME[k]}；直接证据：信号通道 {signal_channel}"
+                 f"（{_entity(signal_channel)['meaning']}）激活；"
+                 f"传播链自 {signal_channel} 起。")
+    e1_txt = "不适用（该模板未产出 E1）" if fl["E1"] is None \
         else f"{fl['E1']:.3f}"
     lines.append(
         f"第一层证据（判定模板 {k}_{g}）：E1={e1_txt}；"
@@ -106,10 +106,10 @@ def render_chain_text(rec: Dict) -> str:
     # 槽位③：传播链（WLR 风格，按 RRF 序；只用稳定识别出的有向关系）
     nodes = rec["ranked_nodes"]
     if not nodes:
-        lines.append(f"【传播链】A(x) 中无变量位于 {marker} 的稳定边可达域内，"
+        lines.append(f"【传播链】A(x) 中无变量位于 {signal_channel} 的稳定边可达域内，"
                      f"本次不出传播链（可达域外异常不硬排）。")
     else:
-        lines.append("【传播链】以下为自 marker 起、按双引擎 RRF 排序的"
+        lines.append(f"【传播链】以下为自 {signal_channel} 起、按双引擎 RRF 排序的"
                      "稳定识别出的有向关系（非因果实证结论；RRF 为相对排序强度）：")
         for i, n in enumerate(nodes, 1):
             tags = _node_text_tags(n)
@@ -160,7 +160,7 @@ def _uncertainty_lines(rec: Dict) -> List[str]:
     items: List[str] = []
     if fl["outside_reach_variables"]:
         v_txt = "、".join(_vname(v) for v in fl["outside_reach_variables"])
-        items.append("异常但不在 marker 下游、未纳入传播链（outside_reach，不硬排）：" + v_txt)
+        items.append("异常但不在信号通道下游、未纳入传播链（outside_reach，不硬排）：" + v_txt)
     if fl["consensus_conflict_edges"]:
         items.append("两引擎共识冲突边：" + "、".join(fl["consensus_conflict_edges"]))
     if fl["consensus_single_edges"]:
@@ -175,7 +175,7 @@ def _uncertainty_lines(rec: Dict) -> List[str]:
         items.append("物理竞争边/反馈环（双向保留、方向不预设）："
                      + "、".join(fl["competitive_edges"]))
     if fl["magnitude_unstable_nodes"]:
-        items.append("低 π/翻转 marker 效应变量（量级不作排序依据）："
+        items.append("低 π/翻转效应变量（量级不作排序依据）："
                      + "、".join(fl["magnitude_unstable_nodes"]))
     if fl["ungrounded_edges"]:
         # 未落地边标识不进正文（仅 JSON flags/ranked_nodes 留痕）

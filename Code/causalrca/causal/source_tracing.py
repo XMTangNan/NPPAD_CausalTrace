@@ -3,7 +3,7 @@
 核心约束（与论文 Algorithm 2 对齐）：
 - 排序主依据 = 总因果效应矩阵 T = (I−B)⁻¹ 中，候选变量对效应变量的总影响
 - 拓扑指标（in_degree/reach_size/consensus_rate）作为次级排序键和兜底
-- 取消遮蔽（2026-11-11）：注入变量（marker）作为普通候选参与排名
+- V23-DESIGN-109：故障指示器只作普通候选，不并入效应端
 - 不用幅值 |cL|/|cA| 作为排序依据
 """
 from __future__ import annotations
@@ -72,7 +72,6 @@ def build_graph(
 def compute_topology(
     stable_edges: Sequence[Dict],
     variables: Sequence[str],
-    marker: str,
     consensus_clf: Dict[str, Dict],
 ) -> Dict[str, Dict]:
     """计算每个节点的拓扑指标（方案 §3.2）。
@@ -85,7 +84,7 @@ def compute_topology(
     in_deg = {v: len(radj.get(v, [])) for v in all_vars}
     out_deg = {v: len(adj.get(v, [])) for v in all_vars}
 
-    # depth：多源 BFS，从所有 in_degree=0 的节点（含 marker）同时出发
+    # depth：多源 BFS，从所有 in_degree=0 的节点同时出发
     # 确保所有节点都有合理分层，避免不可达节点 depth=-1 导致可视化溢出
     depth: Dict[str, int] = {v: -1 for v in all_vars}
     roots = [v for v in all_vars if in_deg.get(v, 0) == 0]
@@ -242,7 +241,6 @@ def classify_role(in_deg: int, out_deg: int) -> str:
 
 def select_root_candidates(
     topology: Dict[str, Dict],
-    marker: str,
     stable_edges: Sequence[Dict],
     variables: Sequence[str],
     top_k: int = TOP_K_ROOT,
@@ -250,17 +248,16 @@ def select_root_candidates(
     """筛选根变量：论文 Algorithm 2 — 基于总因果效应 T=(I−B)⁻¹ 排序。
 
     主排序键：total_effect_score（候选变量对所有效应变量的总因果效应绝对值之和）
-    效应变量 = terminal 节点（out_degree=0）+ marker（症状/异常端）
+    效应变量 = terminal 节点（out_degree=0）
     次级排序键：in_degree ASC, weighted_reach DESC, reach_size DESC, consensus_rate DESC
-    取消遮蔽（2026-11-11）：注入变量作为普通候选参与排名。
+    V23-DESIGN-109：故障指示器不再并入效应端，也不设任何身份特权。
     """
-    return trace_roots(topology, marker, stable_edges, variables,
+    return trace_roots(topology, stable_edges, variables,
                        top_k=top_k)["root_candidates"]
 
 
 def trace_roots(
     topology: Dict[str, Dict],
-    marker: str,
     stable_edges: Sequence[Dict],
     variables: Sequence[str],
     top_k: int = TOP_K_ROOT,
@@ -271,7 +268,7 @@ def trace_roots(
 
     `role_prior`（B1，默认关闭）：命中外部响应变量名单者，**排序键**乘 0.30；
     不改 `B`、不改 `T`，`total_effect` 字段仍存原始值，另记 `ranking_score`。
-    取消遮蔽（2026-11-11）：注入变量（marker）作为普通候选参与排名。
+    V23-DESIGN-109：故障指示器降级为普通候选，不并入效应端，不带身份字段。
     返回 {"root_candidates": [...], "total_effect": {v: score}, "diagnostics": {...}}
     """
     from causalrca.config import role_prior as RP
@@ -280,12 +277,11 @@ def trace_roots(
     T, idx, diag = build_total_effect_matrix(stable_edges, variables,
                                              clip=clip, return_diag=True)
 
-    # 2. 确定效应变量（症状端）：terminal 节点 + marker
+    # 2. 确定效应变量（症状端）：只由终端节点定义
     effect_vars: Set[str] = set()
     for v, info in topology.items():
         if info["out_degree"] == 0:
             effect_vars.add(v)
-    effect_vars.add(marker)
     effect_idx = [idx[v] for v in effect_vars if v in idx]
 
     candidates: List[Dict] = []
@@ -309,8 +305,6 @@ def trace_roots(
             "tracing_score": tracing_score,
             "_ranking_score": ranking_score,
             "role": classify_role(info["in_degree"], info["out_degree"]),
-            # 历史字段（原遮蔽标记）：取消遮蔽后仅作标识，不参与任何判定
-            "is_marker": bool(v == marker),
         })
 
     # 主排序：总因果效应 DESC（开启先验时用乘子后的排序键；total_effect 字段不变）
@@ -382,7 +376,6 @@ def stability_gate(diag: Dict, n_stable_edges: int) -> Dict:
 
 def clip_sensitivity(
     topology: Dict[str, Dict],
-    marker: str,
     stable_edges: Sequence[Dict],
     variables: Sequence[str],
     clips: Sequence[float] = CLIP_SENSITIVITY,
@@ -390,12 +383,12 @@ def clip_sensitivity(
     top_k: int = TOP_K_ROOT,
 ) -> Dict:
     """V23-ALGO-001：B 截断阈值 3/5/10 的 Top-K 排名敏感性（只出证据，不改默认值）。"""
-    base = trace_roots(topology, marker, stable_edges, variables,
+    base = trace_roots(topology, stable_edges, variables,
                        top_k=top_k, clip=base_clip)
     base_top = [c["variable"] for c in base["root_candidates"]]
     variants: List[Dict] = []
     for c in clips:
-        r = trace_roots(topology, marker, stable_edges, variables,
+        r = trace_roots(topology, stable_edges, variables,
                         top_k=top_k, clip=c)
         top = [x["variable"] for x in r["root_candidates"]]
         variants.append({

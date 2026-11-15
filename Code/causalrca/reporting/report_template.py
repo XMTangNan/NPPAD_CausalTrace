@@ -221,7 +221,7 @@ def generate_rca_report(k: str, g: str, run_id: Optional[str] = None,
         "template": f"{k}_{g}",
         "accident_type": k,
         "group": g,
-        "marker": payload["marker"],
+        "signal_channel": payload["signal_channel"],
         "run_id": payload["run_id"],
         "banner_note": banner_note,
         "section_order": list(SECTION_KEYS),
@@ -274,7 +274,7 @@ def report_to_text(report: Dict) -> str:
     s = report["sections"]
     L: List[str] = []
     L.append(f"CausalTrace v2.3 根因分析报告 · {report['accident_type']} / {report['group']} 组")
-    L.append(f"marker={report['marker']}，run_id={report['run_id']}")
+    L.append(f"信号通道={report['signal_channel']}，run_id={report['run_id']}")
     if report.get("banner_note"):
         L.append(f"[{report['banner_note']}]")
     if report.get("warning"):

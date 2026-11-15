@@ -4,8 +4,8 @@
   V2 非幅值排序：|cL| 排名 ≠ 根因排名（排除幅值排序嫌疑）
   V3 顶层优先：Top-1 根因 in_degree 最小
 
-取消遮蔽（2026-11-11）：注入变量作为普通候选参与排名，原 V4
-（“根因候选不含 marker”）随遮蔽特例一并删除，不做反向断言。
+注入变量作为普通候选参与排名（V23-DESIGN-109 起彻底取消身份特例），原 V4
+（“根因候选不含注入变量”）随遮蔽特例一并删除，不做反向断言。
 
 复用：
 - rca.v21.source_tracing.compute_topology / select_root_candidates
@@ -59,7 +59,7 @@ def validate_template(k: str, g: str) -> Dict:
         v2_note = f"|cL|rank={[cl_rank[v] for v in root_vars]} vs trace={[trace_rank[v] for v in root_vars]}"
 
     return {
-        "k": k, "g": g, "marker": marker,
+        "k": k, "g": g, "signal_channel": marker,
         "top1": root_vars[0],
         "top5": root_vars,
         "n_stable": len(stable),

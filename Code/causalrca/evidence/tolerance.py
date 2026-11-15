@@ -4,8 +4,8 @@
 `run_v23_tolerances.py` 经 `rca.v21.artifact` 写入 `tolerances/tolerance_{K}.json`，
 供 K2 异常判定（physics_constraints）与 D9 偏离度（deviation）使用。
 
-口径修正（V23-CODE-016）：排除集只含**本类自己的 marker** + 安全动作变量，
-不得把其他类的 marker（RHRD/PPM/TBLD/WLD 等过程量）从本类正常模型变量中剔除。
+口径修正（V23-CODE-016 / V23-DESIGN-109）：排除集只含安全动作变量；
+故障指示器按普通通道标定 σ（不设身份豁免），他类变量一律不排除。
 
 口径修正（V23-DATA-004，2026-11-10 决策）：
 - 基线窗口固定为注入前 [0, 100] s 共 11 点（t_inject=110 由注册表读取），
@@ -33,7 +33,7 @@ from causalrca.data import loader as D
 from causalrca.evidence import external_knowledge as EK
 from causalrca.config.accident_config import get_accident
 from causalrca.evidence.knowledge import ENTITY_TABLE
-from causalrca.config.constants_v21 import MARKERS, SAFETY_STEP_VARS
+from causalrca.config.constants_v21 import SAFETY_STEP_VARS
 from causalrca.io.logging import logger
 
 CV_STEADY_THRESHOLD = 0.05      # 准稳态 CV 阈值 5%
@@ -160,8 +160,11 @@ def _find_steady_segment(df: pd.DataFrame, cols: List[str],
 
 
 def excluded_vars_for(accident_type: str) -> set:
-    """V23-CODE-016：只排除本类 marker + 安全动作变量（不排除他类 marker/过程量）。"""
-    return {MARKERS[accident_type]} | set(SAFETY_STEP_VARS)
+    """只排除安全动作变量（V23-CODE-016 / V23-DESIGN-109）。
+
+    故障指示器不再排除：它与普通通道一样标定 μ/σ，该判不可评估就判。
+    """
+    return set(SAFETY_STEP_VARS)
 
 
 def _normal_reference(model_cols: List[str]) -> Dict:
@@ -310,7 +313,7 @@ def compute_tolerance(accident_type: str) -> Dict:
                           "μ=基线均值，σ=max(1.4826*MAD, σ_floor(v))；"
                           "Normal 只作对照不并入"),
         "excluded_vars": sorted(excluded & set(all_cols)),
-        "excluded_rule": "仅本类 marker + SAFETY_STEP_VARS（V23-CODE-016）",
+        "excluded_rule": "仅 SAFETY_STEP_VARS（V23-CODE-016 / V23-DESIGN-109：故障指示器按普通通道标定）",
         "sigma_rule": "sigma_robust = max(1.4826*MAD, sigma_floor(v))；"
                       "sigma_floor 优先 by_variable/by_unit，否则 1%*|mu|",
         "normal_reference": _normal_reference(model_cols),

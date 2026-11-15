@@ -210,9 +210,8 @@ def validate_against_entity_table(et: Dict[str, Dict[str, str]] | None = None) -
             errors.append(f"tolerance_overrides: {var} 的下限非法 {floor!r}")
 
     # ---- L5 人工审核补充机理（V23-DESIGN-061）----
-    # 纪律：只标角色，不许把响应量升格为根因；不得断言任何变量→marker（K1 R1/R2/R3）。
-    marker_vars = set(fdoc.get("markers") or []) | set(fdoc.get("non_pilot_markers") or [])
-    exceptions = {tuple(pair) for pair in (fdoc.get("exceptions") or [])}
+    # 纪律：只标角色，不许把响应量升格为根因。
+    # V23-DESIGN-109：撤掉“不得断言任何变量→故障指示器”的身份性限制（指示器已降级为普通变量）。
     seen_sup: set = set()
     for fname, sdoc in (("supplementary_mechanisms", load_supplementary_mechanisms()),
                         ("positive_mechanisms", load_positive_mechanisms())):
@@ -241,9 +240,6 @@ def validate_against_entity_table(et: Dict[str, Dict[str, str]] | None = None) -
                 dst = edge.get("to") if isinstance(edge, dict) else None
                 if src not in et or dst not in et:
                     errors.append(f"{fname}: {sid} 的断言边端点未知 {src!r}->{dst!r}")
-                elif dst in marker_vars and (src, dst) not in exceptions:
-                    errors.append(f"{fname}: {sid} 断言 {src}->{dst} "
-                                  f"与 K1 禁边规则冲突（不得指向始发事件指示器）")
 
     return {"ok": not errors, "errors": errors, "warnings": warnings}
 

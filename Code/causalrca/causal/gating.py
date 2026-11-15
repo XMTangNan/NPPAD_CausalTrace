@@ -18,9 +18,9 @@ from typing import Dict, List, Optional, Sequence
 
 from causalrca.io.logging import logger
 
-POLICY_PATH = Path(__file__).resolve().parents[1] / "config" / "gate_policy_v2.yaml"
-POLICY_SHA256 = "6ff290be1d5d5bbdd34891363b802dec379c24e9e9b7e1f41d86a58d6140a8f5"
-POLICY_VERSION = "gate_policy_v2"
+POLICY_PATH = Path(__file__).resolve().parents[1] / "config" / "gate_policy_v3.yaml"
+POLICY_SHA256 = "236014480bb30b7a14055280bef99bc53b592896cd572553b0dc41e11ddd49ba"
+POLICY_VERSION = "gate_policy_v3"
 
 GATE_PASS = "pass"
 GATE_FAIL = "fail"
@@ -60,7 +60,7 @@ def load_policy(path: Optional[Path] = None, verify: bool = True) -> Dict:
     doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     if doc.get("version") != POLICY_VERSION:
         raise RuntimeError(f"[gate] 门策略版本不符：{doc.get('version')!r}")
-    if doc.get("schema") != "causaltrace/gate_policy/v2":
+    if doc.get("schema") != "causaltrace/gate_policy/v3":
         raise RuntimeError(f"[gate] 门策略 schema 不符：{doc.get('schema')!r}")
     return doc
 
@@ -113,12 +113,11 @@ def build_gate(accident_type: str, group: str, variables: Sequence[str],
                total_effect: Dict[str, float], tolerance: Dict,
                deviation: Dict, policy: Dict,
                n_post_inject_points: Optional[int] = None,
-               marker: Optional[str] = None,
                safety_vars: Optional[Sequence[str]] = None) -> Dict:
     """逐变量判 gate_status，返回 gate 块（只读上游，不改分数）。
 
-    V23-DESIGN-107：门槛按 σ 尺度来源分档；marker / safety 动作变量走预注册结构性剔除
-    （与统计门分开记，避免把“标签泄漏”写成“不可评估”）。
+    V23-DESIGN-107：门槛按 σ 尺度来源分档；安全动作变量走预注册结构性剔除
+    （与统计门分开记）。V23-DESIGN-109：故障指示器不再被结构性剔除，与普通变量同门。
     """
     thresholds = (tolerance or {}).get("thresholds") or {}
     devs = (deviation or {}).get("deviations") or {}
@@ -137,9 +136,7 @@ def build_gate(accident_type: str, group: str, variables: Sequence[str],
         g_info = gate_threshold(sv.get("sigma_source"), n_post_inject_points, policy)
 
         # 结构性剔除优先于统计门（预注册，与结果无关）
-        if struct_on and marker is not None and v == marker:
-            status, reason = GATE_STRUCTURAL, "marker_variable"
-        elif struct_on and v in safety:
+        if struct_on and v in safety:
             status, reason = GATE_STRUCTURAL, "safety_action_variable"
         else:
             evaluable = (sv.get("evaluability") == "ok") and (d_raw is not None)
@@ -306,7 +303,7 @@ def save_policy_manifest(run_id: Optional[str] = None) -> Dict:
     """返回可写进 manifest 的策略指纹。"""
     return {"gate_policy_version": POLICY_VERSION,
             "gate_policy_sha256": policy_sha256(),
-            "gate_policy_path": "Code/causalrca/config/gate_policy_v2.yaml"}
+            "gate_policy_path": "Code/causalrca/config/gate_policy_v3.yaml"}
 
 
 def dump_json(doc: Dict, path: Path) -> Path:

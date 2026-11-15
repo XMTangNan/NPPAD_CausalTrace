@@ -28,7 +28,7 @@ from causalrca.config.constants_v21 import (
     MARKERS, SAFETY_STEP_VARS, MAIN_WINDOW_START, MAIN_WINDOW_END,
 )
 from causalrca.config.accident_config import (
-    ALL_CODES, key_responses, marker_of,
+    ALL_CODES, key_responses, signal_channel_of,
 )
 from causalrca.evidence.knowledge import ENTITY_TABLE, ALLOWED_RELATIONS
 from causalrca.features.paper_anchor import build_anchor, stage1_drop_reason
@@ -248,8 +248,8 @@ ACCIDENT_KEY_RESPONSES: Dict[str, List[str]] = {
 
 
 def get_trigger_var(accident_type: str) -> str:
-    """触发变量 = 本类 marker（与 rca_config_v21.MARKERS 同源，见 accident_config）。"""
-    return marker_of(accident_type)
+    """触发变量（数据事实）= 本类故障信号通道，与 MARKERS 同源。"""
+    return signal_channel_of(accident_type)
 
 
 def get_key_responses(accident_type: str) -> List[str]:

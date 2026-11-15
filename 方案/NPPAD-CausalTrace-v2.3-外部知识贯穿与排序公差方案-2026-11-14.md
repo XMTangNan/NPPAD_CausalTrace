@@ -91,7 +91,7 @@
 | N34 | 逐变量对照表（45 行）+ 分批边界（先 3 类 15 变量，再 96−45 通道）；换尺子 5 个、不可评估 14 个 | 【本项目新设计】 | 见 4.3.12（3）（4） |
 | N35 | 加权分支实测（已被否决）：`λ=0.5` 在 7/9 模板换 Top-1，属 σ 副作用；**该结果不能用于评估门控口径** | 【本项目新设计】 | 见 4.3.13（3） |
 | N36 | **本项目不存在 `λ`**：主线排序无可调权重；知识只改 `B`（禁边/禁路径）与候选池（公差门） | 【本项目新设计】 | 见 4.3.2（5）、4.3.7 |
-| N37 | 门控版实测：严格门（`d>1` 且可评估）平均池 9.89/15，Top-1 换 3/9；旧 Top-1 被直接剔除 3 例，其中 2 例因 marker 无公差条目 | 【本项目新设计】 | 见 4.3.13（4） |
+| N37 | 门控版实测：严格门（`d>1` 且可评估）平均池 9.89/15，Top-1 换 3/9；旧 Top-1 被直接剔除 3 例，其中 2 例因注入变量无公差条目 | 【本项目新设计】 | 见 4.3.13（4） |
 | N38 | LLM 六段正文实施口径：五处方案/代码不一致（模型名未 pin、温度/seed/超时未规定、类级/全局 LLM 产物无消费者、报告尾句无条件写规则稿、txt 正文不拼 LLM 文本）+ 改动估算（不含 D7 约 4 文件、300 行内）+ 成本（13 份/轮约 4–5 万 tokens，真正成本是非确定性） | 【本项目新设计】 | 见 4.13.7 |
 
 **计数：论文明确 3 条（P1–P3）；项目实测 24 条（E1–E24）；本项目新设计 38 条（N1–N38）。**
@@ -146,9 +146,9 @@
 | 环节 | 论文要求（【论文明确】） | 本项目实现（【项目实测】） | 差异 |
 |---|---|---|---|
 | 候选变量 | 数据驱动特征选择或 manual selection based on domain expertise；变量 validated by domain experts（p. 40433/40435） | `features/variable_selector.py:568-579` 只强制“触发变量+关键响应”；`:604-605` 子系统覆盖；`ALLOWED_RELATIONS` 只做子系统分组 | 无专家确认环节；知识不决定候选集；只有工程性 forced |
-| 学图：禁边 | 本体编码 operational constraints；图编辑 validated against ontology；knowledge-informed edge validation（p. 40434/40435/40436） | `evidence/knowledge.py:361-401` 只有 K1 marker 禁边；`:493-529` `apply_ontology_constraint` 只把 `forbidden` 清零；v23k 运行时追加 YAML 派生禁边 | 只做了禁边；allowed 只贴标签；没有必须边/方向先验 |
+| 学图：禁边 | 本体编码 operational constraints；图编辑 validated against ontology；knowledge-informed edge validation（p. 40434/40435/40436） | `evidence/knowledge.py:361-401` 只有 K1 注入变量禁边；`:493-529` `apply_ontology_constraint` 只把 `forbidden` 清零；v23k 运行时追加 YAML 派生禁边 | 只做了禁边；allowed 只贴标签；没有必须边/方向先验 |
 | 学图：必须边 | 论文只写“knowledge-informed edge validation”，没有写必须边如何进入估计 | `knowledge.py:429-436` `allowed` 只标记；`external_knowledge.py:391 merge_into_ontology` 只追加 allowed，且无调用方 | 没有作用点；`allowed` 不改变 `B` |
-| 学图：方向 | 论文没有写方向先验算法 | `knowledge.py:334-358` 竞争边双向保留；`apply_ontology_constraint` 不纠方向 | 没有方向约束；只有 marker 外的禁边 |
+| 学图：方向 | 论文没有写方向先验算法 | `knowledge.py:334-358` 竞争边双向保留；`apply_ontology_constraint` 不纠方向 | 没有方向约束；只有注入变量外的禁边 |
 | 排序：效应 | 用 causal path effect strengths；Algorithm 2 定义 `T=(I−B)⁻¹`（p. 40434/40435） | `causal/source_tracing.py:279-296` 算 `T`；`:293-296` `total_effect = Σ|T[effect,v]|`；`:316-323` 按效应 DESC + 拓扑次键 | 效应项一致（列和口径） |
 | 排序：公差/偏差 | RCA combines expert-defined tolerance ranges … based on sensor deviation analysis（p. 40434） | `evidence/tolerance.py:133-233` 只做注入前 [0,100]s 基线 μ/σ；`evidence/deviation.py:106-166` 只算 `d_raw`；`causal/signatures.py:359-362` 明确“辅助证据，不改变排名” | 排序里没有公差/偏差项；公差只服务偏差通道 |
 | 排序：先验 | 论文未写排序先验；RCA 只写 tolerance + topology | `config/role_prior.py:16-25` 41 项响应变量 ×0.30，默认关；`run_v23_end2end.py:225` 调 `trace_roots` 未传 `role_prior`；`evaluation.py:297-301` 评测侧才可开 | 默认不生效；且不进入 `root_candidates` 产物 |
@@ -229,8 +229,8 @@
 2. 是否存在合理的间接链（保护系统、联锁、控制动作）？
    - 有 → 优先**禁单边**，否则会误删间接链；
    - 没有 → 可用**禁有向路径**。
-3. 对象是不是 marker/指示量/控制动作？
-   - marker 外生性、指示量不得成为物理过程上游 → 优先**禁有向路径**；
+3. 对象是不是注入变量/指示量/控制动作？
+   - 注入变量外生性（已废止）、指示量不得成为物理过程上游 → 优先**禁有向路径**；
    - 只是某条具体管线不能直接相连 → **禁单边**。
 4. 路径级约束是否造成环/与 `COMPETITIVE_PAIRS_BY_CLASS` 冲突？
    - 是 → 降级为**禁单边**，并在报告中登记 `downgraded_from_path`；
@@ -239,12 +239,12 @@
 **示例（只示范判定，不代替专家结论）：**
 
 - “响应量不应直接驱动断口” → 若允许经保护系统的间接链，**禁单边**；若专家认为任何路径都不允许，**禁路径**。
-- “断口/注入标记不能由下游变量驱动” → **禁路径**（marker 外生性）。
+- “断口/注入标记不能由下游变量驱动” → **禁路径**（注入变量外生性（已废止））。
 - “指示量不能成为过程变量的上游” → 优先**禁路径**；若存在真实保护联锁，则降级为**禁单边**并登记。
 
 #### 4.2.3 禁边的落法
 
-- **【项目实测】** 现有 K1 保留：marker 禁边继续由 `knowledge.py:361-401` 生成，`apply_ontology_constraint` 清零。
+- **【项目实测】** 现有 K1 保留：注入变量禁边继续由 `knowledge.py:361-401` 生成，`apply_ontology_constraint` 清零。
 - **【项目实测】** v23k 的 YAML 派生禁边（`work/knowledge_inject.py` 的 `derive_rules`）只处理两类：`reverse_forbidden` 的反向、`forbidden_outgoing` 的出边；它已经是“禁单边”，不是路径级。
 - **【本项目新设计】** 把 v23k 的运行时 wrapper 固化为主链可选步骤：
   - 新增 `constraints_v1.yaml` 冻结文件；
@@ -311,7 +311,7 @@
 |---|---|---|---|---|
 | **变量角色层** | `role`: `driver` / `response` / `consequence` / `observation`；`can_be_root`；`scope` | 这个变量在事故链里是驱动量、响应量、后果量还是观测量？ | 47/47 条有 `role_in_accident`；三类唯一变量覆盖 15/15、15/15、17/17 | 原始角色有 6 种（`injection/response_conduction/response_indicator/response_state/response_control/response`），到 4 类规范角色的映射是**草案**，需专家确认；变量级角色不能替代边级证据 |
 | **方向与极性层** | `expected_direction`: `pos/neg/mixed`；`asserted_edges[].sign`: `pos/neg/trigger`；`reverse_forbidden` | 谁驱动谁？同向还是反向？能不能反向驱动？ | 47/47 条有 `expected_direction`（pos 23 / neg 12 / mixed 12）；15 条有 `asserted_edges`，共 25 条边（pos 15 / neg 7 / trigger 3）；16 条边 `reverse_forbidden=true` | 只有 15/47 条有边级 sign；大多数跳没有边级极性证据；`mixed` 不能当同向/反向 |
-| **边级硬禁令层** | `forbidden_outgoing`、`asserted_edges[].reverse_forbidden`、K1 marker 规则、`constraints_v1` | 这条直接边/这条有向路径绝对不允许？ | 21/47 条有非空 `forbidden_outgoing`；K1 marker 规则；16 条边 `reverse_forbidden=true` | 不是所有边都有禁令；没有禁令 ≠ 允许，只能算“未禁止/无依据” |
+| **边级硬禁令层** | `forbidden_outgoing`、`asserted_edges[].reverse_forbidden`、K1 注入变量规则、`constraints_v1` | 这条直接边/这条有向路径绝对不允许？ | 21/47 条有非空 `forbidden_outgoing`；K1 注入变量规则；16 条边 `reverse_forbidden=true` | 不是所有边都有禁令；没有禁令 ≠ 允许，只能算“未禁止/无依据” |
 
 **层内判定规则（草案，需专家确认）：**
 
@@ -328,7 +328,7 @@
   - 没有边级 `sign`，但两端 `expected_direction` 已知且非 `mixed`：只能算**弱一致**，标 `unsupported`，不能算 `compliant`；
   - `mixed` 或缺失：`unsupported`。
 - **禁令规则**：
-  - 命中 `forbidden_outgoing`、K1 marker 禁边、`constraints_v1` 的禁边/禁路径：`violating`；
+  - 命中 `forbidden_outgoing`、K1 注入变量禁边、`constraints_v1` 的禁边/禁路径：`violating`；
   - 命中 `reverse_forbidden` 且方向相反：`violating`；
   - 没有禁令记录：**不等于允许**，只能算“未禁止”；若角色/极性也缺，则整条路径 `unsupported`。
 
@@ -465,7 +465,7 @@
 E_v = Σ_{s∈S} |T[s, v]|
 ```
 
-- `S`：症状端变量集 = 出度为 0 的 terminal 节点 + marker（沿用 `source_tracing.py:283-289`）。
+- `S`：症状端变量集 = 出度为 0 的 terminal 节点 + 注入变量（沿用 `source_tracing.py:283-289`）。
 - `T = (I − B)^{-1}`，`B` 为稳定边重建的系数矩阵（沿用 `build_total_effect_matrix`）。
 - 数据支撑：有，现成 `total_effect`。
 
@@ -621,7 +621,7 @@ rank_v2 = sort(S_v DESC,
 
 **阻断 2：被排除/无公差条目的通道静默缺席（E14；实测口径见下）**
 
-> **实测更正**：这 8 个通道**不是“缺列”**（97 列轨迹里都有数据），也**不全是“饱和”**（`saturated=True` 只有 FLB.WFWA 一个）；它们是 `excluded_vars` 规则排除的 marker + 安全动作量（LOCA: WECS/WHPI/WLR；SGATR: WECS/WHPI/WTRA；FLB: WHPI/WFLB）。因此本条准确叫法是“**被排除/无公差条目的通道静默缺席**”；“缺列 0”已核实。
+> **实测更正**：这 8 个通道**不是“缺列”**（97 列轨迹里都有数据），也**不全是“饱和”**（`saturated=True` 只有 FLB.WFWA 一个）；它们是 `excluded_vars` 规则排除的注入变量 + 安全动作量（LOCA: WECS/WHPI/WLR；SGATR: WECS/WHPI/WTRA；FLB: WHPI/WFLB）。因此本条准确叫法是“**被排除/无公差条目的通道静默缺席**”；“缺列 0”已核实。
 
 - 选项一：显式写 `gate_status=not_evaluable` + `reason`，在门控中按冻结策略处理（保守=不进池），报告单列名单；不改统计口径。
 - 选项二：对饱和通道改用别的统计量（相对变化、斜率、到达时间）补算，扩大覆盖。
@@ -673,7 +673,7 @@ rank_v2 = sort(S_v DESC,
 | b2 物理下限顶住 | `σ_floor(physical) ≥ 1.4826·MAD` | `σ_floor(physical)` | 是（低分辨，标注） |
 | b3 样本不足 | `σ_floor` 来自 fallback 且 `1.4826·MAD < σ_floor/10` | **不造数**：`σ=None` | 否 |
 | b4 饱和 | `saturated=True` | `σ=None` | 否 |
-| b5 缺标定 | 无公差条目（marker / 安全动作量） | `σ=None` | 否 |
+| b5 缺标定 | 无公差条目（注入变量 / 安全动作量） | `σ=None` | 否 |
 
 - **优先级**：`b4 > b5 > b3 > b2 > b1`（先判不可评估，再判下限，最后才用实测）。
 - **冲突择一**：同时满足 b1/b2 → 取 b2（更保守）；同时 b3/b4 → 取 b4，但把两个原因都记进 `reason`。
@@ -697,7 +697,7 @@ rank_v2 = sort(S_v DESC,
 | LOCA | VOL | **fallback** | 2.896 | **b3** | `None` | **否** | floor/MAD≈739 |
 | LOCA | WECS | 无条目 | — | b5 | 先补条目 | **否** | 安全动作量，被 `excluded_vars` 排除 |
 | LOCA | WHPI | 无条目 | — | b5 | 先补条目 | **否** | 同上 |
-| LOCA | WLR | 无条目（marker） | — | b5 | marker 单独标定 | **否** | 不作为普通通道 |
+| LOCA | WLR | 无条目（注入变量） | — | b5 | 注入变量单独标定 | **否** | 不作为普通通道 |
 | SGATR | HTR | fallback | 1.995 | b1 | `1.4826·MAD`（2.958） | 是 | 名义 fallback，实际 MAD 主导 |
 | SGATR | LSGA | fallback | 0.1183 | **b3** | `None` | **否** | floor/MAD≈52 |
 | SGATR | LVPZ | physical 0.5 | 0.5000 | b2 | 保留 0.5 | 是 | MAD 0.0083 |
@@ -712,7 +712,7 @@ rank_v2 = sort(S_v DESC,
 | SGATR | WSPY | physical 5.0 | 5.000 | b2 | 保留 5.0 | 是 | μ=0、零变异 |
 | SGATR | WECS | 无条目 | — | b5 | 先补条目 | **否** | 被 `excluded_vars` 排除 |
 | SGATR | WHPI | 无条目 | — | b5 | 先补条目 | **否** | 同上 |
-| SGATR | WTRA | 无条目（marker） | — | b5 | marker 单独标定 | **否** | 同上 |
+| SGATR | WTRA | 无条目（注入变量） | — | b5 | 注入变量单独标定 | **否** | 同上 |
 | FLB | DNBR | physical 0.05 | 0.05000 | b2 | 保留 0.05 | 是 | MAD 0.00129 |
 | FLB | PRB | physical 0.5 | 0.5000 | b2 | 保留 0.5 | 是 | 常数本底 |
 | FLB | PSGA | physical 0.5 | 0.5000 | b2 | 保留 0.5 | 是 | 同上 |
@@ -722,7 +722,7 @@ rank_v2 = sort(S_v DESC,
 | FLB | TAVG | **fallback** | 3.100 | **b3** | `None` | **否** | floor/MAD≈820 |
 | FLB | TRB | physical 0.5 | 0.5000 | b2 | 保留 0.5 | 是 | 常数本底 |
 | FLB | WCHG | physical 5.0 | 5.000 | b2 | 保留 5.0 | 是 | MAD 0.0833 |
-| FLB | WFLB | 无条目（marker） | — | b5 | marker 单独标定 | **否** | 同上 |
+| FLB | WFLB | 无条目（注入变量） | — | b5 | 注入变量单独标定 | **否** | 同上 |
 | FLB | WFWA | physical 5.0 | 5.000 | **b4** | `None` | **否** | 通道饱和，Nσ 无物理含义 |
 | FLB | WHPI | 无条目 | — | b5 | 先补条目 | **否** | 被 `excluded_vars` 排除 |
 | FLB | WRCA | physical 5.0 | 5.000 | b2 | 保留 5.0 | 是 | 常数本底（`z_pathology`） |
@@ -746,7 +746,7 @@ rank_v2 = sort(S_v DESC,
 
 - 一个吃 `1%×|μ|` 的通道（例：LOCA.TAVG，μ≈310、σ=3.1）→ 若改成“注入前 11 点实测 MAD”，MAD 只有 0.00449，**等于把尺子缩小约 690 倍**，`d_raw` 会放大 690 倍。所以不能直接换：要么延长基线重估噪声，要么标 `not_evaluable`。
 - 饱和通道（FLB.WFWA）→ 标 `gate_status=not_evaluable(reason=saturated)`，按保守策略不进池，不编下限。
-- 无条目通道（WECS/WHPI/marker）→ 标 `not_calibrated`；在此之前会被判 `not_evaluable`，严格门下直接进不了池（离线实验已证实，见 4.3.13）。
+- 无条目通道（WECS/WHPI/注入变量）→ 标 `not_calibrated`；在此之前会被判 `not_evaluable`，严格门下直接进不了池（离线实验已证实，见 4.3.13）。
 
 **（6）字段与冻结口径**
 
@@ -806,13 +806,13 @@ rank_v2 = sort(S_v DESC,
 | FLB_mid | 3 / 0 / 4 | WFLB | **PWNT** | WFLB | **PWNT** | 进 WRCA、TAVG／出 WFLB、WHPI |
 | FLB_high | 3 / 0 / 4 | WRCA | WRCA | WRCA | WRCA | 进 PWNT／出 WFLB |
 
-汇总：S 变体 **Top-1 换 3/9**（SGATR_low、FLB_low、FLB_mid）；平均池 **9.89/15（65.9%）**；旧 Top-1 被门控直接剔除 **3 例**——SGATR_low 的 `PSGA`（`d=0.069`），以及 FLB_low/FLB_mid 的 `WFLB`（marker，无公差条目、不可评估）。
+汇总：S 变体 **Top-1 换 3/9**（SGATR_low、FLB_low、FLB_mid）；平均池 **9.89/15（65.9%）**；旧 Top-1 被门控直接剔除 **3 例**——SGATR_low 的 `PSGA`（`d=0.069`），以及 FLB_low/FLB_mid 的 `WFLB`（注入变量，无公差条目、不可评估）。
 
 **（5）结论（写进诚实边界）**
 
 - 门控版 **并没有比加权版更“稳”**：S 下仍换 3/9，L 下换 1/9；差别在于门控换人**可解释**（谁被剔除、为什么），加权换人只能看分差。
-- **`d>1` 在当前 σ 尺子下几乎不收缩池子**：135 个模板-变量里只有 16 个（11.9%）是数值真的 ≤1 被挡；剩下 30 个是“不可评估”被连坐（marker / 安全动作量 / 零方差 / 饱和）。
-- **marker 在严格门下必被剔除**（无公差条目），FLB 两例换 Top-1 完全由此产生——**结构效应，不是偏差证据**。
+- **`d>1` 在当前 σ 尺子下几乎不收缩池子**：135 个模板-变量里只有 16 个（11.9%）是数值真的 ≤1 被挡；剩下 30 个是“不可评估”被连坐（注入变量 / 安全动作量 / 零方差 / 饱和）。
+- **注入变量在严格门下必被剔除**（无公差条目），FLB 两例换 Top-1 完全由此产生——**结构效应，不是偏差证据**。
 - 因此：门槛 `g` 必须与 σ 尺子（4.3.12）成对定标；在那之前，门控版只能作为带 `tolerance_source=data_proxy` 标记的诊断，不能写成“剔除不符合物理规则的对象”。
 - 落盘 `deviation_*.json` 只存 Top-10，按文件口径覆盖率仅 1–5/15，结果会与全量口径不同——**这是产物缺陷，不是结论**。
 
@@ -1097,7 +1097,7 @@ rank_v2 = sort(S_v DESC,
 
 | 段 | 写什么 | 必含字段 | 字数 |
 |---|---|---|---|
-| 1 现象 | 哪组读数异常、指示器是什么、异常集中在哪些通道 | `deviation`、`marker` | 60–120 |
+| 1 现象 | 哪组读数异常、指示器是什么、异常集中在哪些通道 | `deviation`、`注入变量` | 60–120 |
 | 2 最可能原因 | 主档第 1 名是谁、效应与偏差各多少、口径是什么 | `rank_v2`、`total_effect`、`deviation_raw`、`tolerance_source` | 80–150 |
 | 3 机理链逐跳 | 从原因到现象，逐跳写“A 变化导致 B 变化”，每跳标注有无知识依据 | `incoming/outgoing`、`knowledge_status`、`path_audit` | 150–300 |
 | 4 为什么排除另外几个 | 第 2–5 名各自为什么排在后面（效应小 / 未过公差门 / 撞禁令 / 只是响应量） | `rank_delta`、`gate_status`、`knowledge_status` | 100–200 |
@@ -1111,7 +1111,7 @@ rank_v2 = sort(S_v DESC,
 ```
 【现象】
   {accident_type} / {group} 组异常读数集中在 {deviation_top_channels}；
-  指示器 {marker} 触发。
+  指示器 {注入变量} 触发。
 【最可能原因】
   按门控排序（`gate_rule_id`={gate_rule_id}，池 {pool_size}/15），第 1 名是 {v1}（{subsystem_1}）：
   总效应 {E_1}，偏差项 {D_1}（尺子口径 {tolerance_source}）。
@@ -1208,7 +1208,7 @@ rank_v2 = sort(S_v DESC,
 
 | 现有 | 定位【项目实测】 | 本方案怎么用【本项目新设计】 | 不要做什么 |
 |---|---|---|---|
-| K1 禁边 | `knowledge.py:361-401` marker 外生性 | 保留为 `builtin`；新增机理禁边进 `constraints_v1.yaml`；统一由 `apply_ontology_constraint` 清零 | 不要在 YAML 和代码各写一份同规则 |
+| K1 禁边 | `knowledge.py:361-401` 注入变量外生性（已废止） | 保留为 `builtin`；新增机理禁边进 `constraints_v1.yaml`；统一由 `apply_ontology_constraint` 清零 | 不要在 YAML 和代码各写一份同规则 |
 | K2 物理关系 | `physics_constraints.py:97-160` 事后相关符号 | 保留 posthoc；不进入排序；可扩关系/扩类 | 不要把 K2 升级成硬边；不要用它替代 tolerance |
 | K3 故障模板 | `external_knowledge.py:334-388` 覆盖率 | 保留 posthoc；不硬加边；可扩 expected_chain | 不要把 K3 当必须边 |
 | S/P 条目 | 解释层 + v23k 禁边派生 | **实际口径（E19）**：`sourced=true` 即可派生禁边进 K1（v23k 即如此）；`expert_confirmed=true` 是**尚未满足的加严要求**，不是现有代码的开关；必须边/方向进 `prior_knowledge` 时必须两者同时为真；其余留解释 | 不要把 unsourced 条目变成 active；也不要沿用“`sourced+expert_confirmed` 才能进 K1”的旧写法——按它执行会让约束层恒空（47/47 `expert_confirmed=false`） |
@@ -1285,7 +1285,7 @@ rank_v2 = sort(S_v DESC,
 
 - σ 五桶：LOCA `b1=6/b2=41/b3=33/b4=5/b5=8`（NE=46）；SGATR、FLB `b1=5/b2=41/b3=34/b4=5/b5=8`（NE=47），与问题 2 一致。
 - 9 模板门控剔除 60 例 = **45 不可评估**（`not_calibrated` 24 + `insufficient_baseline` 15 + `saturated` 3 + `degenerate_zero_channel` 3）+ **15 数值 fail**，与问题 1 一致。
-- 45 例里 24 例的 `not_calibrated` **全部**是 marker（`WLR/WTRA/WFLB`）与安全动作量（`WHPI/WECS`）：它们被 `excluded_vars_for` 排除在公差标定之外，却又留在候选变量里，所以永远“未标定”。这不是测不准，是**口径自相矛盾**。
+- 45 例里 24 例的 `not_calibrated` **全部**是注入变量（`WLR/WTRA/WFLB`）与安全动作量（`WHPI/WECS`）：它们被 `excluded_vars_for` 排除在公差标定之外，却又留在候选变量里，所以永远“未标定”。这不是测不准，是**口径自相矛盾**。
 
 **根因**：b3 的判据是 `MAD < floor/10`，而 `floor` 在 b3 上恰好是兜底值 `1%·|μ|`。于是这条规则实际在问“本底噪声是否远小于 1% 的额定值”——它惩罚的正是**测得最准的低噪声通道**（温度、装量、水位），却把它写成“样本不足”。基线点数由 `V23-DATA-004` 固定为 11 点、与通道无关，所以“样本不足”这个说法在数据上不成立。**这是尺子问题被写成了样本问题**，也是问题 1–3 的共同根因。
 
@@ -1350,7 +1350,7 @@ rank_v2 = sort(S_v DESC,
 |---|---|---|
 | 门控剔除合计 | 60 | **45** |
 | 其中 不可评估 | 45 | **3**（仅饱和 `WFWA`） |
-| 其中 结构性剔除（marker/安全动作） | 0（混在不可评估里） | **24** |
+| 其中 结构性剔除（注入变量/安全动作） | 0（混在不可评估里） | **24** |
 | 其中 数值 fail | 15 | **18** |
 | 池内保留 | 75 | **90** |
 
@@ -1428,7 +1428,7 @@ rank_v2 = sort(S_v DESC,
 |---|---|---|---|
 | σ 不可评估（93 通道） | 13 | **13**（LOCA/SGATR/FLB 同） | 一致；b3 33/34 全部转为可评估（`perceptibility_floor`） |
 | 门控剔除合计 | 45 | **48** | 预告漏算 `V23-CODE-033` 的退化零通道（`RH`/`RM2` 共 3 例）仍判不可评估 |
-| 其中结构性 | 24 | **24**（`safety_action_variable` 15 + `marker_variable` 9） | 一致 |
+| 其中结构性 | 24 | **24**（`safety_action_variable` 15 + `注入变量` 9） | 一致 |
 | 其中不可评估 | 3 | **6**（`saturated` 3 + `degenerate_zero_channel` 3） | 同上 |
 | 其中数值 fail | 18 | **18** | 一致 |
 | 池内保留 | 90 | **87** | 由上两项差异导致 |
@@ -1440,3 +1440,83 @@ rank_v2 = sort(S_v DESC,
 - **解释层**：模板级 9 份 `backend=llm`、类级 3 份 + 全局 1 份 `backend=rule`（`auto` 只在模板级解析 LLM）；13/13 `faithful=true`、`degraded=false`。
 - **仍不理想（实跑确认）**：`hard=0` 是真实结果（无“仪表作上游”边、无知识自带 sign 与方向矛盾）；`soft` 占全枚举 31.5%，只能作“待复核”信号；`b1` 仍 5–6 个。
 - **不可比范围**：本 run 的池大小、`rank_v2`/Top-5、审计三档与 `v23-20261115T000542`、`v23-20261112T185258` 均不可混比；`B/T/稳定边/图` 可比（实测稳定边数与 `E_v` 未变）。
+
+
+---
+
+## 9.8 注入变量降级为普通变量（V23-DESIGN-109，2026-11-15）
+
+**【用户裁决】** 把原本被当作"故障指示器"的注入变量（LOCA=WLR、SGATR=WTRA、FLB=WFLB）
+**降级为普通变量：参与排序、不剔除、不给予特殊地位**。
+
+**探查事实基础**：现役 `Code/causalrca/` 27 个文件 393 处命中，`legacy/v21` 另有 375 处且现役不引用；
+实际情况是排序里的跳过分支已删、概念仍在。
+
+### 7 个功能依赖点逐条处置
+
+| # | 原位置 | 改成什么 | 语义因此变成什么 | 影响产物字段 |
+|---|---|---|---|---|
+| 1 | `data/loader.py` 变量集 | 变量仍在 `V_graph,k` 内（`V_thr+安注+本类信号通道`），不再单列为特殊类别 | 学图时它与其它 14 个节点同等入模；仅因它是**离散指示量**而不进 `V_thr`（与 WHPI/WECS 同一物理理由，非身份豁免） | `variable_sets.json.note` 措辞中性化 |
+| 2 | `evidence/knowledge.py` K1 禁边 R1/R2/R3 | 删除 `_forbidden_rules()`，`forbidden=[]` | 建图前不再按"身份"抹掉"X→注入变量"的边，能否作下游只由数据与物理决定；外部知识硬禁边 `constraints_v1` 仍生效 | `forbidden` 只余 `constraints_v1` 条目 |
+| 3 | `causal/source_tracing.py` 效应端 | `effect_vars` **只由终端节点（出度 0）定义**，不再并入注入变量 | `S` 变小；`E_v=Σ_s|T[s,v]|` 随之改变（注入变量不再获自项 `T[ch,ch]=1`） | 删 `is_marker`；`topology/signature` 不再有该标识 |
+| 4 | `evidence/tolerance.py` 公差排除集 | 只排除 `SAFETY_STEP_VARS` | 注入变量按普通通道走：有 σ 就判、无 σ 就判 `not_evaluable`，不做身份性豁免 | `excluded_rule` 文案改"仅 SAFETY_STEP_VARS" |
+| 5 | `causal/gating.py` + 门控策略 | `gate_policy_v3.yaml`（sha256 `236014480bb3…`），取消 `marker_variable` 结构性剔除类 | `gate_reason` 不再出现该专用取值；注入变量若饱和/无 σ，落回通用 `not_evaluable` | `gate_rule_id=gate_v3_source_aware_no_identity`；`n_excluded_by_class` 只余 `safety_action_variable` |
+| 6 | `data/audit.py` B6 | 该通道按普通变量做严重度单调性检查，字段全部中性化 | 保留"是否单调/是否翻转"的数据事实，但不附身份或排名特权 | `signal_channel / signal_median / signal_curve / signal_monotonic / signal_stability` |
+| 7 | 报告/图/指标字段 | 删 `is_marker`、`marker_info`、`marker_rank`、`marker_median`、`masking` 块；快照改名 `signal_scale.json` | 不再产出身份性字段；确需保留的统计量改中性名（`signal_channel`、`signal_rank`、`signal_rank_median`） | 见各产物 |
+
+### 图会怎么变（实测，`v23-20261115T165838` → `v23-20261115T174733`）
+
+稳定边 **399 → 432（+33，-0）**，全部指向注入变量：
+
+| 模板 | 增边 |
+|---|---|
+| LOCA_low | LVPZ/RHMT/RRCA/TAVG/WECS/WHPI → WLR（+6） |
+| LOCA_mid | LVPZ/PSGA/TAVG/WECS/WHPI → WLR（+5） |
+| LOCA_high | 无（该图注入变量出度 12，禁边本未生效） |
+| SGATR_low | LSGA/LVPZ/RH/WECS → WTRA（+4） |
+| SGATR_mid | LSGA/LVPZ/P/RH/WECS → WTRA（+5） |
+| SGATR_high | LSGA/LVPZ/P/RH/VOID/WECS/WHPI/WRCA → WTRA（+8） |
+| FLB_low | PWNT/QMGB/TAVG → WFLB（+3） |
+| FLB_mid | QMGB/TAVG → WFLB（+2） |
+| FLB_high | 无 |
+
+### `S` 与 `E_v` 的变化（实测）
+
+- `S`：LOCA_low 7→5、LOCA_mid 6→4、SGATR_high 5→3（WECS/WHPI 原先因无出边是终端，现因新增"→注入变量"边而失去终端地位）；其余模板 `|S|` 不变。
+- `E_v`：不再把注入变量并入 `S` 后，FLB low/mid 的 WFLB 失去自项 1.0（旧 `E_v≈1.002` 恰为 `T[WFLB,WFLB]=1`），直接跌出榜单；LOCA_high 的 WLR `E_v` 2.429→1.429、名次 2→5。其余变量因 `S` 变化而整体重算（如 LOCA_low 的 P 5.70→4.65）。
+
+### 矛盾消除（"池外却有排名"）
+
+旧 run 中 WLR 同时 `rank=11` 与 `in_pool=false / gate_reason=marker_variable`，与 §5.13 不符。
+本 run 中 WLR 变为 `not_evaluable / saturated`（sigma_bucket=b4）、`rank_if_kept=15`。**"池外却有排名"仍然存在，但已不是身份性剔除**：
+`not_evaluable` 通道一律保留 `rank` 供追溯、不进生产池——这是所有不可评估变量的通用口径，注入变量不再是被单独划出去的那一个。
+
+### 候选池与剔除理由（实测，前后）
+
+| 项 | 旧（165838） | 新（174733） |
+|---|---|---|
+| 池大小合计 | 87 | 87 |
+| 剔除合计 | 48 | 48 |
+| `excluded_structural / safety_action_variable` | 15 | 15 |
+| `excluded_structural / marker_variable` | 9 | **0（该类已取消）** |
+| `not_evaluable / saturated` | 3 | **12**（原 9 个身份性剔除改为按饱和判定） |
+| `not_evaluable / degenerate_zero_channel` | 3 | 3 |
+| `fail` | 18 | 18 |
+
+即：池大小未变，但注入变量是**按数值理由（饱和）出池**，与任何饱和通道同判。
+
+### 审计三档（实测）
+
+全枚举路径 3013 → **4088**；`compliant 5 / unsupported 2060 / violating 948` → **5 / 2557 / 1526**（全部 `soft`，`hard=0`）。
+`violating` 上升来自新增的 33 条"→注入变量"边使可枚举路径增多、且这些边多数缺带出处 sign，属预期的口径效应，不是模型学错。
+
+### 措辞层
+
+- 前端页面（`submit/*.html`）该词命中数 **3 → 0**（可复算：`grep -o -i marker submit/*.html | wc -l`）。
+- 对外版 3 处、内部版与外部知识贯穿方案全部改为"注入变量"；`summary_*.json` 中"已遮蔽"旧文案已删除，与 `appears_in_root_candidates=true` 的自相矛盾随之消失。
+- 仍保留该词的位置：`registry/split_manifest.json`、`registry/shared_baseline.json`（v2.1 **冻结输入逐字节快照**，按契约不改写）、`registry/signal_scale.json` 的 `source` 溯源串。
+
+### 不可比范围
+
+本 run 的稳定边、`S`、`E_v`、池构成、`rank_v2`/Top-5、审计三档均**不可**与 `v23-20261115T165838`、
+`v23-20261115T000542`、`v23-20261112T185258` 混比；`σ 桶计数`与公差口径可比。

@@ -14,7 +14,7 @@ import numpy as np
 from typing import Dict, List, Tuple
 
 from causalrca.config.constants_v21 import (
-    MARKERS, MARKER_COLS, SAFETY_STEP_VARS, PHYSICAL_CANDIDATES,
+    MARKERS, SAFETY_STEP_VARS, PHYSICAL_CANDIDATES,
     CONSTANT_SIGMA,
 )
 from causalrca.io.logging import logger
@@ -358,49 +358,6 @@ COMPETITIVE_PAIRS_BY_CLASS: Dict[str, List[Tuple[str, str]]] = {
 }
 
 
-def _forbidden_rules(variables: List[str]) -> List[Dict]:
-    """按物理规则生成禁止边（marker 外生性）。
-
-    规则（全部有明确物理依据，basis 落盘）：
-      R1 marker→marker：三类 marker 是互斥的外生始发事件，互不因果；
-      R2 安注→marker：安全动作不可能引起始发破口；
-      R3 任何其他变量→marker：症状/安全动作不“产生”破口流量；
-         唯一例外是 P→WLR（破口流量受压差驱动，列入 competitive 保留）。
-    """
-    rules: List[Dict] = []
-    comp_flat = set()
-    for a, b in COMPETITIVE_PAIRS:
-        comp_flat.add((a, b))
-        comp_flat.add((b, a))
-    vset = set(variables)
-
-    # R1 marker 互斥（两个方向）
-    for i, m1 in enumerate(MARKER_COLS):
-        for m2 in MARKER_COLS[i + 1:]:
-            for src, dst in ((m1, m2), (m2, m1)):
-                if src in vset and dst in vset:
-                    rules.append({"from": src, "to": dst,
-                                  "basis": "R1 marker为互斥外生始发事件，互不因果"})
-    # R2 安全系统 → marker
-    for s in SAFETY_STEP_VARS:
-        for m in MARKER_COLS:
-            if s in vset and m in vset:
-                rules.append({"from": s, "to": m,
-                              "basis": "R2 安全注入动作不引起始发破口"})
-    # R3 其他一切变量 → marker（P→WLR 例外）
-    for m in MARKER_COLS:
-        if m not in vset:
-            continue
-        for v in variables:
-            if v == m:
-                continue
-            if (v, m) in comp_flat:
-                continue
-            rules.append({"from": v, "to": m,
-                          "basis": f"R3 下游症状/动作不外生产生破口指示器 {m}（外生故障过程）"})
-    return rules
-
-
 def build_ontology(accident_type: str, variables: List[str]) -> Dict:
     """构建某类模板的代码本体（只含 variables 中存在的变量/关系）。"""
     if accident_type not in ALLOWED_RELATIONS:
@@ -426,7 +383,11 @@ def build_ontology(accident_type: str, variables: List[str]) -> Dict:
         if a in vset and b in vset:
             competitive.append({"pair": [a, b], "basis": "物理反馈环/L3方向不预设，双向保留"})
 
-    forbidden = _forbidden_rules(variables)
+    # V23-DESIGN-109：撤掉 K1 的“故障指示器外生性”禁边（R1/R2/R3）。
+    # 原规则按“身份”把指示器当成外生源，禁止一切指向它的边；按用户裁决，指示器降级为
+    # 普通变量，能否作下游只由物理与数据决定，不再在建图前被身份性抹掉。
+    # 禁边只剩外部知识登记的硬禁边（constraints_v2）。
+    forbidden: List[Dict] = []
     # constraints_v1（外部知识硬禁边）：估完再清零 B[i,j]，与 K1 去重后合并。
     from causalrca.evidence import constraints as CONS
     seen = {(f["from"], f["to"]) for f in forbidden}

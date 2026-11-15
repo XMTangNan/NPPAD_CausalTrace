@@ -127,7 +127,7 @@ def build_split_manifest(seed: int = SPLIT_SEED) -> Dict:
                 "baseline_window": [BASELINE_WINDOW_START, BASELINE_WINDOW_END],
                 "classes": {}}
     for k in READY_CODES:
-        cls = {"marker": MARKERS[k], "baseline_severities": list(BASELINE_SEVERITIES),
+        cls = {"signal_channel": MARKERS[k], "baseline_severities": list(BASELINE_SEVERITIES),
                "groups": {}}
         for g in GROUP_ORDER:
             lo, hi = SEVERITY_BANDS[g]
@@ -283,7 +283,10 @@ def fit_shared_baseline() -> Tuple[Dict, Dict, List[Dict]]:
         "mu": keep_mu, "sigma": keep_sigma,
         "tightness_descriptive": tightness,
         "excluded_constant": excluded,
-        "never_in_pool": {"marker": MARKER_COLS, "safety_step": SAFETY_STEP_VARS},
+        # 仅用于 A 阶段“特征选择”的排除：故障标签列属标签编码（避免标签泄漏），
+        # 与排名/门控无关（V23-DESIGN-109：不构成任何身份特权）。
+        "excluded_from_selection": {"fault_label_columns": MARKER_COLS,
+                                    "safety_step_vars": SAFETY_STEP_VARS},
         "baseline_note": "仿真稳态 σ 极小（如 TAVG σ≈0.015℃），真实故障可产生 |z|≫3；"
                          "A(x) 可能接近全集，属已知特性，D3 如实报告；−过程本体（MAD）消融作稳健对照",
     }
@@ -292,11 +295,12 @@ def fit_shared_baseline() -> Tuple[Dict, Dict, List[Dict]]:
 
 
 def variable_sets(v_thr: Sequence[str]) -> Dict:
-    """三张变量表：V_thr / V_graph,k（含 marker 与安注）/ V_act（=V_thr 物理症状）。"""
+    """三张变量表：V_thr / V_graph,k（含信号通道与安注）/ V_act（=V_thr 物理症状）。"""
     sets = {"V_thr": list(v_thr), "V_act": list(v_thr),
             "V_graph": {},
-            "note": "V_thr=过程本体可建阈值的物理症状；V_graph,k=V_thr+安注阶跃+本类marker；"
-                    "V_act=E3 分母候选（非 marker），与 V_thr 相同；marker/WHPI/WECS 不进 V_thr"}
+            "note": "V_thr=过程本体可建阈值的物理症状；V_graph,k=V_thr+安注阶跃+本类信号通道；"
+                    "V_act=E3 分母候选（不含离散指示量），与 V_thr 相同；信号通道/WHPI/WECS 不进 V_thr"
+                    "（其为离散指示量，非过程本体量；进入 V_graph 后与其它变量同等参与排序）"}
     for k in ACCIDENT_TYPES:
         sets["V_graph"][k] = list(v_thr) + list(SAFETY_STEP_VARS) + [MARKERS[k]]
     return sets

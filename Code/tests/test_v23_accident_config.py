@@ -2,7 +2,7 @@
 
 覆盖（STRUCTURE.md §4 / 方案 §4.1/§4.3/附录 A）：
 1) 12 类齐全、顺序固定、6 个机理组均有成员；
-2) 每类必需字段齐全、字段取值自洽（marker=trigger_vars[0]、marker_type/severity_unit 合法）；
+2) 每类必需字段齐全、字段取值自洽（signal_channel=trigger_vars[0]、injection_kind/severity_unit 合法）；
 3) 数据状态如实登记：ready ≥20 且目录存在、partial 0<n<20、data_missing n==0 且目录不存在；
 4) rca_config_v21 仅派生不另立列表：ACCIDENT_TYPES 仍为 3 类兼容、ALL 12 类、
    MARKER_COLS 只收专用指示器（不含 WSTA/WSTB/RHRD/PPM/TBLD/WLD 过程量）；
@@ -28,10 +28,10 @@ EXPECTED_ORDER = [
     "RW", "RI", "FLB", "MD", "LR", "LLB",
 ]
 REQUIRED_FIELDS = [
-    "code", "name_cn", "group", "marker", "trigger_vars", "key_responses",
+    "code", "name_cn", "group", "signal_channel", "trigger_vars", "key_responses",
     "t_inject", "main_window", "learn_window", "baseline_window",
     "severity_bands", "n_trajectories", "status", "data_dir", "notes",
-    "n_trajectories_design", "marker_type", "severity_unit",
+    "n_trajectories_design", "injection_kind", "severity_unit",
 ]
 PROCESS_MARKERS_FORBIDDEN_IN_MARKER_COLS = [
     "WSTA", "WSTB", "RHRD", "PPM", "TBLD", "WLD",
@@ -57,7 +57,7 @@ def test_six_groups_all_populated():
 
 
 def test_unknown_code_raises_keyerror():
-    for fn in (AC.get_accident, AC.key_responses, AC.trigger_vars, AC.marker_of):
+    for fn in (AC.get_accident, AC.key_responses, AC.trigger_vars, AC.signal_channel_of):
         with pytest.raises(KeyError):
             fn("NOT_A_CLASS")
 
@@ -71,7 +71,7 @@ def test_required_fields_present_and_typed():
         assert isinstance(cfg["name_cn"], str) and cfg["name_cn"]
         assert isinstance(cfg["group"], int) and 1 <= cfg["group"] <= 6
         assert isinstance(cfg["t_inject"], float) and cfg["t_inject"] == 110.0
-        assert cfg["marker"] == cfg["trigger_vars"][0], f"{code} marker 应为首个触发变量"
+        assert cfg["signal_channel"] == cfg["trigger_vars"][0], f"{code} signal_channel 应为首个触发变量"
         for key in ("main_window", "learn_window", "baseline_window",
                     "severity_bands"):
             assert key in cfg and cfg[key], f"{code}.{key} 为空"
@@ -80,7 +80,7 @@ def test_required_fields_present_and_typed():
             assert lo < hi, f"{code}.{key} 窗口非法"
         assert cfg["severity_bands"] == {"low": (2, 33), "mid": (34, 66),
                                          "high": (67, 100)}
-        assert cfg["marker_type"] in ("indicator", "process")
+        assert cfg["injection_kind"] in ("indicator", "process")
         assert isinstance(cfg["severity_unit"], str) and cfg["severity_unit"]
         assert isinstance(cfg["n_trajectories_design"], int)
         assert cfg["n_trajectories_design"] > 0
@@ -99,10 +99,10 @@ def test_window_by_group():
             assert cfg["baseline_window"] == (520.0, 2030.0)
 
 
-def test_marker_type_and_severity_unit_table():
+def test_injection_kind_and_severity_unit_table():
     """方案 §4.1/§4.3：仅专用故障指示器通道为 indicator，其余为过程量。"""
     indicator = {c for c, cfg in AC.REGISTRY.items()
-                 if cfg["marker_type"] == "indicator"}
+                 if cfg["injection_kind"] == "indicator"}
     assert indicator == {"LOCA", "LOCAC", "SGATR", "SGBTR", "FLB"}
     units = {c: cfg["severity_unit"] for c, cfg in AC.REGISTRY.items()}
     assert units["LOCA"] == "% of 100 cm²"
@@ -132,7 +132,7 @@ def test_key_responses_and_trigger_per_appendix_a():
     for code, (trig, resp) in expected.items():
         assert AC.trigger_vars(code) == trig, code
         assert AC.key_responses(code) == resp, code
-        assert AC.marker_of(code) == trig[0], code
+        assert AC.signal_channel_of(code) == trig[0], code
     # SGATR 注册表取附录 A 原文，v2.1 额外集合在 notes 留痕
     assert "PSGB" not in AC.key_responses("SGATR")
     assert "PSGB" in AC.REGISTRY["SGATR"]["notes"]
@@ -187,17 +187,17 @@ def test_rca_config_derived_constants():
     assert CFG.READY_ACCIDENT_TYPES == ["LOCA", "SGATR", "FLB"]
     assert CFG.PARTIAL_ACCIDENT_TYPES == ["LOCAC"]
     assert len(CFG.MISSING_ACCIDENT_TYPES) == 8
-    assert CFG.MARKERS == {c: AC.REGISTRY[c]["marker"] for c in EXPECTED_ORDER}
+    assert CFG.MARKERS == {c: AC.REGISTRY[c]["signal_channel"] for c in EXPECTED_ORDER}
 
 
 def test_marker_cols_only_indicator_channels():
     assert CFG.MARKER_COLS == ["WLR", "WTRA", "WTRB", "WFLB"]
     for m in PROCESS_MARKERS_FORBIDDEN_IN_MARKER_COLS:
         assert m not in CFG.MARKER_COLS, f"过程量 {m} 不得进入 MARKER_COLS"
-    # MARKER_COLS 必须是注册表中 marker_type=="indicator" 的去重保序集合
+    # MARKER_COLS 必须是注册表中 injection_kind=="indicator" 的去重保序集合
     expected = list(dict.fromkeys(
-        AC.REGISTRY[c]["marker"] for c in EXPECTED_ORDER
-        if AC.REGISTRY[c]["marker_type"] == "indicator"))
+        AC.REGISTRY[c]["signal_channel"] for c in EXPECTED_ORDER
+        if AC.REGISTRY[c]["injection_kind"] == "indicator"))
     assert CFG.MARKER_COLS == expected
 
 
@@ -217,7 +217,7 @@ def test_selector_key_responses_cover_all_and_keep_v21():
 
 def test_selector_accessors_consistent_with_registry():
     for code in EXPECTED_ORDER:
-        assert VS.get_trigger_var(code) == CFG.MARKERS[code] == AC.marker_of(code)
+        assert VS.get_trigger_var(code) == CFG.MARKERS[code] == AC.signal_channel_of(code)
         assert VS.get_key_responses(code) == VS.ACCIDENT_KEY_RESPONSES[code]
 
 

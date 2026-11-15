@@ -23,7 +23,7 @@ from causalrca.config.constants_v21 import (
     BASELINE_WINDOW_START, BASELINE_WINDOW_END,
     SEVERITY_BANDS, GROUP_ORDER, CONSTANT_SIGMA,
 )
-from causalrca.config.accident_config import ACCIDENT_ORDER, get_accident, marker_of
+from causalrca.config.accident_config import ACCIDENT_ORDER, get_accident, signal_channel_of
 from causalrca.data.loader import (
     ClassDataMissing, ensure_class_available, list_class_severities,
     load_trajectory, window_slice, save_json,
@@ -88,9 +88,9 @@ def _class_windows(cfg: Dict) -> Tuple[Tuple[float, float], Tuple[float, float]]
 
 def _class_marker(code: str, cfg: Optional[Dict] = None) -> Optional[str]:
     try:
-        return marker_of(code)
+        return signal_channel_of(code)
     except Exception:                                   # 注册表未提供函数时回退
-        return (cfg or get_accident(code) or {}).get("marker")
+        return (cfg or get_accident(code) or {}).get("signal_channel")
 
 
 # ==================== B5 纯函数：σ_floor / 变量 z 画像 ====================
@@ -307,7 +307,7 @@ def cluster_indices(indices: Sequence[int], gap: int = CLUSTER_GAP) -> List[int]
 
 
 def marker_profile(severities: Sequence[int], values: Sequence[float]) -> Dict:
-    """marker–severity 曲线画像（纯函数）：Spearman、相邻差符号翻转、单调性。"""
+    """信号–severity 曲线画像（纯函数）：Spearman、相邻差符号翻转、单调性。"""
     sev = np.asarray(list(severities), dtype=float)
     y = np.asarray(list(values), dtype=float)
     prof = {"n_points": int(y.size), "spearman_rho": None, "spearman_p": None,
@@ -600,14 +600,17 @@ def audit_z_pathology(code: str, baseline_severities: Sequence[int] = (1,),
 def audit_changepoints(code: str, run_id: Optional[str] = None,
                        penalty: float = DP_PENALTY,
                        cusum_threshold: float = CUSUM_THRESHOLD) -> Dict:
-    """B6：marker 主窗中位数随 severity 的变点 / 单调性 / 稳定性评级。"""
+    """B6：本类故障信号主窗中位数随 severity 的变点 / 单调性 / 稳定性评级。
+
+    V23-DESIGN-109：该通道按普通变量对待，字段一律中性命名，不构成排名特权。
+    """
     cfg = _require(code)
     main_win, _ = _class_windows(cfg)
     sevs = list_class_severities(code)
     marker = _class_marker(code, cfg)
 
     out: Dict = _common(code, run_id, "changepoint_report")
-    out.update({"marker": marker, "main_window": list(main_win),
+    out.update({"signal_channel": marker, "main_window": list(main_win),
                 "n_severities": len(sevs),
                 "methods": {"cusum": {"threshold": cusum_threshold,
                                       "statistic": "standardized_two_sided_cusum_binary_seg"},
@@ -617,12 +620,12 @@ def audit_changepoints(code: str, run_id: Optional[str] = None,
                                    "complexity": "O(n^2)"}}})
 
     if not sevs or not marker:
-        out.update({"marker_curve": [], "changepoints_index": [],
+        out.update({"signal_curve": [], "changepoints_index": [],
                     "changepoints_severity": [], "changepoints_cusum_severity": [],
                     "changepoints_dp_severity": [],
                     "group_boundaries_recommended": {},
-                    "marker_monotonic": marker_profile([], []),
-                    "marker_stability": "insufficient", "pass": True})
+                    "signal_monotonic": marker_profile([], []),
+                    "signal_stability": "insufficient", "pass": True})
         return out
 
     curve = []
@@ -630,8 +633,8 @@ def audit_changepoints(code: str, run_id: Optional[str] = None,
         df = load_trajectory(code, sev)
         win = window_slice(df, main_win[0], main_win[1])
         curve.append({"severity": sev,
-                      "marker_median": float(win[marker].median()) if len(win) else None})
-    ys = np.array([c["marker_median"] if c["marker_median"] is not None else np.nan
+                      "signal_median": float(win[marker].median()) if len(win) else None})
+    ys = np.array([c["signal_median"] if c["signal_median"] is not None else np.nan
                    for c in curve], dtype=float)
     valid = np.isfinite(ys)
     sev_arr = np.array([c["severity"] for c in curve], dtype=float)[valid]
@@ -660,7 +663,7 @@ def audit_changepoints(code: str, run_id: Optional[str] = None,
 
     def _to_sev(idx: Iterable[int]) -> List[Dict]:
         return [{"index": int(i), "severity": int(sev_arr[i]),
-                 "marker_median": float(y_arr[i])} for i in idx]
+                 "signal_median": float(y_arr[i])} for i in idx]
 
     cps_sev = _to_sev(primary)
     prof = marker_profile(sev_arr, y_arr)
@@ -692,7 +695,7 @@ def audit_changepoints(code: str, run_id: Optional[str] = None,
         stability = "stable"
 
     out.update({
-        "marker_curve": curve,
+        "signal_curve": curve,
         "changepoints_index": [int(i) for i in primary],
         "changepoints_severity": cps_sev,
         "changepoints_method": "linear_detrended_dp_l2_bic",
@@ -706,8 +709,8 @@ def audit_changepoints(code: str, run_id: Optional[str] = None,
         "changepoints_level_raw_cusum_severity": _to_sev(idx_cusum),
         "changepoints_level_raw_dp_severity": _to_sev(idx_dp),
         "group_boundaries_recommended": rec,
-        "marker_monotonic": prof,
-        "marker_stability": stability,
+        "signal_monotonic": prof,
+        "signal_stability": stability,
         "pass": True,
     })
     return out
@@ -740,13 +743,13 @@ def run_audit(code: str, run_id: Optional[str] = None) -> Dict:
         "n_pathology": b5["n_pathology"],
         "pathology_variables": b5["pathology_variables"],
         "changepoints_severity": [c["severity"] for c in b6["changepoints_severity"]],
-        "marker_stability": b6["marker_stability"],
+        "signal_stability": b6["signal_stability"],
         "paths": paths,
     }
     logger.info(f"[B audit] {code}: n_traj={summary['n_trajectories']} "
                 f"pathology={summary['n_pathology']} "
                 f"cp={summary['changepoints_severity']} "
-                f"stability={summary['marker_stability']}")
+                f"stability={summary['signal_stability']}")
     return summary
 
 

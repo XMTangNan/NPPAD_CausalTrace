@@ -15,7 +15,7 @@ v2.3 不做事故大类匹配，只做「事故内、变量级的根因溯源」
 （模板 15 个节点）内单独披露 `gt_in_candidate_set`，用于区分“没找对”和“根本不在候选”。
 
 **候选与四通道（同一批轨迹；取消遮蔽后四通道统一为 15 节点）**
-- `causal`（生产口径）：候选=模板**全部变量（含注入变量 marker）**，排序键总因果效应
+- `causal`（生产口径）：候选=模板**全部变量（含注入变量）**，排序键总因果效应
   DESC → in_degree ASC → weighted_reach DESC → reach_size DESC → consensus_rate DESC，
   再按“有传导能力(out_degree>0)优先、孤立节点殿后”分组。取消遮蔽（2026-11-11）后与落盘
   `tracing/root_candidates_*.json` 的候选集一致（15 节点）。
@@ -264,10 +264,9 @@ def load_template(k: str, g: str, run_id: Optional[str] = None) -> Dict:
     if not nodes:
         raise ValueError(f"topology_{k}_{g}.json 缺 nodes")
     return {"k": k, "g": g, "template": f"{k}_{g}", "nodes": nodes,
-            "marker": sig.get("marker") or topo.get("marker"),
+            "signal_channel": sig.get("signal_channel") or topo.get("signal_channel"),
             "variables": list(sig.get("variables") or topo.get("variables") or []),
             "stable_edges": sig.get("stable_edges") or [],
-            "marker_info": rc.get("marker_info") or {},
             "n_bootstrap": sig.get("n_bootstrap"),
             "method_note": rc.get("method_note")}
 
@@ -311,8 +310,6 @@ def unmasked_total_effect(tpl: Dict, clip: Optional[float] = B_CLIP) -> Dict[str
         tpl["stable_edges"], variables,
         clip=float("inf") if clip is None else clip, return_diag=True)
     effect_vars = {v for v, nd in tpl["nodes"].items() if int(nd.get("out_degree") or 0) == 0}
-    if tpl["marker"]:
-        effect_vars.add(tpl["marker"])
     effect_idx = [idx[v] for v in effect_vars if v in idx]
     return {v: float(np.sum(np.abs(T[effect_idx, idx[v]]))) if effect_idx else 0.0
             for v in variables}
@@ -470,9 +467,9 @@ def _summarize_clip(rows: Sequence[Dict], label: str) -> Dict:
         agg[f"{key}_n"] = k
         agg[f"{key}_wilson95"] = [None if lo is None else round(lo, 4),
                                   None if hi is None else round(hi, 4)]
-    ranks = [r["clip_sensitivity"][label]["marker_rank"] for r in rows
-             if r["clip_sensitivity"][label]["marker_rank"]]
-    agg["marker_rank_median"] = round(float(np.median(ranks)), 2) if ranks else None
+    ranks = [r["clip_sensitivity"][label]["signal_rank"] for r in rows
+             if r["clip_sensitivity"][label]["signal_rank"]]
+    agg["signal_rank_median"] = round(float(np.median(ranks)), 2) if ranks else None
     return _tag_agg(agg)
 
 
@@ -480,10 +477,10 @@ def _clip_flip_note(per_tpl_clips: Dict[str, Dict[str, Dict]]) -> Dict[str, obje
     """显式标出哪些模板的命中/注入点名次会随 clip 翻转（供读者判读，不靠肉眼比对）。"""
     flips: Dict[str, Dict] = {}
     for name, by_clip in per_tpl_clips.items():
-        ranks = {lab: v.get("marker_rank_median") for lab, v in by_clip.items()}
+        ranks = {lab: v.get("signal_rank_median") for lab, v in by_clip.items()}
         hits = {lab: (v.get("hit1"), v.get("hit3")) for lab, v in by_clip.items()}
         if len({r for r in ranks.values()}) > 1 or len(set(hits.values())) > 1:
-            flips[name] = {"marker_rank_median": ranks,
+            flips[name] = {"signal_rank_median": ranks,
                            "hit1_hit3": {lab: list(h) for lab, h in hits.items()},
                            "top3": {lab: v.get("top3") for lab, v in by_clip.items()}}
     return {
@@ -1063,8 +1060,8 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
             clip_rows[label] = {
                 "metrics": {kk: (round(vv, 4) if isinstance(vv, float) else vv)
                             for kk, vv in ranking_metrics(rk, gt).items()},
-                "marker_rank": (rk.index(tpl["marker"]) + 1)
-                               if tpl["marker"] and tpl["marker"] in rk else None,
+                "signal_rank": (rk.index(tpl["signal_channel"]) + 1)
+                                if tpl["signal_channel"] and tpl["signal_channel"] in rk else None,
                 "top3": rk[:3],
             }
         row = {
@@ -1115,9 +1112,6 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
         if not sub:
             continue
         gt = gt_effective[tpl["k"]]
-        marker = tpl["marker"]
-        masked = (tpl["nodes"].get(marker) or {}).get("total_effect") is None
-        eff_unmasked = unmasked_total_effect(tpl)
         tpl_clips: Dict[str, Dict] = {}
         for label, _clip in CLIP_VARIANTS:
             agg = _summarize_clip(sub, label)
@@ -1135,17 +1129,9 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
             },
             "candidate_set": {
                 "source": f"tracing/topology_{tpl['k']}_{tpl['g']}.json（n_nodes={len(tpl['nodes'])}）",
-                "causal_order": "生产口径（取消遮蔽）：候选=全部节点（含注入变量）；total_effect DESC → in_degree ASC → weighted_reach DESC → reach_size DESC → consensus_rate DESC；有传导者优先、孤立节点殿后",
-                "deviation_order": "同候选集等权，按 d(v) DESC（无因果图）；取消遮蔽后两列偏差基线同为 15 节点",
-                "unmasked_note": "causal_unmasked_for_eval 为历史别名：取消遮蔽后与 causal 等价（同一 15 节点、同一名次），仅为兼容旧产物/旧文档",
-            },
-            "injection_point_masking": {
-                "variable": marker, "masked": masked,
-                "total_effect_production": (tpl["nodes"].get(marker) or {}).get("total_effect"),
-                "total_effect_unmasked_for_eval": round(eff_unmasked.get(marker, 0.0), 6),
-                "root_candidates_rank_production": tpl["marker_info"].get("rank"),
-                "note": ("取消遮蔽（2026-11-11）后的 run：masked 恒为 False（注入变量已作为普通候选"
-                         "参与排名）；旧产物可能仍为 True。本字段只作历史标识"),
+                "causal_order": "生产口径：候选=全部节点；total_effect DESC → in_degree ASC → weighted_reach DESC → reach_size DESC → consensus_rate DESC；有传导者优先、孤立节点殿后",
+                "deviation_order": "同候选集等权，按 d(v) DESC（无因果图）；两列候选集同为 15 节点",
+                "unmasked_note": "causal_unmasked_for_eval 为历史别名：与 causal 等价（同一 15 节点、同一名次），仅为兼容旧产物/旧文档",
             },
             "method_note": tpl["method_note"],
             "clip_sensitivity": {
@@ -1323,7 +1309,7 @@ def evaluate(run_id: str, classes: Optional[Sequence[str]] = None,
                         for k in classes if any(r["accident_type"] == k for r in rows)},
                     "per_template": {
                         name: {kk: by_template_clips[name][label][kk]
-                               for kk in ("hit1", "hit3", "mrr", "marker_rank_median", "n",
+                               for kk in ("hit1", "hit3", "mrr", "signal_rank_median", "n",
                                           "metric_tier", "tier")}
                         for name in by_template_clips},
                 } for label, _clip in CLIP_VARIANTS},

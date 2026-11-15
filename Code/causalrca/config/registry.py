@@ -49,10 +49,10 @@ _WINDOW_GROUP4 = {
 
 # 必需字段（STRUCTURE.md §4 + v2.3 增补字段），构造时校验，防止漏字段
 _FIELDS = (
-    "code", "name_cn", "group", "marker", "trigger_vars", "key_responses",
+    "code", "name_cn", "group", "signal_channel", "trigger_vars", "key_responses",
     "t_inject", "main_window", "learn_window", "baseline_window",
     "severity_bands", "n_trajectories", "status", "data_dir", "notes",
-    "n_trajectories_design", "marker_type", "severity_unit",
+    "n_trajectories_design", "injection_kind", "severity_unit",
 )
 
 _VALID_STATUS = ("ready", "partial", "data_missing")
@@ -62,9 +62,9 @@ def _windows(group: int) -> Dict[str, tuple]:
     return dict(_WINDOW_GROUP4 if group == 4 else _WINDOW_DEFAULT)
 
 
-def _record(code: str, name_cn: str, group: int, marker: str,
+def _record(code: str, name_cn: str, group: int, signal_channel: str,
             trigger_vars: List[str], key_responses: List[str],
-            severity_unit: str, n_design: int, marker_type: str,
+            severity_unit: str, n_design: int, injection_kind: str,
             status: str, n_trajectories: int, notes: str) -> Dict:
     """构造一条注册记录并做完整性自检（缺字段/非法 status 立即报错）。"""
     if status not in _VALID_STATUS:
@@ -73,7 +73,7 @@ def _record(code: str, name_cn: str, group: int, marker: str,
         "code": code,
         "name_cn": name_cn,
         "group": int(group),
-        "marker": marker,
+        "signal_channel": signal_channel,
         "trigger_vars": list(trigger_vars),
         "key_responses": list(key_responses),
         "t_inject": T_INJECT,
@@ -84,7 +84,7 @@ def _record(code: str, name_cn: str, group: int, marker: str,
         "n_trajectories": int(n_trajectories),
         "status": status,
         "n_trajectories_design": int(n_design),
-        "marker_type": marker_type,
+        "injection_kind": injection_kind,
         "severity_unit": severity_unit,
         "notes": notes,
     }
@@ -103,105 +103,105 @@ _NOTE_NO_DATA = (
 
 REGISTRY: Dict[str, Dict] = {
     "LOCA": _record(
-        code="LOCA", name_cn="一回路热段失水事故", group=1, marker="WLR",
+        code="LOCA", name_cn="一回路热段失水事故", group=1, signal_channel="WLR",
         trigger_vars=["WLR"],
         key_responses=["P", "TAVG", "VOL", "WECS", "WHPI"],
-        severity_unit="% of 100 cm²", n_design=100, marker_type="indicator",
+        severity_unit="% of 100 cm²", n_design=100, injection_kind="indicator",
         status="ready", n_trajectories=100,
         notes="本地 100 条轨迹已核实（方案 §4.0）；窗口与 t_inject 沿用 v2.1 实测值。",
     ),
     "LOCAC": _record(
-        code="LOCAC", name_cn="一回路冷段失水事故", group=1, marker="WLR",
+        code="LOCAC", name_cn="一回路冷段失水事故", group=1, signal_channel="WLR",
         trigger_vars=["WLR"],
         key_responses=["P", "TAVG", "VOL", "WECS", "WHPI"],
-        severity_unit="% of 100 cm²", n_design=100, marker_type="indicator",
+        severity_unit="% of 100 cm²", n_design=100, injection_kind="indicator",
         status="partial", n_trajectories=5,
         notes="目录存在但仅 5 个 csv（1/25/50/75/100），不足以三分组（方案 §4.0）；"
               "只做描述性，不进 36 份验收。窗口/t_inject 为方案设计值（方案 §4.3）。",
     ),
     "SLBIC": _record(
-        code="SLBIC", name_cn="安全壳内蒸汽管道破裂", group=2, marker="WSTA",
+        code="SLBIC", name_cn="安全壳内蒸汽管道破裂", group=2, signal_channel="WSTA",
         trigger_vars=["WSTA", "WSTB"],
         key_responses=["PSGA", "PSGB", "WFWA", "WFWB", "TAVG"],
-        severity_unit="% of 100 cm²", n_design=100, marker_type="process",
+        severity_unit="% of 100 cm²", n_design=100, injection_kind="process",
         status="data_missing", n_trajectories=0,
-        notes=_NOTE_NO_DATA + "marker 为过程量（方案 §4.3 组2：无专用指示器）；"
+        notes=_NOTE_NO_DATA + "触发通道为过程量（方案 §4.3 组2：无专用指示器）；"
                              "真值表无对应项（no_truth，见 injection_truth.py），禁止用代理真值。",
     ),
     "SLBOC": _record(
-        code="SLBOC", name_cn="安全壳外蒸汽管道破裂", group=2, marker="WSTA",
+        code="SLBOC", name_cn="安全壳外蒸汽管道破裂", group=2, signal_channel="WSTA",
         trigger_vars=["WSTA", "WSTB"],
         key_responses=["PSGA", "PSGB", "WFWA", "WFWB", "TAVG"],
-        severity_unit="% of 100 cm²", n_design=100, marker_type="process",
+        severity_unit="% of 100 cm²", n_design=100, injection_kind="process",
         status="data_missing", n_trajectories=0,
-        notes=_NOTE_NO_DATA + "marker 为过程量（方案 §4.3 组2）；与 SLBIC 靠安全壳隔离响应区分；"
+        notes=_NOTE_NO_DATA + "触发通道为过程量（方案 §4.3 组2）；与 SLBIC 靠安全壳隔离响应区分；"
                              "真值表无对应项（no_truth，见 injection_truth.py），禁止用代理真值。",
     ),
     "SGATR": _record(
-        code="SGATR", name_cn="蒸汽发生器A传热管破裂", group=3, marker="WTRA",
+        code="SGATR", name_cn="蒸汽发生器A传热管破裂", group=3, signal_channel="WTRA",
         trigger_vars=["WTRA"],
         key_responses=["PSGA", "LSGA", "RM2"],
-        severity_unit="% of 1 full tube", n_design=100, marker_type="indicator",
+        severity_unit="% of 1 full tube", n_design=100, injection_kind="indicator",
         status="ready", n_trajectories=100,
         notes="本地 100 条轨迹已核实（方案 §4.0）；v2.1 内联变量集额外含 PSGB/LSGB"
               "（附录 A 原文仅 PSGA/LSGA/RM2），variable_selector 保留更全集以不改动已验收结果。",
     ),
     "SGBTR": _record(
-        code="SGBTR", name_cn="蒸汽发生器B传热管破裂", group=3, marker="WTRB",
+        code="SGBTR", name_cn="蒸汽发生器B传热管破裂", group=3, signal_channel="WTRB",
         trigger_vars=["WTRB"],
         key_responses=["PSGB", "LSGB", "RM2"],
-        severity_unit="% of 1 full tube", n_design=110, marker_type="indicator",
+        severity_unit="% of 1 full tube", n_design=110, injection_kind="indicator",
         status="data_missing", n_trajectories=0,
         notes=_NOTE_NO_DATA + "与 SGATR 变量集 A/B 侧对称（方案 §4.3 组3）。",
     ),
     "RW": _record(
-        code="RW", name_cn="提棒（控制棒抽出）", group=4, marker="RHRD",
+        code="RW", name_cn="提棒（控制棒抽出）", group=4, signal_channel="RHRD",
         trigger_vars=["RHRD"],
         key_responses=["PWNT", "TAVG", "P", "QMWT"],
-        severity_unit="% (+/-) withdrawn", n_design=100, marker_type="process",
+        severity_unit="% (+/-) withdrawn", n_design=100, injection_kind="process",
         status="data_missing", n_trajectories=0,
-        notes=_NOTE_NO_DATA + "marker 为过程量（反应性）；组4 缩短窗。",
+        notes=_NOTE_NO_DATA + "触发通道为过程量（反应性）；组4 缩短窗。",
     ),
     "RI": _record(
-        code="RI", name_cn="插棒（控制棒插入）", group=4, marker="RHRD",
+        code="RI", name_cn="插棒（控制棒插入）", group=4, signal_channel="RHRD",
         trigger_vars=["RHRD"],
         key_responses=["PWNT", "TAVG", "P", "QMWT"],
-        severity_unit="% (+/-) insertion", n_design=100, marker_type="process",
+        severity_unit="% (+/-) insertion", n_design=100, injection_kind="process",
         status="data_missing", n_trajectories=0,
-        notes=_NOTE_NO_DATA + "marker 为过程量；与 RW 变量集共享但响应符号相反（方案 §4.3 组4）。",
+        notes=_NOTE_NO_DATA + "触发通道为过程量；与 RW 变量集共享但响应符号相反（方案 §4.3 组4）。",
     ),
     "FLB": _record(
-        code="FLB", name_cn="给水管道破裂", group=5, marker="WFLB",
+        code="FLB", name_cn="给水管道破裂", group=5, signal_channel="WFLB",
         trigger_vars=["WFLB"],
         key_responses=["WFWA", "WFWB", "TAVG", "PWNT", "PSGA"],
-        severity_unit="% of 100 cm²", n_design=100, marker_type="indicator",
+        severity_unit="% of 100 cm²", n_design=100, injection_kind="indicator",
         status="ready", n_trajectories=100,
         notes="本地 100 条轨迹已核实（方案 §4.0）；v2.1 内联变量集额外含 PSGB。"
               "方案 §4.3 组5 提示 WFWA 在 sev≈10 存在断点，需变点检测标注。",
     ),
     "MD": _record(
-        code="MD", name_cn="慢化剂稀释", group=4, marker="PPM",
+        code="MD", name_cn="慢化剂稀释", group=4, signal_channel="PPM",
         trigger_vars=["PPM"],
         key_responses=["PWNT", "TAVG", "P", "QMWT"],
-        severity_unit="% of unborated injection", n_design=100, marker_type="process",
+        severity_unit="% of unborated injection", n_design=100, injection_kind="process",
         status="data_missing", n_trajectories=0,
-        notes=_NOTE_NO_DATA + "marker 为过程量（硼浓度）；组4 缩短窗。",
+        notes=_NOTE_NO_DATA + "触发通道为过程量（硼浓度）；组4 缩短窗。",
     ),
     "LR": _record(
-        code="LR", name_cn="甩负荷", group=5, marker="TBLD",
+        code="LR", name_cn="甩负荷", group=5, signal_channel="TBLD",
         trigger_vars=["TBLD"],
         key_responses=["WFWA", "WFWB", "TAVG", "PWNT", "PSGA"],
-        severity_unit="% of full load rejected", n_design=100, marker_type="process",
+        severity_unit="% of full load rejected", n_design=100, injection_kind="process",
         status="data_missing", n_trajectories=0,
-        notes=_NOTE_NO_DATA + "marker 为过程量（汽机负荷）；与 FLB 响应模式不同（方案 §4.3 组5）。",
+        notes=_NOTE_NO_DATA + "触发通道为过程量（汽机负荷）；与 FLB 响应模式不同（方案 §4.3 组5）。",
     ),
     "LLB": _record(
-        code="LLB", name_cn="下泄管线破裂", group=6, marker="WLD",
+        code="LLB", name_cn="下泄管线破裂", group=6, signal_channel="WLD",
         trigger_vars=["WLD"],
         key_responses=["VOL", "P", "LVPZ", "WECS"],
-        severity_unit="% of nominal letdown flow", n_design=100, marker_type="process",
+        severity_unit="% of nominal letdown flow", n_design=100, injection_kind="process",
         status="data_missing", n_trajectories=0,
-        notes=_NOTE_NO_DATA + "marker 为过程量（下泄流量）；与 LOCA 同属冷却剂丧失但路径不同。",
+        notes=_NOTE_NO_DATA + "触发通道为过程量（下泄流量）；与 LOCA 同属冷却剂丧失但路径不同。",
     ),
 }
 
@@ -234,9 +234,9 @@ def trigger_vars(code: str) -> List[str]:
     return list(get_accident(code)["trigger_vars"])
 
 
-def marker_of(code: str) -> str:
-    """该类的 marker 列（v2.3 约定 marker = trigger_vars[0]）。"""
-    return str(get_accident(code)["marker"])
+def signal_channel_of(code: str) -> str:
+    """该类的故障信号通道（数据事实，不构成排名特权）。"""
+    return str(get_accident(code)["signal_channel"])
 
 
 def data_path(code: str) -> Path:

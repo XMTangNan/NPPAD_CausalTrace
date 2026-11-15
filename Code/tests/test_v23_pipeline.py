@@ -301,13 +301,13 @@ def test_bootstrap_fits_on_canonical_order(monkeypatch):
 
 # ==================== S1：单产物根（v2.3 registry 优先，v2.1 只读回退）====================
 def test_stage_a_snapshots_three_frozen_inputs(tmp_path, monkeypatch):
-    """A 阶段把 split_manifest / shared_baseline / marker_scale 写进 v2.3 registry。"""
+    """A 阶段把 split_manifest / shared_baseline / signal_scale 写进 v2.3 registry。"""
     from causalrca.cli import run_variable_selector as VS
 
     subs = _patch_output(monkeypatch, tmp_path / "s1a")
     VS.snapshot_frozen_inputs("v23a-testrun")
 
-    for name in ("split_manifest", "shared_baseline", "marker_scale"):
+    for name in ("split_manifest", "shared_baseline", "signal_scale"):
         assert (subs["registry"] / f"{name}.json").exists(), name
     baseline = _read(subs["registry"], "shared_baseline.json")
     assert baseline["run_id"] == "v23a-testrun"
@@ -316,7 +316,7 @@ def test_stage_a_snapshots_three_frozen_inputs(tmp_path, monkeypatch):
     # 取值零变化：与 v2.1 冻结文件逐项一致
     v21 = E2E.D.load_json("shared_baseline.json")
     assert baseline["mu"] == v21["mu"] and baseline["sigma"] == v21["sigma"]
-    scale = _read(subs["registry"], "marker_scale.json")
+    scale = _read(subs["registry"], "signal_scale.json")
     assert scale["median_platform"] == E2E.D.load_json("marker_scale.json")["median_platform"]
 
 
@@ -328,7 +328,7 @@ def test_load_inputs_prefers_v23_registry(tmp_path, monkeypatch):
             "train_template_severities": [99]}}}}}), encoding="utf-8")
     subs["registry"].joinpath("shared_baseline.json").write_text(
         json.dumps({"mu": {"X": 1.0}, "sigma": {"X": 2.0}}), encoding="utf-8")
-    subs["registry"].joinpath("marker_scale.json").write_text(
+    subs["registry"].joinpath("signal_scale.json").write_text(
         json.dumps({"median_platform": {"LOCA": 2.0}}), encoding="utf-8")
 
     inputs = E2E.load_inputs()

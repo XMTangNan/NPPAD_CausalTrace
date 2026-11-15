@@ -51,7 +51,7 @@ _RRF_RE = re.compile(r"[Rr][Rr][Ff]\s*[:=]?\s*(\d+\.\d{2,4})")
 def _valid_variables(rec: Dict) -> set:
     """LLM 可合法引用的变量名集合（chain 记录里真实出现的）。"""
     vs: set = set()
-    vs.add(rec["template"]["marker"])
+    vs.add(rec["template"]["signal_channel"])
     vs.add(rec["pred"])
     vs.add(rec["true"])
     for a in rec.get("A", []):
@@ -139,16 +139,16 @@ _SYSTEM_PROMPT = (
 def _build_prompt_context(rec: Dict) -> str:
     """把 chain 记录序列化为 LLM prompt 上下文（对应论文 causal graph prompt injection）。"""
     tpl = rec["template"]
-    k, g, marker = tpl["k"], tpl["g"], tpl["marker"]
+    k, g, signal_channel = tpl["k"], tpl["g"], tpl["signal_channel"]
     fl = rec["first_layer"]
     lines: List[str] = []
     lines.append("【判定事故类型】")
     lines.append(f"  {ROOT_CAUSE_NAME[k]}（判定模板 {k}_{g}，条件 {rec['condition']}）")
-    lines.append(f"  故障指示器：{marker}（{_entity(marker)['meaning']}，"
-                 f"{_entity(marker)['subsystem']}）——是事故信号，不是根因。")
+    lines.append(f"  信号通道：{signal_channel}（{_entity(signal_channel)['meaning']}，"
+                 f"{_entity(signal_channel)['subsystem']}），与其它入模变量同等参与排名。")
     lines.append("")
     lines.append("【第一层证据分】")
-    e1_txt = "不适用（MASKED 条件 marker 已掩蔽）" if fl["E1"] is None else f"{fl['E1']:.3f}"
+    e1_txt = "不适用（该条件无 E1）" if fl["E1"] is None else f"{fl['E1']:.3f}"
     lines.append(f"  E1={e1_txt}；E2 原始分={fl['E2_raw']:.3f}（归一 {fl['E2_norm']:.3f}）；"
                  f"E3_path 原始分={fl['E3_path_raw']:.3f}（归一 {fl['E3_path_norm']:.3f}）"
                  + ("" if fl["E3_base_raw"] is None else
@@ -885,7 +885,7 @@ def build_payload(k: str, g: str, run_id: Optional[str] = None) -> Dict:
         "accident_type": k,
         "group": g,
         "template": f"{k}_{g}",
-        "marker": (rc.get("template") or {}).get("marker"),
+        "signal_channel": (rc.get("template") or {}).get("signal_channel"),
         "engine": rc.get("engine"),
         "n_bootstrap": rc.get("n_bootstrap"),
         "n_variables": rc.get("n_nodes"),
@@ -990,7 +990,7 @@ def _render_six_sections(payload: Dict) -> str:
     dev = payload.get("deviation") or {}
     lc = dev.get("level_counts") or {}
     L.append(f"  本组入模变量 {payload.get('n_variables')} 个，稳定边 "
-             f"{payload.get('n_stable_edges')} 条；指示器 {payload.get('marker')} 触发。")
+             f"{payload.get('n_stable_edges')} 条；信号通道 {payload.get('signal_channel')} 触发。")
     if dev.get("available"):
         L.append(f"  通道偏移档位计数：正常 {lc.get('normal')}、中等 {lc.get('moderate')}、"
                  f"较大 {lc.get('large')}、严重 {lc.get('severe')}。")
@@ -1482,7 +1482,7 @@ def build_class_payload(k: str, groups: Sequence[str] = ("low", "mid", "high"),
         templates.append({
             "template": p["template"],
             "group": p["group"],
-            "marker": p["marker"],
+            "signal_channel": p["signal_channel"],
             "n_variables": p["n_variables"],
             "n_stable_edges": p["n_stable_edges"],
             "n_bootstrap": p["n_bootstrap"],
@@ -1604,7 +1604,7 @@ def render_rule_class_summary(payload: Dict) -> str:
     L.append("")
     L.append("一、逐模板结论")
     for t in tpls:
-        L.append(f"  {t['template']}（marker {t['marker']}）：入模 {t['n_variables']} 个变量，"
+        L.append(f"  {t['template']}（信号通道 {t['signal_channel']}）：入模 {t['n_variables']} 个变量，"
                  f"稳定边 {t['n_stable_edges']} 条，Top-1={t['top1']}，"
                  f"总效应 {_f(t['top1_total_effect'])}"
                  + ("，数值门控降级" if t["stability_degraded"] else ""))

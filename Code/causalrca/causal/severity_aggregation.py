@@ -110,11 +110,11 @@ def build_summary(k: str, run_id: str,
         rank_changes[v] = {"ranks": rs, "n_groups_in_top5": len(present),
                            "max_shift": shift}
 
-    marker = docs[groups[0]]["template"]["marker"]
-    appears = any(marker in ranks[g] for g in groups)
+    signal_channel = docs[groups[0]]["template"]["signal_channel"]
+    appears = any(signal_channel in ranks[g] for g in groups)
     summary = {
         "accident_type": k,
-        "marker": marker,
+        "signal_channel": signal_channel,
         "groups": list(groups),
         "top5_by_group": top5,
         "rank_by_group": {g: ranks[g] for g in groups},
@@ -129,11 +129,11 @@ def build_summary(k: str, run_id: str,
                                             for g in groups)}) == 1,
         },
         "rank_changes": rank_changes,
-        "marker_rank": {
-            "variable": marker,
-            "ranks": {g: ranks[g].get(marker) for g in groups},
+        "signal_channel_ranks": {
+            "variable": signal_channel,
+            "ranks": {g: ranks[g].get(signal_channel) for g in groups},
             "appears_in_root_candidates": appears,
-            "note": "marker 为故障指示器，溯源流程中遮蔽，不参与根因排名",
+            "note": "故障指示器为普通候选，正常参与排名（V23-DESIGN-109）",
         },
         "edge_counts": {g: docs[g]["n_stable_edges"] for g in groups},
         "n_consensus": {g: docs[g].get("n_consensus") for g in groups},
@@ -195,7 +195,7 @@ def build_diff(k: str, run_id: str,
 
     diff = {
         "accident_type": k,
-        "marker": docs[groups[0]]["template"]["marker"],
+        "signal_channel": docs[groups[0]]["template"]["signal_channel"],
         "groups": list(groups),
         "transitions": transitions,
         "edge_counts": edge_counts,

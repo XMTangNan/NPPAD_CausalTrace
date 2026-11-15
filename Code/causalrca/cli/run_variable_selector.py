@@ -6,7 +6,7 @@
   <run 根>/registry/accident_registry.json   12 类注册表快照
   <run 根>/registry/split_manifest.json      v2.1 冻结分组快照（只读输入留痕）
   <run 根>/registry/shared_baseline.json     v2.1 冻结共享基线快照
-  <run 根>/registry/marker_scale.json        v2.1 冻结 marker 尺度快照
+  <run 根>/registry/signal_scale.json          v2.1 冻结信号尺度快照（源 marker_scale.json）
   <run 根>/variable_sets/selection_report_{K}.json
   <run 根>/variable_sets/variable_selection_summary.json
 
@@ -28,23 +28,28 @@ from causalrca.features.variable_selector import (
 )
 from causalrca.io.logging import logger
 
-# A 阶段负责落 v2.3 registry 的三份冻结输入（文件名保持不变，便于与 v2.1 对照）
-FROZEN_INPUTS = ("split_manifest", "shared_baseline", "marker_scale")
+# A 阶段负责落 v2.3 registry 的三份冻结输入。
+# V23-DESIGN-109：快照名由 marker_scale 改为 signal_scale（源文件仍是 v2.1 的冻结产物）。
+FROZEN_INPUTS = {
+    "split_manifest": "split_manifest",
+    "shared_baseline": "shared_baseline",
+    "signal_scale": "marker_scale",
+}
 
 
 def snapshot_frozen_inputs(run_id: str) -> None:
     """把 v2.1 冻结输入复制进 v2.3 registry（只读快照，值不做任何改动）。"""
-    for name in FROZEN_INPUTS:
-        src = A.legacy_input(f"{name}.json")
+    for dst_name, src_name in FROZEN_INPUTS.items():
+        src = A.legacy_input(f"{src_name}.json")
         if not src.exists():
             raise FileNotFoundError(
                 f"缺 v2.1 冻结输入: {src}（先跑 R0/A 阶段前置）")
-        payload = D.load_json(f"{name}.json")
-        if name == "split_manifest":
+        payload = D.load_json(f"{src_name}.json")
+        if src_name == "split_manifest":
             # 与旧行为一致：只留分组快照主体，不带 v2.1 的窗口/seed 元数据
             payload = {"classes": payload["classes"]}
-        A.write_artifact(name, payload, "registry", run_id=run_id,
-                         source=f"output/rca_v21/{name}.json（v2.1 冻结，只读快照）")
+        A.write_artifact(dst_name, payload, "registry", run_id=run_id,
+                         source=f"output/rca_v21/{src_name}.json（v2.1 冻结，只读快照）")
 
 
 def main(selection_profile: str = None, per_subsystem_keep: int = None) -> None:

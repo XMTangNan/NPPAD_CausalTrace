@@ -250,7 +250,7 @@ def bootstrap_lingam_template(blocks: List[np.ndarray], variables: List[str],
     unstable = [j for j, info in stats["cL"].items() if info["piL"] < STABLE_F]
 
     out = {
-        "variables": variables, "marker": marker,
+        "variables": variables, "signal_channel": marker,
         "n_train_trajectories": n_traj, "n_bootstrap": n_bootstrap,
         "median_platform": float(median_platform),
         "normalization": _NORMALIZATION_MODE,
@@ -263,7 +263,7 @@ def bootstrap_lingam_template(blocks: List[np.ndarray], variables: List[str],
             "removed_forbidden_rates": removed_set,
             "mean_removed_per_fit": float(np.mean(n_removed_log)),
         },
-        "flags": {"unstable_magnitude_marker_edges": unstable},
+        "flags": {"unstable_magnitude_signal_edges": unstable},
         "engine": "lingam",
     }
     # 冗余通道诊断（V23-CODE-035）：只记录，不参与排序/候选集/稳定边/Top-k。
@@ -333,7 +333,7 @@ def fit_single_template(blocks: List[np.ndarray], variables: List[str],
     stable = select_stable_edges(stats)
     frontier = bfs_frontier([(e["from"], e["to"]) for e in stable], marker)
     out = {
-        "variables": variables, "marker": marker,
+        "variables": variables, "signal_channel": marker,
         "n_train_trajectories": len(blocks), "n_bootstrap": 1,
         "median_platform": float(median_platform),
         "normalization": _NORMALIZATION_MODE,
@@ -455,7 +455,7 @@ def annotate_severity_flip(signatures_by_group: Dict[str, Dict]) -> Dict[str, Li
             if c and abs(c["cL"]) > 1e-10 and c["piL"] >= STABLE_F:
                 signs.append(np.sign(c["cL"]))
         if len(signs) >= 2 and len(set(signs)) > 1:
-            flips.append(f"{first['marker']}->{j}")
+            flips.append(f"{first['signal_channel']}->{j}")
     for sig in signatures_by_group.values():
-        sig["flags"]["severity_flipped_marker_edges"] = flips
-    return {"severity_flipped_marker_edges": flips}
+        sig["flags"]["severity_flipped_signal_edges"] = flips
+    return {"severity_flipped_signal_edges": flips}

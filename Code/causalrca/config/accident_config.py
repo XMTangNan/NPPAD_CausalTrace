@@ -20,12 +20,12 @@ from causalrca.config.registry import (
     get_accident,
     key_responses,
     trigger_vars,
-    marker_of,
+    signal_channel_of,
     data_path,
 )
 
 __all__ = [
     "CAUSALTRACE_ROOT", "REPO_DATA", "ACCIDENT_ORDER", "SEVERITY_BANDS", "T_INJECT",
     "REGISTRY", "ALL_CODES", "READY_CODES", "PARTIAL_CODES", "MISSING_CODES",
-    "get_accident", "key_responses", "trigger_vars", "marker_of", "data_path",
+    "get_accident", "key_responses", "trigger_vars", "signal_channel_of", "data_path",
 ]

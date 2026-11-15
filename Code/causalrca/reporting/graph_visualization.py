@@ -61,7 +61,6 @@ def _node_role(
 def _layout_nodes(
     variables: Sequence[str],
     topology: Dict[str, Dict],
-    marker: str,
 ) -> Dict[str, Dict[str, float]]:
     """按 depth 分层布局，返回每个节点的 {x, y} 坐标。"""
     # 按 depth 分组
