@@ -3089,6 +3089,12 @@ v2.1 实验解读提出的 O1–O12 是本方案的**输入待办**。下表按�
 - **产物**：`path_audit.must_pass_through.{n_checks, checks[]}`，每项含
   `verdict / direct_edge / n_paths / n_paths_through / n_paths_violating / violating_paths[:20] /
   demo_only / not_gating / source`。
+- **裁决（`V23-DESIGN-115`，2026-11-15）**：三处 `fail` **不修图、不重跑**。
+  它们只是**本轮观测值**，随图重跑自然更新；**不构成“图错了”的结论**。
+  中转变量取自 K3 `expected_chain`（相邻三元组），**未经物理复核**。
+  接线已核实：`audit_template` 内**无条件**执行，默认全链每次运行都会落盘
+  `output/runs/<run>/signatures/path_audit_<ACC>_<group>.json` 的 `must_pass_through` 键
+  （`v23-20261115T211511` 实测 9/9 模板均有该键），不在任何开关或可选参数后面。
 - **可比性**：只增字段，不影响任何既有指标。
 
 ---

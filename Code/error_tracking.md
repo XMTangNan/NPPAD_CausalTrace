@@ -2867,3 +2867,24 @@ gitignore），`pytest` 161 passed。
   与 111（设计稿）的 ⑥ 落地；与 112/113 为续作，不改其口径。
 - 不可比：无（纯增字段，所有既有指标可比）。
 - 状态：✅ closed（三批全部实施完毕）。
+
+**V23-DESIGN-115（closed）·裁决：必经中转的 3 处 `fail` 不修图，按“运行即观测”处理（2026-11-15）**
+
+> 用户裁决原话：“只要主线有这个算法就不用改，下次跑会有新的结果。”
+> 即：`must_pass_through` 的判定结果随图重跑自然更新，**不为本轮 3 处 `fail` 改图、不重跑**。
+
+- **接线核实（实测，未改代码）**：
+  - 调用点 1：`causalrca/causal/path_audit.py:389`（`audit_template` 内无条件循环 `_triad_demos(accident)`，
+    无开关、无可选参数；`:393` 组装 `must_pass_through_doc`，`:597` 写入返回文档）。
+  - 调用点 2：`causalrca/cli/run_v23_end2end.py:312`（`PA.audit_template(...)`），
+    对每个 (事故类, 组) 各调用一次；`:316` 由 `artifact.write_artifact(..., "signatures")` 落盘。
+  - 产物：`Code/output/runs/<run>/signatures/path_audit_<ACC>_<group>.json` 的 `must_pass_through` 键。
+    实测 `v23-20261115T211511`：**9/9 模板**均有该键（`n_checks` LOCA/SGATR 各 2、FLB 各 1），
+    无 `if` 开关、无 `None`、`enabled=true`。
+- **口径**：三处 `fail`（`LOCA_high` `WLR→P 经 VOL`、`SGATR_low` `LSGA→RM2 经 PSGA`、`FLB` `WFWA→WSTB 经 WSTA`）
+  是**本轮观测值**，随图重跑更新；**不构成“图错了”的结论**；中转变量取自 K3 `expected_chain`，
+  **未经物理复核**；`demo_only/not_gating=true`，仅审计侧，不接门控、不进 `rank_v2`。
+- 本轮**不改图、不重跑**，冻结件 sha 与规则数不变。
+- 交叉申报：与 089 无冲突（`citable=null`）；与 098/099/068/062/065/107/108/109/110/111/112/113 无交集；
+  与 114 为同一能力的裁决补充，不改其实现。
+- 状态：✅ closed。

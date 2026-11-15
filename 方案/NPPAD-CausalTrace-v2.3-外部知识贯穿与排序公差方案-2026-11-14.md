@@ -1689,3 +1689,8 @@ rank_v2 = sort(S_v DESC,
   其余模板多为 `vacuous`（图上没有对应对路径）。
 - 产物字段：`path_audit.must_pass_through.{n_checks, checks[]}`，每项含 `verdict / direct_edge / n_paths /
   n_paths_through / n_paths_violating / violating_paths[:20] / demo_only / not_gating / source`。
+- **裁决（`V23-DESIGN-115`）**：三处 `fail` **不修图、不重跑**——它们只是**本轮观测值**，随图重跑自然更新，
+  **不构成“图错了”的结论**；中转变量取自 K3 `expected_chain`，**未经物理复核**。
+  接线已核实：`audit_template` 内**无条件**执行，默认全链每次都落盘
+  `output/runs/<run>/signatures/path_audit_<ACC>_<group>.json` 的 `must_pass_through`
+  （`v23-20261115T211511` 实测 9/9 模板均有该键），不藏在开关或可选参数后。
