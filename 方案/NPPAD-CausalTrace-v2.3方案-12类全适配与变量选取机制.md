@@ -2941,6 +2941,57 @@ v2.1 实验解读提出的 O1–O12 是本方案的**输入待办**。下表按�
 6. **可复现性边界**：LLM 文本不保证逐字节一致（温度 0 也不保证），需按 `run_id + 输入哈希` 缓存，换 run 即失效。
 7. **本轮未做的事**：未跑 100 次、未重跑旧加权分支、未回填历史产物、未做门控阈值的外部校准、未把 `deviation_*.json` 只存 Top-10 的产物缺陷补齐（全量 `d_raw` 需从原始轨迹补算）。
 
+### 10.6 第二轮修订（2026-11-15）：σ 桶语义、门槛分档、角色重映射与审计分母（`V23-DESIGN-107/108`）
+
+> **本节取代 §10.2 的 σ 分桶、门控剔除理由分布与审计三档计数**；§10.1/§10.3 的其余口径不变。
+> 依据 run `v23-20261115T165838`（`n_bootstrap=5`、`citable=null`、10/10 ok），**不可引用为结论数字**。
+> 方案侧全文见 `NPPAD-CausalTrace-v2.3-外部知识贯穿与排序公差方案-2026-11-14.md` §9。
+
+**一、改了什么**
+
+| # | 改动 | 为什么 | 影响字段 |
+|---|---|---|---|
+| B1 | σ 桶 b3 由“样本不足（不可评估）”改为“兜底下限主导（**可评估**，`sigma_scale_kind=perceptibility_floor`）；`MAD<floor/10` 降为诊断位 `insufficient_baseline_flag`；b5 理由改 `no_scale` | 旧规则拿 `1%·|μ|` 兜底当“样本是否足够”的尺子，把最安静（测得最准）的通道判成样本不足；基线点数由 `V23-DATA-004` 固定 11 点，与通道无关 | `tolerance_*` 的 `sigma_v2`、`sigma_buckets.n_not_evaluable/n_placeholder_scale` |
+| B2 | 门槛按 σ 尺度来源分档：`measured_mad → Φ⁻¹(1−α/(2·n_t))`（α=0.05），`physical_floor/fallback_floor → 1.0` | `d_raw` 是 `n_t` 点的 max\|z\|，零假设下 ≈3.6–3.8；`g=1` 在实测噪声尺上会让噪声自己过门。下限尺的 `g=1` 是工程约定，含义不同 | 候选条目新增 `g_threshold`、`g_rule_id`、`n_post_inject_points` |
+| B3 | marker / 安全动作量走**结构性剔除**（`excluded_structural`：`marker_variable` 9 例、`safety_action_variable` 15 例） | 这 24 例原先被写成 `not_calibrated`，实为口径自相矛盾（公差标定排除、却仍留在候选） | `candidate_pool.n_excluded_by_class` |
+| B4 | 角色 6→4 重映射：`fault_indicator / actuator / process / measurement`；只留“仪表必须终端”一条公理；其余 `not_applicable` | 旧映射把角色当严格流水线，3703 次逐跳角色违规中 94% 是过程量互耦与过程量→控制动作（物理正常） | `path_audit.role_map/role_axioms` |
+| B5 | 极性只认**带出处**边级 sign；`sourced=false` 改判 `unsupported`；变量方向只做矛盾检测；删除“边 sign vs 条目方向”比较 | 无出处的断言当证据、以及两个不同量互比，都会制造假违规 | `polarity_policy`、逐跳 `polarity_check` |
+| B6 | 审计分母拆 `counts_all_scored / counts_top / counts_violating_extra`；逐路径 `evidence_coverage`、`violation_kind(hard\|soft)` | 旧口径把“全部违规路径”并进分母，2471 条违规全部来自追加样本，属抽样假象 | `path_audit_*.json` 三个计数块 |
+
+**二、本次运行事实（【项目实测】）**
+
+- `run_id = v23-20261115T165838`；`n_bootstrap=5`；`citable=null`；10/10 步 ok；耗时 8.8/3.9/0.5/16.2/0.02/0.01/0.05/470.0/1.7/0.06 s。
+- 冻结：`gate_policy_v2` sha256 `6ff290be…0a8f5`；`constraints_v1` sha256 `90965075…a1846c`（LOCA 45 / SGATR 52 / FLB 62）。
+- σ 分桶：LOCA `b1=6/b2=41/b3=33/b4=5/b5=8`，SGATR 与 FLB `b1=5/b2=41/b3=34/b4=5/b5=8`；**不可评估 46–47 → 13**。
+- 门控：池内保留 **87**、剔除 **48** = 数值 fail 18 + 结构性 24 + 不可评估 6（饱和 3、退化零通道 3）。**不可评估占剔除比 75% → 12.5%**。
+- 审计（全枚举 3013 条，`truncated=false`）：**compliant 5 / unsupported 2060 / violating 948**（hard 0、soft 948）；top-20 样本 **0 / 140 / 40**。
+  **5 条 compliant 全部是带出处知识边**：`WFLB→WSTB`、`WLR→P`、`WLR→VOL`、`P→TAVG`×2。
+- 解释层：模板级 9 份 `backend=llm`、类级 3 + 全局 1 为 `rule`（`auto` 只在模板级解析 LLM）；13/13 `faithful=true`、`degraded=false`。
+
+**三、与上一轮 `v23-20261115T000542` 的差异（图未变，差异全在门与审计口径）**
+
+| 模板 | 旧池 Top-1 | 新池 Top-1 | 旧池/剔除 | 新池/剔除 |
+|---|---|---|---|---|
+| LOCA_low | P | P | 6/9 | 8/7 |
+| LOCA_mid | LVPZ | LVPZ | 6/9 | 8/7 |
+| LOCA_high | LVPZ | **VOL** | 10/5 | 12/3 |
+| SGATR_low | NSGA | NSGA | 7/8 | 7/8 |
+| SGATR_mid | NSGA | NSGA | 9/6 | 10/5 |
+| SGATR_high | P | **LSGA** | 8/7 | 9/6 |
+| FLB_low | PWNT | PWNT | 9/6 | 11/4 |
+| FLB_mid | PWNT | PWNT | 10/5 | 11/4 |
+| FLB_high | WSTB | WSTB | 10/5 | 11/4 |
+
+- 两个换 Top-1 的模板，`VOL`/`LSGA` 的 `E_v`（3.4167 / 1.9696）与稳定边数（51/51、55/55）在两轮完全相同，只是上一轮被 b3 误剔（`rank_if_kept=1`）；**不是图变了，也不是排名算法变了**。
+- Top-5 集合变化：`LOCA_high` 加入 `VOL`、`SGATR_mid` 加入 `LSGA`、`FLB_*` 加入 `QMGB`/`TAVG`，共 6/9 个模板的 Top-5 集合发生变化。
+
+**四、未解决与限制（实跑确认）**
+
+1. `hard=0` 是真实结果，不是规则放宽：图中没有“仪表→物理量”边，也没有知识自带 sign 与方向矛盾的边；同时**禁边检查在审计层永远为 0**（`B` 建图前已清零），禁边验收应落在建图层。
+2. `soft` 违规（948 条，31.5%）只是“该跳符号与两端知识方向之积矛盾”的筛查信号，**不能**读作“模型学错了”。
+3. `b1`（真按实测噪声标定）仍 5–6 个；`b5` 8 个零量纲通道仍无尺子。这是数据事实，不是本轮可修的缺陷。
+4. `compliant` 仅 5 条，瓶颈是知识库只有 22 条带出处边，不是审计规则。
+
 ---
 
 ## 附录 A：12类事故触发变量与关键响应变量速查表

@@ -111,6 +111,9 @@ def compute_deviation(accident_type: str, severity: int,
 
     df = D.load_trajectory(accident_type, severity)
     thresholds = tolerance["thresholds"]
+    # V23-DESIGN-107：门的 g 按“注入后点数”给零假设最大统计量定分位，故逐模板记录 n_t
+    _t_inject = float(tolerance.get("t_inject", 110.0))
+    n_post_inject_points = int((df["TIME"] > _t_inject).sum()) if "TIME" in df.columns else 0
 
     raw: Dict[str, Dict] = {}
     for var, th in thresholds.items():
@@ -242,6 +245,7 @@ def compute_deviation(accident_type: str, severity: int,
         "accident_type": accident_type,
         "severity": severity,
         "n_variables": len(sorted_dev),
+        "n_post_inject_points": n_post_inject_points,
         "n_not_comparable": n_not_comparable,
         "n_not_evaluable": n_not_evaluable,
         "not_comparable": [v for v, d in sorted_dev.items() if d["d_raw"] is None],

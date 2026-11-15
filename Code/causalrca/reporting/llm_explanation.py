@@ -703,13 +703,18 @@ def _load_path_audit(k: str, g: str) -> Dict:
     doc, _path = _read_optional("signatures", f"path_audit_{k}_{g}")
     if doc is None:
         return {"available": False, "reason": "path_audit 未产出"}
-    keep = ("counts", "truncated", "max_paths", "max_hops", "n_paths_enumerated",
-            "path_length_hist", "enumeration_method")
+    keep = ("counts", "counts_top", "counts_all_scored", "counts_all_scored_kind",
+            "counts_top_kind", "audit_sample", "role_map", "role_axioms",
+            "polarity_policy", "truncated", "max_paths", "max_hops",
+            "n_paths_enumerated", "path_length_hist", "enumeration_method")
     return {"available": True, **{x: doc.get(x) for x in keep},
             "paths": [{"path_id": p.get("path_id"), "nodes": p.get("nodes"),
                        "length": p.get("length"),
                        "contribution": p.get("contribution"),
                        "result": p.get("result"),
+                       "violation_kind": p.get("violation_kind"),
+                       "evidence_coverage": p.get("evidence_coverage"),
+                       "direction_conflict_hops": p.get("direction_conflict_hops"),
                        "missing_reason": p.get("missing_reason")}
                       for p in (doc.get("paths") or [])]}
 
@@ -976,7 +981,8 @@ def _render_six_sections(payload: Dict) -> str:
     ranking = payload.get("ranking") or {}
     kn = payload.get("knowledge") or {}
     pa = payload.get("path_audit") or {}
-    counts = pa.get("counts") or {}
+    # V23-DESIGN-108：三档比例以“贡献最大 top_n 样本”为准，另附全枚举分布
+    counts = pa.get("counts_top") or pa.get("counts") or {}
     L: List[str] = [f"【{k} / {g} 组 · 根因解释（六段）】", ""]
 
     # 一、现象
@@ -995,8 +1001,14 @@ def _render_six_sections(payload: Dict) -> str:
     # 二、最可能原因
     L.append("二、最可能原因")
     top1 = roots[0] if roots else None
+    _g = ranking.get("g")
+    if isinstance(_g, dict):
+        _g_txt = (f"下限档 {_g.get('floor_scale')}×；实测噪声档 "
+                  f"Φ⁻¹(1−α/2n_t), α={(_g.get('measured_mad') or {}).get('alpha')}")
+    else:
+        _g_txt = str(_g)
     L.append(f"  门控策略 {ranking.get('gate_policy_version')}（{ranking.get('gate_rule_id')}，"
-             f"门槛 g={ranking.get('g')}）；候选池 {ranking.get('pool_size')} 个，"
+             f"门槛 {_g_txt}）；候选池 {ranking.get('pool_size')} 个，"
              f"剔除 {ranking.get('n_excluded')} 个。")
     if top1:
         L.append(f"  第 1 名是 {top1['variable']}（{top1.get('subsystem')}）：总效应 "
@@ -1046,10 +1058,17 @@ def _render_six_sections(payload: Dict) -> str:
 
     # 五、不确定性与反证
     L.append("五、不确定性与反证")
-    L.append(f"  路径审计：compliant {counts.get('compliant')} 条、unsupported "
-             f"{counts.get('unsupported')} 条、violating {counts.get('violating')} 条；"
-             f"截断={pa.get('truncated')}（上限 max_hops={pa.get('max_hops')}，"
-             f"max_paths={pa.get('max_paths')}）。")
+    L.append(f"  路径审计（贡献最大 top_n 样本）：compliant {counts.get('compliant')} 条、"
+             f"unsupported {counts.get('unsupported')} 条、violating "
+             f"{counts.get('violating')} 条；截断={pa.get('truncated')}（上限 "
+             f"max_hops={pa.get('max_hops')}，max_paths={pa.get('max_paths')}）。")
+    _allc = pa.get("counts_all_scored") or {}
+    if _allc:
+        L.append(f"  全枚举分布：compliant {_allc.get('compliant')}、unsupported "
+                 f"{_allc.get('unsupported')}、violating {_allc.get('violating')}"
+                 f"（violating 分 hard={((pa.get('counts_all_scored_kind') or {}).get('hard'))}、"
+                 f"soft={((pa.get('counts_all_scored_kind') or {}).get('soft'))}；"
+                 f"soft=学到的边符号与两端知识方向之积矛盾，属筛查信号，不是因果定论）。")
     L.append(f"  Top-5 中知识缺失 {payload.get('n_knowledge_missing')} 个；"
              f"知识状态 {kn.get('knowledge_status')}；"
              f"专家确认 {((kn.get('expert_signoff_status') or {}).get('n_expert_confirmed'))} 条。")
@@ -1311,7 +1330,10 @@ def build_claims(payload: Dict) -> List[Dict]:
     claims: List[Dict] = []
     roots = _ordered_roots(payload)
     ranking = payload.get("ranking") or {}
-    counts = (payload.get("path_audit") or {}).get("counts") or {}
+    _pa = payload.get("path_audit") or {}
+    # V23-DESIGN-108：三档比例用“贡献最大 top_n 样本”，不用混入追加违规后的合计
+    counts = _pa.get("counts_top") or _pa.get("counts") or {}
+    counts_ref = "path_audit.counts_top" if _pa.get("counts_top") else "path_audit.counts"
     for c in roots[:5]:
         claims.append({
             "claim_id": f"C_rank_{c['variable']}",
@@ -1338,8 +1360,8 @@ def build_claims(payload: Dict) -> List[Dict]:
         claims.append({
             "claim_id": f"C_path_{key}",
             "section": 5,
-            "text": f"路径审计 {key} 计数 {counts.get(key)}",
-            "evidence_ref": f"path_audit.counts.{key}",
+            "text": f"路径审计 {key} 计数 {counts.get(key)}（top_n 样本）",
+            "evidence_ref": f"{counts_ref}.{key}",
             "status": "supported",
         })
     for c in roots:

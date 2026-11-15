@@ -1,0 +1,68 @@
+schema: causaltrace/gate_policy/v2
+version: gate_policy_v2
+frozen_at: "2026-11-15"
+frozen_by: "agent (V23-DESIGN-107)"
+source: >-
+  方案 §4.3.12/§4.3.14 本轮修订（问题 1–4）：σ 只分“尺度来源”，
+  g 按尺度来源分档；不可评估只在“无尺子”时成立。
+gate_rule_id: gate_v2_source_aware
+# 门槛按 σ 的尺度来源分档：两把尺子各有各的零假设，不混用一个 g。
+g:
+  # 感知下限口径：d_raw = |Δ|/(1%·|μ|)，超过 1 倍下限即“超出可感知范围”。
+  # 这是旧口径 g=1 的原义（工程约定），本轮未按结果调整。
+  floor_scale: 1.0
+  # 实测噪声口径：d_raw 是“注入后 n_t 点的 max|z|”，零假设下其分位数远大于 1。
+  # g = Φ⁻¹(1 − alpha/(2·n_t))，alpha 预注册，n_t 由数据长度决定（不读结果）。
+  measured_mad:
+    rule: null_max_gaussian
+    alpha: 0.05
+    formula: "Phi^-1(1 - alpha/(2*n_t))"
+# not_evaluable 的处置：保守 = 不进池；但保留 rank_if_kept，单列可审计（方案 §4.3.2(4)）
+not_evaluable_policy: exclude
+# 结构性剔除（与统计门无关、与结果无关的预注册规则）
+structural_exclusions:
+  enabled: true
+  marker_variable:
+    reason: marker_variable
+    source: "constants_v21.MARKERS：事故标识器，属标签泄漏，不作根因"
+  safety_action_variable:
+    reason: safety_action_variable
+    source: "constants_v21.SAFETY_STEP_VARS：安全动作/安注流量，属动作量"
+# V 定义：模板全部入模变量（不是 96 变量本体）
+V_definition: template_in_model_variables
+# 池内排序：只有效应分 E_v，其次键逐位沿用旧 rank
+ranking:
+  primary: total_effect_desc
+  tie_breakers:
+    - in_degree_asc
+    - weighted_reach_desc
+    - reach_size_desc
+    - consensus_rate_desc
+    - variable_asc
+  conductive_first: true
+sigma:
+  # σ 只是门的尺子，不进入任何排序分数（方案 §4.3.12）
+  mad_multiplier: 1.4826
+  insufficient_ratio: 10.0
+  bucket_priority: [b4, b5, b3, b2, b1]
+  not_evaluable_reasons: [saturated, no_scale]
+  # V23-DESIGN-107：b3 可评估，但尺子标 perceptibility_floor
+  placeholder_scale_buckets: [b3]
+tolerance_source: data_proxy
+path_audit:
+  # 计算上限，不是物理跳数约束（方案 §4.2.7）
+  max_paths: 1000
+  max_hops: 8
+  top_n: 20
+  include_all_violating: true
+  role_axioms:
+    measurement_terminal: true
+  polarity:
+    edge_sign_requires_sourced: true
+    direction_consistency: true
+llm:
+  # 显式 pin：不依赖运行时环境变量改模型
+  model: deepseek-flash
+  temperature: 0.0
+  timeout_s: 60
+  max_retries: 1

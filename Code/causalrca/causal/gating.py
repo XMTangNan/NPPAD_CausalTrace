@@ -1,9 +1,11 @@
-"""候选池公差门（方案 §4.3.2/§4.3.8/§4.3.12）：先筛后排，无 λ、无权重。
+"""候选池公差门（方案 §4.3.2/§4.3.8/§4.3.12/§4.3.14）：先筛后排，无 λ、无权重。
 
 纪律（预注册，跑前冻结）：
   * 排序分只有 `E_v = Σ_s |T[s,v]|`（由上游 `total_effect` 传入），本模块不改分数；
   * 知识只有两个落点：禁边/禁路径改 `B`（见 knowledge/signatures），公差门改候选池（本模块）；
-  * 门槛 `g`、`not_evaluable` 处置、σ 桶参数全部来自 `gate_policy_v1.yaml`，
+  * 门槛按 σ 尺度来源分档（V23-DESIGN-107）：实测噪声档用零假设最大统计量分位，
+    下限档沿用“超过 1 倍下限”的旧工程约定；
+  * 门槛参数、σ 桶参数、结构性剔除规则全部来自 `gate_policy_v2.yaml`，
     文件缺失或 sha256 不符即抛错（不出排序）；
   * 被剔除者不物理删除：`in_pool=false` + `gate_status` + `rank_if_kept`。
 """
@@ -16,15 +18,22 @@ from typing import Dict, List, Optional, Sequence
 
 from causalrca.io.logging import logger
 
-POLICY_PATH = Path(__file__).resolve().parents[1] / "config" / "gate_policy_v1.yaml"
-POLICY_SHA256 = "b4ad550b8183ce0f159531c5c7d58939f3a75ac6ac81f13238744b744a9331d3"
+POLICY_PATH = Path(__file__).resolve().parents[1] / "config" / "gate_policy_v2.yaml"
+POLICY_SHA256 = "6ff290be1d5d5bbdd34891363b802dec379c24e9e9b7e1f41d86a58d6140a8f5"
+POLICY_VERSION = "gate_policy_v2"
 
 GATE_PASS = "pass"
 GATE_FAIL = "fail"
 GATE_NOT_EVALUABLE = "not_evaluable"
+GATE_STRUCTURAL = "excluded_structural"
+
+EXCL_NUMERIC = "numeric_fail"
+EXCL_NOT_EVALUABLE = "not_evaluable"
+EXCL_STRUCTURAL = "structural"
 
 SIGMA_SOURCE_MEASURED = "measured_mad"
 SIGMA_SOURCE_PHYSICAL = "physical_floor"
+SIGMA_SOURCE_FALLBACK = "fallback_floor"
 
 
 def _sha256(path: Path) -> str:
@@ -49,11 +58,33 @@ def load_policy(path: Optional[Path] = None, verify: bool = True) -> Dict:
             f"[gate] 门策略 sha256 不符：actual={actual} expected={POLICY_SHA256}"
             "（策略已冻结，跑前不得改）")
     doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    if doc.get("version") != "gate_policy_v1":
+    if doc.get("version") != POLICY_VERSION:
         raise RuntimeError(f"[gate] 门策略版本不符：{doc.get('version')!r}")
-    if doc.get("schema") != "causaltrace/gate_policy/v1":
+    if doc.get("schema") != "causaltrace/gate_policy/v2":
         raise RuntimeError(f"[gate] 门策略 schema 不符：{doc.get('schema')!r}")
     return doc
+
+
+def gate_threshold(sigma_source: Optional[str], n_t: Optional[int], policy: Dict) -> Dict:
+    """按 σ 的尺度来源取门槛（V23-DESIGN-107）：两把尺子各有各的零假设。
+
+    * measured_mad：d_raw 是注入后 n_t 点的 max|z|，零假设下分位为
+      Φ⁻¹(1 − alpha/(2·n_t))；alpha 预注册，n_t 只来自数据长度。
+    * floor_scale（physical/fallback）：沿用旧工程约定“超过 1 倍下限即超差”。
+    """
+    gcfg = policy.get("g") or {}
+    if sigma_source == SIGMA_SOURCE_MEASURED:
+        spec = gcfg.get("measured_mad") or {}
+        alpha = float(spec.get("alpha", 0.05))
+        n = int(n_t or 0)
+        if n <= 0:
+            raise RuntimeError("[gate] measured_mad 门槛需要 n_t>0（注入后点数）")
+        from statistics import NormalDist
+        value = float(NormalDist().inv_cdf(1.0 - alpha / (2.0 * n)))
+        return {"value": value, "rule_id": "g_stat_null_max",
+                "alpha": alpha, "n_t": n}
+    return {"value": float(gcfg.get("floor_scale", 1.0)),
+            "rule_id": "g_floor_scale", "alpha": None, "n_t": None}
 
 
 # ==================== σ 五桶（读取 tolerance 的 sigma_v2）====================
@@ -80,33 +111,49 @@ def _sigma_block(th: Optional[Dict], policy: Dict) -> Dict:
 # ==================== 门判定 ====================
 def build_gate(accident_type: str, group: str, variables: Sequence[str],
                total_effect: Dict[str, float], tolerance: Dict,
-               deviation: Dict, policy: Dict) -> Dict:
-    """逐变量判 gate_status，返回 gate 块（只读上游，不改分数）。"""
-    g = float(policy.get("g"))
+               deviation: Dict, policy: Dict,
+               n_post_inject_points: Optional[int] = None,
+               marker: Optional[str] = None,
+               safety_vars: Optional[Sequence[str]] = None) -> Dict:
+    """逐变量判 gate_status，返回 gate 块（只读上游，不改分数）。
+
+    V23-DESIGN-107：门槛按 σ 尺度来源分档；marker / safety 动作变量走预注册结构性剔除
+    （与统计门分开记，避免把“标签泄漏”写成“不可评估”）。
+    """
     thresholds = (tolerance or {}).get("thresholds") or {}
     devs = (deviation or {}).get("deviations") or {}
     tol_source = (tolerance or {}).get("tolerance_source",
                                        policy.get("tolerance_source", "data_proxy"))
+    struct = (policy.get("structural_exclusions") or {})
+    struct_on = bool(struct.get("enabled", True))
+    safety = set(safety_vars or [])
     per: Dict[str, Dict] = {}
     for v in variables:
         th = thresholds.get(v)
         sv = _sigma_block(th, policy)
         d = devs.get(v) or {}
         d_raw = d.get("d_raw")
-        evaluable = (sv.get("evaluability") == "ok") and (d_raw is not None)
-        reason = None
         bucket = sv.get("bucket")
-        if not evaluable:
-            reason = sv.get("not_evaluable_reason") or d.get("d_status_reason")
-            if d.get("d_status") == "not_evaluable":
-                reason = d.get("d_status_reason") or reason
-            if reason is None:
-                reason = "not_calibrated"
-            status = GATE_NOT_EVALUABLE
-        elif float(d_raw) > g:
-            status = GATE_PASS
+        g_info = gate_threshold(sv.get("sigma_source"), n_post_inject_points, policy)
+
+        # 结构性剔除优先于统计门（预注册，与结果无关）
+        if struct_on and marker is not None and v == marker:
+            status, reason = GATE_STRUCTURAL, "marker_variable"
+        elif struct_on and v in safety:
+            status, reason = GATE_STRUCTURAL, "safety_action_variable"
         else:
-            status = GATE_FAIL
+            evaluable = (sv.get("evaluability") == "ok") and (d_raw is not None)
+            if not evaluable:
+                reason = sv.get("not_evaluable_reason") or d.get("d_status_reason")
+                if d.get("d_status") in ("not_evaluable", "not_comparable"):
+                    reason = d.get("d_status_reason") or reason
+                if reason is None:
+                    reason = "no_scale"
+                status = GATE_NOT_EVALUABLE
+            elif float(d_raw) > g_info["value"]:
+                status, reason = GATE_PASS, None
+            else:
+                status, reason = GATE_FAIL, None
         per[v] = {
             "variable": v,
             "gate_status": status,
@@ -116,7 +163,11 @@ def build_gate(accident_type: str, group: str, variables: Sequence[str],
             "sigma_source": sv.get("sigma_source"),
             "sigma_value": sv.get("sigma_value"),
             "sigma_rule_id": sv.get("sigma_rule_id"),
+            "sigma_scale_kind": sv.get("sigma_scale_kind"),
+            "insufficient_baseline_flag": sv.get("insufficient_baseline_flag"),
             "sigma_bucket": bucket,
+            "g_threshold": g_info["value"],
+            "g_rule_id": g_info["rule_id"],
             "tolerance_source": tol_source,
             "tolerance_entry_id": (f"tolerance_{accident_type}:{v}" if th else None),
             "total_effect": float(total_effect.get(v) or 0.0),
@@ -126,7 +177,8 @@ def build_gate(accident_type: str, group: str, variables: Sequence[str],
         "group": group,
         "gate_policy_version": policy.get("version"),
         "gate_rule_id": policy.get("gate_rule_id"),
-        "g": g,
+        "g": (policy.get("g") or {}),
+        "n_post_inject_points": n_post_inject_points,
         "not_evaluable_policy": policy.get("not_evaluable_policy"),
         "tolerance_source": tol_source,
         "n_total": len(per),
@@ -158,7 +210,10 @@ def apply_gate(candidates: Sequence[Dict], nodes: Dict[str, Dict],
         c["sigma_source"] = info.get("sigma_source")
         c["sigma_value"] = info.get("sigma_value")
         c["sigma_rule_id"] = info.get("sigma_rule_id")
+        c["sigma_scale_kind"] = info.get("sigma_scale_kind")
         c["sigma_bucket"] = info.get("sigma_bucket")
+        c["g_threshold"] = info.get("g_threshold")
+        c["g_rule_id"] = info.get("g_rule_id")
         c["tolerance_source"] = info.get("tolerance_source")
         c["gate_rule_id"] = gate.get("gate_rule_id")
 
@@ -190,20 +245,33 @@ def apply_gate(candidates: Sequence[Dict], nodes: Dict[str, Dict],
         if not c["in_pool"]:
             c["rank_v2"] = None
 
+    def _excl_class(status: str) -> str:
+        if status == GATE_STRUCTURAL:
+            return EXCL_STRUCTURAL
+        if status == GATE_NOT_EVALUABLE:
+            return EXCL_NOT_EVALUABLE
+        return EXCL_NUMERIC
+
     excluded = [{"variable": c["variable"], "gate_status": c["gate_status"],
                  "gate_reason": c["gate_reason"], "deviation_raw": c["deviation_raw"],
+                 "exclusion_class": _excl_class(c["gate_status"]),
                  "sigma_source": c["sigma_source"], "sigma_rule_id": c["sigma_rule_id"],
+                 "sigma_bucket": c["sigma_bucket"], "g_threshold": c.get("g_threshold"),
                  "tolerance_entry_id": per.get(c["variable"], {}).get("tolerance_entry_id"),
                  "rank_if_kept": c["rank_if_kept"]}
                 for c in ranked_all if not c["in_pool"]]
+    n_by_class = {k: sum(1 for e in excluded if e["exclusion_class"] == k)
+                  for k in (EXCL_NUMERIC, EXCL_NOT_EVALUABLE, EXCL_STRUCTURAL)}
     return {
         "candidate_pool": {
             "n_total": len(ranked_all),
             "n_kept": len(pool_order),
             "n_excluded": len(excluded),
+            "n_excluded_by_class": n_by_class,
             "policy_version": gate.get("gate_policy_version"),
             "gate_rule_id": gate.get("gate_rule_id"),
             "g": gate.get("g"),
+            "n_post_inject_points": gate.get("n_post_inject_points"),
             "tolerance_source": gate.get("tolerance_source"),
             "excluded": excluded,
         },
@@ -236,9 +304,9 @@ def gate_compare(before_top: Sequence[str], after_pool_order: Sequence[Dict],
 
 def save_policy_manifest(run_id: Optional[str] = None) -> Dict:
     """返回可写进 manifest 的策略指纹。"""
-    return {"gate_policy_version": "gate_policy_v1",
+    return {"gate_policy_version": POLICY_VERSION,
             "gate_policy_sha256": policy_sha256(),
-            "gate_policy_path": "Code/causalrca/config/gate_policy_v1.yaml"}
+            "gate_policy_path": "Code/causalrca/config/gate_policy_v2.yaml"}
 
 
 def dump_json(doc: Dict, path: Path) -> Path:

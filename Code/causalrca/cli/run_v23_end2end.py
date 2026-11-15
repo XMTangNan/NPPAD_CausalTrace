@@ -289,7 +289,10 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
     sev = DEV.max_severity_in_group(k, g)
     dev_full = DEV.compute_deviation(k, sev, tol)
     total_effect = {c["variable"]: c["total_effect"] for c in r["all_candidates"]}
-    gate = GATE.build_gate(k, g, r["variables"], total_effect, tol, dev_full, policy)
+    gate = GATE.build_gate(
+        k, g, r["variables"], total_effect, tol, dev_full, policy,
+        n_post_inject_points=dev_full.get("n_post_inject_points"),
+        marker=r.get("marker"), safety_vars=SAFETY_STEP_VARS)
     gate_res = GATE.apply_gate(r["all_candidates"], r["topology"], gate, policy)
     by_var = {c["variable"]: c for c in gate_res["ranked_all"]}
     for c in roots:
@@ -368,7 +371,8 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
         },
         "method_note": ("排序键=总因果效应 T=(I-B)^-1 对症状端(marker+terminal)的"
                         "|效应| 之和；次级 in_degree ASC/weighted_reach DESC。"
-                        "候选池由冻结门策略收缩（gate_policy_v1，无 λ、无权重）。"
+                        "候选池由冻结门策略收缩（gate_policy_v2，门槛按 σ 尺度来源分档，"
+                        "无 λ、无权重；V23-DESIGN-107）。"
                         + (" " + CONSENSUS_NOTE if not cons["available"] else "")),
     })
     artifact.write_artifact(f"root_candidates_{k}_{g}", root_payload, "tracing",

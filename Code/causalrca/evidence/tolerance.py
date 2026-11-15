@@ -50,32 +50,58 @@ SIGMA_INSUFFICIENT_RATIO = 10.0   # fallback 且 MAD < floor/10 → 样本不足
 
 def classify_sigma_bucket(sigma_mad: float, sigma_floor: float,
                           floor_source: str, saturated: bool) -> Dict:
-    """按 §4.3.12 判 σ 桶；该判不可评估就判，不编下限。"""
+    """按 §4.3.12（V23-DESIGN-107 修订）判 σ 桶；该判不可评估就判，不编下限。
+
+    V23-DESIGN-107 修订（2026-11-15）：b3 由“不可评估”改为“可评估但尺子是可感知下限”。
+    理由：原规则 `MAD < floor/10` 拿**兜底下限**（1%·|μ|）当“样本量是否足够”的尺子，
+    但基线点数由 V23-DATA-004 固定为 11 点、与通道无关；真正触发的是“本底噪声远小于
+    1%·|μ|”的低噪声通道（温度/装量/水位），恰恰是测得最准的一类。把它们判成
+    “样本不足”是把尺子问题写成了样本问题。现改为四个来源：
+      b1 measured_mad   —— 实测噪声主导（MAD > 下限），可评估；
+      b2 physical_floor —— 登记物理下限主导（floor 来源 physical），可评估；
+      b3 fallback_floor —— 兜底下限主导（floor=1%·|μ|），**可评估**，尺子标 `perceptibility_floor`；
+      b4 saturated      —— 饱和通道，不可评估；
+      b5 no_scale       —— 无下限且 MAD=0，不可评估。
+    `MAD < floor/10` 只作为诊断标记 `insufficient_baseline_flag`，不再触发剔除。
+    """
     if saturated:
         return {"bucket": "b4", "sigma_source": None, "sigma_value": None,
                 "sigma_rule_id": "sigma_b4_saturated",
                 "evaluability": "not_evaluable",
-                "not_evaluable_reason": "saturated"}
-    if (floor_source != "physical"
-            and float(sigma_mad) < float(sigma_floor) / SIGMA_INSUFFICIENT_RATIO):
-        return {"bucket": "b3", "sigma_source": None, "sigma_value": None,
-                "sigma_rule_id": "sigma_b3_insufficient_baseline",
+                "not_evaluable_reason": "saturated",
+                "insufficient_baseline_flag": None,
+                "sigma_scale_kind": None}
+    floor_gt_zero = float(sigma_floor) > 0.0
+    mad_gt_zero = float(sigma_mad) > 0.0
+    flag = (floor_gt_zero and not (floor_source == "physical")
+            and float(sigma_mad) < float(sigma_floor) / SIGMA_INSUFFICIENT_RATIO)
+    if not floor_gt_zero and not mad_gt_zero:
+        return {"bucket": "b5", "sigma_source": None, "sigma_value": None,
+                "sigma_rule_id": "sigma_b5_no_scale",
                 "evaluability": "not_evaluable",
-                "not_evaluable_reason": "insufficient_baseline"}
-    if float(sigma_floor) >= float(sigma_mad):
-        if float(sigma_floor) <= 0.0:
-            return {"bucket": "b5", "sigma_source": None, "sigma_value": None,
-                    "sigma_rule_id": "sigma_b5_not_calibrated",
-                    "evaluability": "not_evaluable",
-                    "not_evaluable_reason": "not_calibrated"}
+                "not_evaluable_reason": "no_scale",
+                "insufficient_baseline_flag": flag,
+                "sigma_scale_kind": None}
+    if float(sigma_mad) > float(sigma_floor):
+        return {"bucket": "b1", "sigma_source": "measured_mad",
+                "sigma_value": float(sigma_mad),
+                "sigma_rule_id": "sigma_b1_measured_mad",
+                "evaluability": "ok", "not_evaluable_reason": None,
+                "insufficient_baseline_flag": False,
+                "sigma_scale_kind": "measured_noise"}
+    if floor_source == "physical":
         return {"bucket": "b2", "sigma_source": "physical_floor",
                 "sigma_value": float(sigma_floor),
                 "sigma_rule_id": "sigma_b2_physical_floor",
-                "evaluability": "ok", "not_evaluable_reason": None}
-    return {"bucket": "b1", "sigma_source": "measured_mad",
-            "sigma_value": float(sigma_mad),
-            "sigma_rule_id": "sigma_b1_measured_mad",
-            "evaluability": "ok", "not_evaluable_reason": None}
+                "evaluability": "ok", "not_evaluable_reason": None,
+                "insufficient_baseline_flag": False,
+                "sigma_scale_kind": "physical_floor"}
+    return {"bucket": "b3", "sigma_source": "fallback_floor",
+            "sigma_value": float(sigma_floor),
+            "sigma_rule_id": "sigma_b3_fallback_floor",
+            "evaluability": "ok", "not_evaluable_reason": None,
+            "insufficient_baseline_flag": bool(flag),
+            "sigma_scale_kind": "perceptibility_floor"}
 
 # V23-DATA-004：注入前固定基线（TIME_STEP=10s → 0,10,…,100 共 11 点）
 PRE_INJECT_BASELINE_START = 0.0
@@ -256,6 +282,10 @@ def compute_tolerance(accident_type: str) -> Dict:
         bucket_counts[b] = bucket_counts.get(b, 0) + 1
     n_not_evaluable = sum(1 for th in thresholds.values()
                           if th["sigma_v2"]["evaluability"] == "not_evaluable")
+    n_insufficient_flag = sum(1 for th in thresholds.values()
+                              if th["sigma_v2"].get("insufficient_baseline_flag"))
+    n_placeholder = sum(1 for th in thresholds.values()
+                        if th["sigma_v2"].get("sigma_scale_kind") == "perceptibility_floor")
 
     return {
         "accident_type": accident_type,
@@ -265,10 +295,15 @@ def compute_tolerance(accident_type: str) -> Dict:
             "counts": dict(sorted(bucket_counts.items())),
             "n_variables": len(thresholds),
             "n_not_evaluable": n_not_evaluable,
+            "n_placeholder_scale": n_placeholder,
+            "n_insufficient_baseline_flag": n_insufficient_flag,
             "mad_multiplier": SIGMA_MAD_MULTIPLIER,
             "insufficient_ratio": SIGMA_INSUFFICIENT_RATIO,
             "bucket_priority": ["b4", "b5", "b3", "b2", "b1"],
-            "note": "σ 只是门的尺子，不进入排序分数；不可评估不造数（§4.3.12）",
+            "note": ("σ 只是门的尺子，不进入排序分数；不可评估不造数（§4.3.12）。"
+                     "V23-DESIGN-107：b3=兜底下限（1%·|μ|）主导，可评估但尺子标"
+                     " perceptibility_floor；`MAD<floor/10` 只作 insufficient_baseline_flag 诊断，"
+                     "不再作为剔除理由"),
         },
         "baseline_source": f"{accident_type}_1.csv 注入前 [0,100]s 固定基线",
         "baseline_rule": ("V23-DATA-004：基线=注入前 [0,100]s 共 11 点；"

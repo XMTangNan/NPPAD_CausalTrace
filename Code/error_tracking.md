@@ -2589,3 +2589,44 @@ gitignore），`pytest` 161 passed。
   未改本台账既有编号与条目、未重跑、未推送。
 - 旧结果影响：加权分支数字与 `v23-20261112T185258`（100 次、`citable`）的排名不可与
   `v23-20261115T000542` 混用，只能作口径对照（§10.4）。
+
+**V23-DESIGN-107（open→closed 随本轮 run）·【自主决定】σ 桶语义 + 门槛按尺度来源分档（2026-11-15）**
+
+- 改了什么：
+  1. `evidence/tolerance.py::classify_sigma_bucket`：b3 由 `insufficient_baseline`（不可评估）改为
+     `fallback_floor`（可评估，`sigma_scale_kind=perceptibility_floor`）；`MAD<floor/10` 降为
+     `insufficient_baseline_flag` 诊断位；b5 理由由 `not_calibrated` 改为 `no_scale`。
+  2. `causal/gating.py`：`g` 改为按 `sigma_source` 分档；`measured_mad` 用
+     `Φ⁻¹(1−α/(2·n_t))`（α=0.05，n_t=注入后点数），`physical_floor/fallback_floor` 用 `1.0`；
+     新增结构性剔除 `excluded_structural`（`marker_variable` / `safety_action_variable`）；
+     剔除计数拆 `n_excluded_by_class`。
+  3. `config/gate_policy_v2.yaml`（新文件，冻结 sha256
+     `6ff290be1d5d5bbdd34891363b802dec379c24e9e9b7e1f41d86a58d6140a8f5`）；`gate_policy_v1.yaml` 保留不动。
+  4. `evidence/deviation.py`：输出 `n_post_inject_points`（供门取 g，不读排名结果）。
+- 为什么：旧 b3 用“兜底 1%·|μ|”当“样本是否足够”的尺子，把最安静（测得最准）的通道判成
+  样本不足；同时 24 例 `not_calibrated` 实为 marker/安全动作量被公差标定排除却又留在候选里。
+  60 例剔除中 45 例“不可评估”的直接来源就是这两处。
+- 冻结值：`g_floor=1.0`；`g_stat` 实测 LOCA 3.790 / SGATR 3.829 / FLB 3.586（由 n_t 决定）。
+- 与既有裁决：`V23-CODE-046` 为代码级取代（不改编号）；`V23-DESIGN-089` 可比范围再缩一圈（见 9.5）。
+- 旧结果影响：σ 五桶计数、门控剔除理由分布、池大小、`rank_v2`/Top-5 全部不可与
+  `v23-20261115T000542` 混用；`B/T/稳定边/图` 仍可比。
+- 状态：✅ closed（策略已冻结，跑前锁定）。
+
+**V23-DESIGN-108（open→closed 随本轮 run）·【自主决定】角色 6→4 重映射 + 极性证据分层 + 审计分母拆分（2026-11-15）**
+
+- 改了什么：
+  1. `causal/path_audit.py`：`ROLE_MAP` 改为 `fault_indicator / actuator / process / measurement`；
+     只保留 `measurement_terminal` 一条公理；其余组合 `not_applicable`（原 `ALLOWED_TRANSITIONS` 作废）。
+  2. 极性拆两件事：带出处 `sign` 才算 `supported`（`sourced=false` 改判 `unsupported`）；
+     变量级方向只做**矛盾检测**，一致时不判支持；删除“边级 sign vs 条目 expected_direction”比较
+     （范畴错误，旧口径因此产生 26+4 条假违规）。
+  3. 审计分母拆 `counts_all_scored / counts_top / counts_violating_extra`；
+     逐路径新增 `evidence_coverage`、`violation_kind(hard|soft)`。
+- 为什么：旧映射把角色当严格流水线，逐跳角色违规 3703 次中 94% 是过程量互耦与
+  过程量→控制动作（物理正常）；同时把“全部违规路径”并进分母，导致 2471 条违规全来自追加样本。
+- 离线复算（`v23-20261115T000542` 的图，不改产物）：全枚举 3013 条 →
+  compliant 5 / unsupported 2060 / violating 948（hard 0、soft 948）；top-20 样本 0/140/40。
+  5 条 compliant 全部是带出处知识边（`WFLB→WSTB`、`WLR→P`、`WLR→VOL`、`P→TAVG`×2）。
+- 旧结果影响：`path_audit` 三档计数与理由文案不可与旧 run 混比；旧 `counts` 字段保留但语义已注明。
+- 状态：✅ closed（随本轮 run 落盘）。
+
