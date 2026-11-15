@@ -2971,6 +2971,7 @@ v2.1 实验解读提出的 O1–O12 是本方案的**输入待办**。下表按�
 - σ 分桶：LOCA `b1=6/b2=41/b3=33/b4=5/b5=8`，SGATR 与 FLB `b1=5/b2=41/b3=34/b4=5/b5=8`；**不可评估 46–47 → 13**。
 - 门控：池内保留 **87**、剔除 **48** = 数值 fail 18 + 结构性 24 + 不可评估 6（饱和 3、退化零通道 3）。**不可评估占剔除比 75% → 12.5%**。
 - 审计（全枚举 3013 条，`truncated=false`）：**compliant 5 / unsupported 2060 / violating 948**（hard 0、soft 948）；top-20 样本 **0 / 140 / 40**。
+  **旧口径（已废止，见 §10.7）**：`soft` 已改记待复核信号。
   **5 条 compliant 全部是带出处知识边**：`WFLB→WSTB`、`WLR→P`、`WLR→VOL`、`P→TAVG`×2。
 - 解释层：模板级 9 份 `backend=llm`、类级 3 + 全局 1 为 `rule`（`auto` 只在模板级解析 LLM）；13/13 `faithful=true`、`degraded=false`。
 
@@ -2995,8 +2996,100 @@ v2.1 实验解读提出的 O1–O12 是本方案的**输入待办**。下表按�
 
 1. `hard=0` 是真实结果，不是规则放宽：图中没有“仪表→物理量”边，也没有知识自带 sign 与方向矛盾的边；同时**禁边检查在审计层永远为 0**（`B` 建图前已清零），禁边验收应落在建图层。
 2. `soft` 违规（948 条，31.5%）只是“该跳符号与两端知识方向之积矛盾”的筛查信号，**不能**读作“模型学错了”。
+   **旧口径（已废止，见 §10.7）**：该情形现记“待复核信号”，不再计入违规。
 3. `b1`（真按实测噪声标定）仍 5–6 个；`b5` 8 个零量纲通道仍无尺子。这是数据事实，不是本轮可修的缺陷。
-4. `compliant` 仅 5 条，瓶颈是知识库只有 22 条带出处边，不是审计规则。
+4. `compliant` 仅 5 条（现行口径 8 条），瓶颈是落在最终稳定边上的带出处边级 sign 只有 8/432 = 1.85%，不是审计规则。
+
+### 10.7 第三轮修订（2026-11-15）：多跳审计第一批——禁边两端记账、软违规拆分、角色降级（`V23-DESIGN-112`）
+
+> 依据 run `v23-20261115T203251`（`n_bootstrap=5`、`run_mode=reduced`、`citable=null`，10/10 ok、REPRO_OK）。
+> **不改图**：`gate_policy_v3` sha `23601480…49ba`、`constraints_v1` sha `51f12689…f14bd` 均未变。
+> 本节取代 §10.6 中关于审计三档与 `hard=0` 的解释；§10.6 其余口径不变。
+
+**一、改了什么（逐条）**
+
+| # | 改动 | 为什么 | 影响字段 |
+|---|---|---|---|
+| ① | 禁边**两端记账**：建图层逐条登记 `in_effect/armed/exempted_competitive/dropped_no_endpoint`，拟合层登记 `applied/never_triggered`；审计层改为**复扫最终稳定边全集**，只报真命中；`reverse_forbidden` 必须 `sourced` 才判 hard | 旧 `_forbidden_check` 查的是建图前已清零的表，结构上永不命中，`hard=0` 是构造保证 | `path_audit.forbidden_audit`；`ontology.constraints.ledger/ledger_counts` |
+| ② | 软违规拆两类：(a) 带出处 sign 与**两端有出处**方向矛盾 → 仍 `violating`；(b) 单侧无出处、或学到符号 vs 方向推断 → `needs_recheck`（待复核信号），**不进违规分母**，理由原文保留 | 旧口径把“两个都没凭据”的情形也记成违规，1526 条混在一个分母里 | `counts_recheck`；`paths[].needs_recheck/n_hops_recheck/recheck_reason`；`VIOLATION_SOFT` 标已废止 |
+| ③ | 角色 6→4 映射降级：不得单独构成 `violating`，只作 `unsupported` 的理由（hop 级 `role_advisory=true`） | 该映射是草案、无专家签字，不具判违规的资格 | `role_policy.advisory_only`；hop 级 `role_advisory` |
+
+**二、本次运行事实（【项目实测】）**
+
+- `run_id = v23-20261115T203251`；10/10 步 ok；总耗时 581 s（第 8 步解释报告 557 s）。
+- 稳定边 **432 条**，9 个模板逐条与 `v23-20261115T201126` 相同（`same=True`）；`S`、`E_v`、候选池、`rank_v2`、Top-5 全不变。
+- 审计三档（全枚举 4088，`truncated=false`）：
+  旧 `compliant 8 / unsupported 2554 / violating 1526`（全 soft）→ 新 `compliant 8 / unsupported 4080 / violating 0`；
+  新增待复核信号 **1526 路径 / 1763 跳**，与旧 violating 1:1 对应。
+- 角色降级实测影响 **0 条**（`role_advisory` 跳数 0）：旧 1526 条并非角色造成。
+- `forbidden_audit` 9/9 `pass`、最终图命中 0；禁边册 LOCA 45 / SGATR 43（+9 缺端点、1 竞争对豁免、2 重复）/ FLB 54（+8 缺端点）；
+  5 次 bootstrap 实际清零 LOCA 22/26/26、SGATR 13/14/22、FLB 32/27/16。
+- `hard=0` 由“构造保证”变为“接线后的实测结论”；负向测试（注入被禁边）能抓出。
+
+**三、被纠正的旧表述**
+
+| 旧表述（出处） | 现状 | 处置 |
+|---|---|---|
+| “`violating(soft)`：方向不一致即违规”（§10.6 B5、外部知识方案 §9.3） | V23-DESIGN-112 起改判待复核信号 | 已废止并改写 |
+| “仪表作上游 → violating”（外部知识方案 §9.3 角色规则） | 角色映射为草案，只作 `unsupported` 理由 | 已废止并改写 |
+| “`hard=0` 是构造保证、审计层禁边检查永远为 0”（§10.6 四-1） | 已修：建图台账 + 审计复扫 + 负向测试 | 已改写 |
+| “violating 1526 主要受 6→4 角色映射影响”（产物管理页旧 note） | 实测角色影响 0；1526 全是极性软冲突 | 页面 note 已删改 |
+
+**四、限制（如实）**
+
+1. 有出处边级覆盖 **8/432 = 1.85%**（口径更正：此前 11/432=2.5% 的分子含 3 条未过稳定性筛的 `all_edges`，与分母不同基），`compliant` 仍只有 8 条；结论置信上限受此限制（§10.8 已把覆盖率升为一等指标）。
+2. `violating=0` 不等于“机理都对”，只等于“没有与有出处知识冲突的硬矛盾”；绝大多数路径仍是 `unsupported`。
+3. 禁边“未触发”条数不少（LOCA 19–23 / SGATR 21–30 / FLB 22–38），说明大部分禁边在 5 次 bootstrap 里没被估出来，
+   其验收强度受样本数限制，不能宣称“约束全面生效”。
+
+**五、可比性**
+
+- **不可比**：审计三档与待复核信号**不可**与 `v23-20261115T201126` 及更早 run 混算（口径已变）。
+- **可比**：稳定边（432，逐模板相同）、`S`、`E_v`、候选池、`rank_v2`、Top-1/Top-5、σ 桶、公差口径。
+
+### 10.8 第三轮修订（续）：按贡献挑路径、证据密度分档、覆盖率一等指标（`V23-DESIGN-113`）
+
+> 依据 run `v23-20261115T205504`（`n_bootstrap=5`、`citable=null`，10/10 ok、REPRO_OK）。**不改图**，
+> 稳定边 432 条与 `203251` 逐模板相同，Top-1/Top-5 未变。
+
+**一、改了什么**
+
+| # | 改动 | 为什么 | 影响字段 |
+|---|---|---|---|
+| ④ | 证据密度分档：每跳标记是否带出处边级 sign，按"全部/部分/全无"分三档（`all/partial/none`） | 旧审计只有"跳数上限"，没有"这一跳有没有凭据"的密度概念；分档**不设任何数值门槛** | hop `sourced_sign`；path `n_hops_sourced/evidence_density`；`evidence_density.selected/top` |
+| ⑤ | 按贡献挑路径：`|贡献|` 降序累加到覆盖 **90%** 的最少路径数 + 全部踩到禁边的路径；报告写 `n_selected`、`coverage_ratio`、`truncated` | 全枚举 4088 条里大多数是微小贡献路径，逐条披露没有信息量；同时必须保留全枚举计数做对照 | `selection`；`paths/counts` 改为被审集合；`counts_all_scored` 保留 |
+| ⑦ | 有出处覆盖率一等指标：每个模板给"带出处边级 sign 的稳定边 / 稳定边"，并写结论置信上限 | 覆盖 1.85% 是当前 `compliant` 只有 8 条的真瓶颈，必须与结论并列 | `provenance_coverage` |
+
+**二、本次运行事实（【项目实测】）**
+
+- 全枚举 4088 条；被审 **1350 条**（33.0%），加权覆盖 **90.05%**，`truncated=false`（未触 `max_paths`）。
+- 被审集合三档：`compliant 3 / unsupported 1347 / violating 0`；全枚举三档仍是 `8 / 4080 / 0`。
+  **差异说明**：5 条低贡献的 compliant 路径没有被 90% 覆盖选入——被审集合的 compliant 数会**低估**全枚举值，
+  报告必须同时给两者，不得只引用其一。
+- 证据密度（被审集合）：`all 3 / partial 15 / none 1332`；说明绝大多数被审路径连一跳带出处的 sign 都没有。
+- 有出处覆盖率：**8/432 = 1.85%**（逐模板 LOCA 1/1/2、SGATR 0/0/0、FLB 1/2/1）。
+  **口径更正**：此前写的 11/432 = 2.5% 把 3 条只在 `all_edges`（未过稳定性筛）的边计入分子，与分母不同基；
+  现统一按"最终稳定边"计，三份文档同步改为 8/432。
+
+**三、可比性**
+
+- **不可比**：`counts`（第一批=top_n 样本+追加违规，第二批=90% 覆盖集合，语义已变）、`paths` 集合大小。
+- **可比**：`counts_all_scored`（全枚举 8/4080/0 两批相同）、`counts_recheck.all_scored`（1526/1763）、
+  稳定边、`S`、`E_v`、池、`rank_v2`、Top-1/Top-5。
+
+### 10.9 第三轮修订（续）：必经中转 `must_pass_through(A, C, {B})`（`V23-DESIGN-114`）
+
+- **语义**：`A` 到 `C` 不许直连；若图上存在 `A→C` 路径，则必须经过 `B`。
+- **判定三态**：`pass`（全部路径经 B）/ `fail`（存在不经 B 的路径，含直连）/ `vacuous`（无 A→C 路径，约束无对象）。
+- **边界**：只在审计侧判定，**不改图、不接门控、不进 `rank_v2`**；三元组取自 K3 `expected_chain` 相邻三元组，
+  未逐条物理复核，**不是新增约束**。
+- **现有图示例**（【项目实测】）：`SGATR_low` 的 `LSGA→RM2 经 PSGA` 判 `fail`（4 条路，2 条经 PSGA、
+  2 条绕过且含直连）；`FLB` 的 `WFWA→WSTB 经 WSTA` 判 `fail`（4 条路全部绕过、含直连）；
+  LOCA 两组因图上无对应路径判 `vacuous`。
+- **产物**：`path_audit.must_pass_through.{n_checks, checks[]}`，每项含
+  `verdict / direct_edge / n_paths / n_paths_through / n_paths_violating / violating_paths[:20] /
+  demo_only / not_gating / source`。
+- **可比性**：只增字段，不影响任何既有指标。
 
 ---
 

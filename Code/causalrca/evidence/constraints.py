@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 KNOW_DIR = Path(__file__).resolve().parents[2] / "external_knowledge"
 FILES = ("positive_mechanisms.yaml", "supplementary_mechanisms.yaml")
@@ -56,18 +56,40 @@ def _competitive(accident: str) -> Set[Tuple[str, str]]:
     return out
 
 
-def derive_rules(accident: str) -> List[Dict]:
-    """该事故类型下由外部知识推出的禁单边（去重、排除 competitive）。"""
+def derive_rules(accident: str, ledger: Optional[List[Dict]] = None
+                 ) -> List[Dict]:
+    """该事故类型下由外部知识推出的禁单边（去重、排除 competitive）。
+
+    V23-DESIGN-112（① 两端记账）：传入 `ledger` 时，逐条登记候选禁边的去向，
+    使“这条禁边为什么没在建图层出现”可审计：
+      in_effect              进入禁边册（最终由建图层清零）
+      exempted_competitive   与按类竞争对（双向反馈）冲突 → 豁免
+      dropped_no_endpoint    自环/缺端点 → 丢弃
+      duplicate              与前一条重复 → 去重
+    """
     comp = _competitive(accident)
     rules: List[Dict] = []
     seen: Set[Tuple[str, str]] = set()
 
+    def _log(src, dst, disposition, entry_id, detail=None):
+        if ledger is None:
+            return
+        ledger.append({"from": src, "to": dst, "disposition": disposition,
+                       "source_entry_id": entry_id, "detail": detail,
+                       "stage": "derive_rules"})
+
     def _add(src, dst, basis, origin, entry_id):
         if not src or not dst or src == dst:
+            _log(src, dst, "dropped_no_endpoint", entry_id, "自环或缺端点")
             return
-        if (src, dst) in comp or (src, dst) in seen:
+        if (src, dst) in comp:
+            _log(src, dst, "exempted_competitive", entry_id, "按类竞争对，双向反馈豁免")
+            return
+        if (src, dst) in seen:
+            _log(src, dst, "duplicate", entry_id, "同一禁边重复登记")
             return
         seen.add((src, dst))
+        _log(src, dst, "in_effect", entry_id)
         rules.append({"from": src, "to": dst, "basis": basis, "origin": origin,
                       "constraint_id": f"constraints_v1:{entry_id}:{src}->{dst}",
                       "source_entry_id": entry_id})

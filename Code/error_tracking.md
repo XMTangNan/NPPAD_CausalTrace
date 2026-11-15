@@ -2744,3 +2744,126 @@ gitignore），`pytest` 161 passed。
 - 建议：C→B→（冻结线拍板）→A。待用户拍板 P1/P2/P3。
 - 本轮**未实施任何一项**，不改图、不改审计代码。
 - 状态：⏳ open（等口径冻结线裁决）。
+
+**V23-DESIGN-112（closed）·多跳审计第一批：禁边两端记账 + 软违规拆分 + 角色降级（2026-11-15）**
+
+> 用户裁决：按 ①→②→③ 实施，**七条都不得改图**；建图仍冻结在
+> `gate_policy_v3`（sha `23601480…49ba`）/ `constraints_v1`（sha `51f12689…f14bd`）。
+> 本条目只覆盖第一批；④⑤⑦（第二批）、⑥（第三批）另行登记。
+
+- ① 禁边两端记账（修“结构性永不命中”）
+  - 建图层：`constraints.derive_rules(accident, ledger)` 逐条登记候选去向
+    （`in_effect / exempted_competitive / dropped_no_endpoint / duplicate`）；
+    `knowledge.build_ontology` 再按变量集过滤登记 `armed / dropped_no_endpoint`；
+    `signatures` 已记录 `removed_forbidden_rates`（5 次 bootstrap 中实际清零的边）。
+  - 审计层：`path_audit.forbidden_audit` **扫描最终稳定边全集**（不只被审计路径），
+    只报“最终图仍存在被禁边”这种真命中；单跳 `_forbidden_check` 的 `reverse_forbidden`
+    改为**必须 `sourced`** 才判 hard。
+  - 负向测试：`tests/test_v23_path_audit_forbidden.py::test_negative_injected_forbidden_edge_is_caught`
+    故意把 `V→W` 注入最终图，审计必须报 `n_present_in_final_graph≥1`、`verdict=fail`、
+    路径 `violating/hard`；实测通过（10/10 用例）。
+- ② 软违规拆两种性质（不改任何映射/阈值）
+  - (a) 带出处边级 `sign` 与**两端均有出处**的方向之积矛盾 → 仍判 `violating`（hard）；
+  - (b) 单侧无出处（边级有、方向无，或反之）→ `needs_recheck`；
+        学到边符号与方向推断不一致 → `needs_recheck`。
+  - `needs_recheck` 计入 `counts_recheck`（路径/跳两级），**不进 violating 分母**，
+    原始理由保留在 `paths[].recheck_reason`；常量 `VIOLATION_SOFT` 标“已废止”。
+  - `polarity_policy.soft` 明确写“已废止（V23-DESIGN-112 起改判 needs_recheck）”。
+- ③ 角色 6→4 映射降级
+  - `_role_check` 不再返回 `violating`，只返回 `unsupported` + 理由前缀
+    `【角色映射·草案，无专家签字】`；hop 级新增 `role_advisory` 标记。
+  - 新增 `role_policy.advisory_only=true`。
+- 实测（`v23-20261115T203251`，`n_bootstrap=5`、`run_mode=reduced`、`citable=null`、
+  10/10 ok、REPRO_OK、总耗时 581s）：
+  - **稳定边 432 条逐模板与 `v23-20261115T201126` 完全一致（9/9 same=True）**，
+    `S`/`E_v`/候选池/Top-5/`rank_v2` 均不变——本批**未改图**。
+  - 审计三档（全枚举 4088，`truncated=false`）：
+    旧 `compliant 8 / unsupported 2554 / violating 1526`（全 soft）→
+    新 `compliant 8 / unsupported 4080 / violating 0`。
+    分母变化原因：旧 1526 条**全部**属 (b) 类“学到符号 vs 方向推断”，改判待复核信号；
+    实测 `counts_recheck.all_scored` 恰为 **1526 路径 / 1763 跳**，与旧 violating **1:1 对应**。
+  - `role_advisory` 跳数实测 **0**：旧 1526 条并非角色判定造成（DESIGN-108 已先消掉），
+    因此 ③ 在本轮**没有改变任何路径**，只改了判定权限。
+  - `forbidden_audit`：9/9 `verdict=pass`、`n_present_in_final_graph=0`；禁边册
+    LOCA 45（armed 45，duplicate 3）、SGATR 52（armed 43、dropped_no_endpoint 9、exempted 1、
+    duplicate 2）、FLB 62（armed 54、dropped_no_endpoint 8）。
+    5 次 bootstrap 中实际清零过的边：LOCA 22/26/26、SGATR 13/14/22、FLB 32/27/16；
+    其余在样本里未出现（`never_triggered` 单列），不再与“违规”混谈。
+  - `hard=0` 现在是**接线后的实测结论**：审计复扫 432 条稳定边 0 命中；
+    11 条带出处 sign 中无一条与两端有出处方向矛盾。不再是“构造保证”。
+- 测试：新增 10 条用例全绿；全套 v23 单测 109 passed / 3 failed，
+  3 条失败**在 HEAD 上已存在**（`test_v23_physical` 2 条、`test_v23_report_llm` 1 条，
+  与 marker 降级后的旧字段有关），非本批引入（已用 `git stash` 在 HEAD 复现）。
+- 前端：`submit/产物管理-v23-20261115T203251.html` 审计区块新增
+  “待复核信号（路径/跳）/ 最终图禁边命中 / 禁边核查（生效/已应用/未触发）”三列，
+  旧 note 中“violating 主要受角色映射影响”的表述已删除；旧页 `…201126.html` 已删。
+  `grep -o -i marker submit/*.html | wc -l` → **0**。
+- 冻结件未动：`gate_policy_v3` / `constraints_v1` sha 与规则数（45/52/62）均不变。
+- 交叉申报：与 089（可引用边界）无冲突，`citable` 仍为 `null`；与 098（知识补强）无交集；
+  与 099（AI 代审）无交集；与 068/062/065（意识层/排序/公差口径）无交集（未改映射与阈值）；
+  与 107/108（审计分母与角色重映射）**直接续作**：108 的 `counts_*` 三块键全部保留，
+  新增 `counts_recheck` 与 `forbidden_audit`，`VIOLATION_SOFT` 保留常量供旧产物对照；
+  与 109（注入变量降级）无交集（未触碰身份字段）；与 110/111 为同一轮延续，111 的 C/B 方向落地。
+- 不可比范围：审计三档**不可**与 `v23-20261115T201126` 及更早 run 混比（口径已变）；
+  稳定边、`S`、`E_v`、池、Top-5 **可比**（逐模板相同）。
+- 不推送、不 amend、不改历史。
+- 状态：✅ closed（第二批 ④⑤⑦、第三批 ⑥ 另登记）。
+
+**V23-DESIGN-113（closed）·多跳审计第二批：贡献挑路径 + 证据密度 + 覆盖率一等指标（2026-11-15）**
+
+> 续 DESIGN-112；**不改图**，`gate_policy_v3` / `constraints_v1` 冻结件未动。
+> `contribution_coverage=0.9` 作为**代码默认值**，未写入冻结 yaml（避免改 sha）；不属于跳数门槛。
+
+- ④ 证据密度：逐跳新增 `sourced_sign`（该跳是否有带出处边级 sign），路径级 `n_hops_sourced`
+  与 `evidence_density ∈ {all, partial, none}`；**不设任何数值门槛**，只作披露分档。
+- ⑤ 按贡献挑路径：`|贡献|` 降序累加到覆盖 `target=0.9` 的最少路径数，再并上全部踩到禁边的路径；
+  `paths/counts` 改为**被审集合**；新增 `selection`（含 `n_paths_scored / n_selected_by_target /
+  n_selected / n_selected_forbidden_extra / coverage_ratio / truncated`）；`counts_all_scored` 与
+  `counts_top` 保留作对照。
+- ⑦ 有出处覆盖率：新增 `provenance_coverage`（`n_edges_with_sourced_sign / n_stable_edges / edge_ratio /
+  confidence_cap`），与结论并列。
+- 实测（`v23-20261115T205504`，10/10 ok、REPRO_OK、`citable=null`，耗时 630 s）：
+  - 稳定边 432 与 `203251` 逐模板相同，Top-1/Top-5 未变。
+  - 全枚举 4088 条；被审 **1350**（33.0%），加权覆盖 **90.05%**，`truncated=false`。
+  - 被审集合 `compliant 3 / unsupported 1347 / violating 0`；全枚举仍 `8 / 4080 / 0`。
+    **5 条低贡献 compliant 未入审**——`counts` 会低估 compliant，报告须同时给全枚举值。
+  - 证据密度（被审）：`all 3 / partial 15 / none 1332`。
+  - 有出处覆盖率：**8/432 = 1.85%**（LOCA 1/1/2、SGATR 0/0/0、FLB 1/2/1）。
+- **口径更正（重要）**：此前 `V23-DESIGN-110` 报的“覆盖率 8→11、2.5%”把 3 条只在 `all_edges`
+  （未过稳定性筛）的边计入分子，与分母 432（稳定边）不同基。现统一按“最终稳定边”计，**8/432 = 1.85%**；
+  三份方案文档同步更正，旧数字标“口径错误”。DESIGN-110 的知识新增结论（+1 条 P15）不受影响。
+- 测试：`test_v23_path_audit_forbidden.py` 扩到 17 条（新增 ④⑤⑦ 用例）全绿；
+  全套 v23 单测仍为 109 passed / 3 failed（3 条为 HEAD 既有失败，非本批引入）。
+- 前端：`submit/产物管理-v23-20261115T205504.html` 审计区块新增“被审/枚举（覆盖）”“证据密度 all/partial/none”
+  “有出处覆盖（8/432=1.9%）”三列与覆盖率说明；旧页 `…203251.html` 已删；`grep -i marker submit/*.html` → **0**。
+- 交叉申报：与 089 无冲突（`citable=null`）；与 098/099 无交集；与 068/062/065 无交集（未改映射与阈值）；
+  与 107/108 续作（`counts_all_scored/counts_top` 键保留）；与 109 无交集；与 110 **有交集**：更正其覆盖率口径；
+  与 111（设计稿）的 B1/B2/B3 全部落地；与 112 为同批续作（`counts` 语义变更已在 112 条目标注）。
+- 不可比：`counts` 与 `paths` 集合不可与 112 混比；`counts_all_scored`、`counts_recheck.all_scored`、
+  稳定边、池、Top-5 可比。
+- 状态：✅ closed。
+
+**V23-DESIGN-114（closed）·多跳审计第三批：必经中转 `must_pass_through(A, C, {B})`（2026-11-15）**
+
+- 语义：`A` 到 `C` 不许直连；若图上存在 `A→C` 路径，则必须经过 `B`。
+- 三态：`pass`（全部经 B）/ `fail`（存在不经 B 的路径，含直连）/ `vacuous`（无 A→C 路径）。
+- 实现：`path_audit.must_pass_through(adj, a, c, via)` + `_paths_between` 简单路径 DFS；
+  三元组由 `_triad_demos` 从 K3 `expected_chain` 相邻三元组取得，每类取前 2 组。
+- **边界**：只在审计侧判定，**不改图、不接门控、不进 `rank_v2`**；`demo_only=true`、`not_gating=true`；
+  未逐条做物理复核，**不是新增约束**。
+- 实测（`v23-20261115T211511`，10/10 ok、REPRO_OK、`citable=null`，690 s）：
+  - 审计指标与 `205504` 完全一致（4088 枚举、被审 1350、覆盖 90.05%、`8/4080/0`、`8/432`、密度 `3/15/1332`），
+    **纯增字段**。
+  - `LOCA_high`：`WLR→P 经 VOL` 判 **fail**（11 条路全部不经 VOL，含直连）；
+    `LOCA_low/mid` 两组同项判 `vacuous`（无 WLR→P 路径）；`VOL→TAVG 经 P` 三组均 `vacuous`。
+  - `SGATR_low`：`LSGA→RM2 经 PSGA` 判 **fail**（4 条路，2 经 PSGA、2 绕过且含直连）。
+  - `FLB`：`WFWA→WSTB 经 WSTA` 判 **fail**（4 条路全部绕过、含直连）。
+- 测试：新增 3 条（pass/fail/vacuous）→ 共 **20 条**；全套 v23 单测 **116 passed / 3 failed**
+  （3 条为 HEAD 既有失败，非本轮引入）。
+- 前端：`submit/产物管理-v23-20261115T211511.html` 新增“必经中转（纯后置演示）”清单；
+  `grep -i marker submit/*.html` → **0**。
+  **注意**：`产物管理-v23-20261115T205504.html` 作为第二批对照页**保留未删**（避免追溯缺口）。
+- 交叉申报：与 089 无冲突（`citable=null`）；与 098/099/107/108/109/110 无交集；
+  与 111（设计稿）的 ⑥ 落地；与 112/113 为续作，不改其口径。
+- 不可比：无（纯增字段，所有既有指标可比）。
+- 状态：✅ closed（三批全部实施完毕）。

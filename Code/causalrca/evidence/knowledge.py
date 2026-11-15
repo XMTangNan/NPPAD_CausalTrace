@@ -389,14 +389,31 @@ def build_ontology(accident_type: str, variables: List[str]) -> Dict:
     # 禁边只剩外部知识登记的硬禁边（constraints_v2）。
     forbidden: List[Dict] = []
     # constraints_v1（外部知识硬禁边）：估完再清零 B[i,j]，与 K1 去重后合并。
+    # V23-DESIGN-112（① 两端记账）：逐条登记禁边去向，供审计层核对“为什么没出现”。
     from causalrca.evidence import constraints as CONS
+    ledger: List[Dict] = []
+    derived = CONS.derive_rules(accident_type, ledger)   # 候选去向（豁免/去重/缺端点）
+    frozen_rules = CONS.constraints_for(accident_type)
     seen = {(f["from"], f["to"]) for f in forbidden}
     n_ext = 0
-    for rule in CONS.constraints_for(accident_type):
+    for rule in frozen_rules:
         src, dst = rule.get("from"), rule.get("to")
-        if src not in vset or dst not in vset or (src, dst) in seen:
+        if src not in vset or dst not in vset:
+            miss = [x for x in (src, dst) if x not in vset]
+            ledger.append({"from": src, "to": dst, "disposition": "dropped_no_endpoint",
+                           "source_entry_id": rule.get("source_entry_id"),
+                           "detail": f"变量集缺 {miss}", "stage": "build_ontology"})
+            continue
+        if (src, dst) in seen:
+            ledger.append({"from": src, "to": dst, "disposition": "duplicate",
+                           "source_entry_id": rule.get("source_entry_id"),
+                           "detail": "与已登记禁边重复", "stage": "build_ontology"})
             continue
         seen.add((src, dst))
+        ledger.append({"from": src, "to": dst, "disposition": "armed",
+                       "source_entry_id": rule.get("source_entry_id"),
+                       "detail": "端点齐备，估图后清零该边（是否触发见 removed_forbidden_rates）",
+                       "stage": "build_ontology"})
         forbidden.append({"from": src, "to": dst,
                           "basis": rule.get("basis", "外部知识禁边"),
                           "origin": rule.get("origin", "hard_forbid_edge"),
@@ -415,8 +432,14 @@ def build_ontology(accident_type: str, variables: List[str]) -> Dict:
             "version": CONS.CONSTRAINTS_VERSION,
             "n_hard_forbid_edge_applied": n_ext,
             "n_hard_forbid_path": 0,
+            "n_derived_rules": len(derived),
+            "ledger": ledger,
+            "ledger_counts": {d: sum(1 for x in ledger if x["disposition"] == d)
+                              for d in ("armed", "in_effect", "exempted_competitive",
+                                        "dropped_no_endpoint", "duplicate")},
             "note": ("外部知识只落硬禁边（估完清零 B[i,j]）；路径级禁边预注册为空，"
-                     "不使用 prior_knowledge=0（E13）；AI 代审、非专家确认"),
+                     "不使用 prior_knowledge=0（E13）；AI 代审、非专家确认。"
+                     "V23-DESIGN-112：ledger 逐条记账禁边去向，审计层只复扫最终图"),
         },
     }
     return ontology

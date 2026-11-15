@@ -305,8 +305,13 @@ def run_template(k: str, g: str, gvars: Sequence[str], inputs: Dict,
             c[fld] = info.get(fld)
 
     # ---- 多跳后置审计（只读图，不回改 B/T/rank）----
+    # V23-DESIGN-112：把建图层的禁边台账与实际清零率一并交给审计层，实现两端记账
+    cmeta = dict(r["ontology"].get("constraints") or {})
+    cmeta["removed_forbidden_rates"] = (
+        (sig.get("ontology_constraint") or {}).get("removed_forbidden_rates") or {})
     audit = PA.audit_template(k, g, r["variables"], r["stable"],
-                              r["ontology"].get("forbidden") or [], policy, run_id)
+                              r["ontology"].get("forbidden") or [], policy, run_id,
+                              constraint_meta=cmeta)
     audit_src = f"signatures/signature_{k}_{g}.json"
     artifact.write_artifact(f"path_audit_{k}_{g}", audit, "signatures",
                             run_id=run_id, accident_type=k, group=g,
