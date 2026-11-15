@@ -166,8 +166,8 @@ def test_merge_into_ontology_only_appends():
     new_edge = {"from": "LVPZ", "to": "P", "direction": "forward", "level": "L2",
                 "basis": "外部知识补充：稳压器水位与压力耦合", "evidence": "design_pending_data"}
     dup_edge = dict(K.ALLOWED_RELATIONS["LOCA"][0])          # WLR→VOL 已存在
-    conflict = {"from": "WECS", "to": "WLR", "direction": "forward", "level": "L2",
-                "basis": "故意与 R2/R3 禁止边同向冲突"}
+    conflict = {"from": "WECS", "to": "WHPI", "direction": "forward", "level": "L2",
+                "basis": "故意与 constraints_v1 硬禁边（WHPI→WECS 单向，禁其反向）同向冲突"}
     absent = {"from": "MCRT", "to": "VOL", "direction": "forward", "level": "L2",
               "basis": "端点不在本体变量表"}
 
@@ -176,7 +176,7 @@ def test_merge_into_ontology_only_appends():
     assert report["n_added"] == 1
     assert report["added"][0]["from"] == "LVPZ"
     assert report["n_skipped_existing"] == 1
-    assert [e["to"] for e in report["skipped_forbidden_conflict"]] == ["WLR"]
+    assert [e["to"] for e in report["skipped_forbidden_conflict"]] == ["WHPI"]
     assert report["n_skipped_missing_variable"] == 1
 
     assert len(merged["allowed"]) == n_allowed + 1

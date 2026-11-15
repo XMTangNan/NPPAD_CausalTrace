@@ -4,10 +4,10 @@ frozen_at: '2026-11-14'
 frozen_by: agent (V23-CODE-046)
 source: external_knowledge 两文件 → 硬禁边；AI 代审、非专家确认
 source_files_sha256:
-  positive_mechanisms.yaml: fdc095b7c575cc65599b3fefc3d6f7585cada9e41cdf8b70abc832a189288008
-  supplementary_mechanisms.yaml: 7e461d2f6ea417082e5c239edd9783e6587ec1b7fa3e02630f487447e06869e8
-n_entries: 47
-n_sourced_entries: 34
+  positive_mechanisms.yaml: 9850444679c4ee296139dd86bb309ac46ee63f3899ac7f6db11ec2abf223c851
+  supplementary_mechanisms.yaml: 33019b3d62e710ba05b33fd56a7eb643c6363e5d646ea460fad681c7539979d0
+n_entries: 48
+n_sourced_entries: 35
 injection_rule: 只注入 sourced=true 的 reverse_forbidden 反向与 forbidden_outgoing；unsourced 不进制约层
 hard_forbid_edge:
   LOCA:

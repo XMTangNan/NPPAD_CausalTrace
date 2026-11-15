@@ -802,8 +802,9 @@ entries:
     date: "2026-11-14"
     reviewed_by: ai_agent
     expert_confirmed: false
-    review_verdict: accepted
-    review_note: "AI 代审：TAVG→PSGA 出处不足不入约束；TAVG→WHPI 的控制逻辑禁反向依据充分。"
+    review_verdict: caveat
+    review_note: "AI 代审（2026-11-15 复核，V23-DESIGN-110）：条目级 sourced=true 只覆盖“TAVG 是传导响应”这一角色判断；其唯一断言 TAVG→PSGA 的边级 sourced=false（E6 仅主题章级，未到可核对章节号），不得当极性证据，故判 caveat。反方向 PSGA→TAVG 已由 P15（SRP §15.6.4 章节级）单独登记，二者不对称但各自有据。"
+
   - id: S31_FLB_WFWA_response
     kind: response_role
     variable: WFWA

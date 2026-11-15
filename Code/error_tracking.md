@@ -2701,3 +2701,46 @@ gitignore），`pytest` 161 passed。
 - 处置：该失败 run 目录 `Code/output/runs/v23-20261115T174045`、以及随后一次重跑的
   `v23-20261115T174311`（仅用于校验字段改动）均已删除，以 `v23-20261115T174733` 为唯一新 run。
 - 状态：✅ closed。
+
+**V23-DESIGN-110（closed）·外部知识补强 + AI 代审（2026-11-15）**
+
+- 目标：按"事故类 × 子系统 × 角色"补外部知识，严谨优先、宁缺毋滥。
+- 结论：**只新增 1 条**，不是三五条——因为可用的章节级出处（E1/E2/E3/E4/E5/E6/E7/E8）
+  已把能唯一推出的边用尽，其余 424 条稳定边没有任何"可定位到章节"的极性依据。
+- 新增：`P15_FLB_PSGA_TAVG_conduction`（FLB，`PSGA→TAVG` sign=pos，出处 E3 SRP §15.6.4
+  章节级；`reverse_forbidden=false` 以保留真实反向反馈）。落地预检：
+  FLB 15 变量集含 PSGA/TAVG；K3 `expected_chain` 中 PSGA 紧邻 TAVG，方向一致；
+  非从排名反推（由覆盖矩阵 + E3 已声明的 `supports` 选出）。
+- 判级修正：`S30_FLB_TAVG_response` accepted→caveat（条目级 sourced 只覆盖角色，
+  其唯一边断言 `TAVG→PSGA` 边级 sourced=false）。`expert_confirmed` 全库保持 false。
+- 历史 rejected 复核：`S14_FLB_P_response`、`P10_FLB_NSGA_level_drop` 维持 rejected
+  （实测 FLB 15 变量集不含 P / NSGA）。
+- 实测影响（`v23-20261115T201126`，10/10 ok，`citable=null`）：
+  - 稳定边 432 **完全不变**（逐模板比对 SAME），`S`/`E_v`/池/Top-5 均不变；
+  - 边级 sourced-sign 覆盖 8→**11**（1.9%→**2.5%**）；新增可判对仅 `PSGA→TAVG`，落 3 个 FLB 模板；
+  - 审计三档：`compliant 5→8`、`unsupported 2557→2554`、`violating 1526` 不变（全 soft，hard 0）。
+- 冻结：`constraints_v1` 重新冻结，sha256
+  `51f12689d07347278884763d71f3f7362613733504aff29d0fac79deca4f14bd`；
+  硬禁边条数不变（LOCA 45 / SGATR 52 / FLB 62）；`validate_against_entity_table()` → `ok`。
+- 测试：知识相关 14 passed（其中 `test_merge_into_ontology_only_appends` 的冲突样例
+  由"注入变量外生性"改为 `constraints_v1` 真实硬禁边 `WECS→WHPI`，因 V23-DESIGN-109 已撤该身份禁边）。
+- 产出：`方案/外部知识AI代审-v23-2026-11-15.md`（48 条逐条三档判定 + 两条历史 rejected 复核）。
+- 边界：不改 K2 数值口径、不改 K3 `expected_chain`、不改图、不推送。
+- 交叉申报：与 089（可引用边界）无冲突，本 run 仍 `citable=null`；与 098（外部知识补强）同源，
+  属其后续增量；与 109（注入变量降级）无交集（未触碰身份禁边）；与 068/062/065 无冲突
+  （`constraints_v1` 规则集未增减）。
+- 状态：✅ closed。
+
+**V23-DESIGN-111（open·design_only）·间接传播（多跳）改善设计（2026-11-15）**
+
+- 现状（实测）：只有后置 `path_audit`（4088 路径，`8/2554/1526`，hard 0）；
+  约束只有 `hard_forbid_edge`（单边）与 `hard_forbid_path`（**空**），**无跳数语义**；
+  多跳效应由 `T=(I−B)⁻¹` 自然承担。
+- 计功错位（代码确认）：`path_audit._forbidden_check()` 每跳重查建图前已清零的禁边，
+  结构上不可能命中，`hard=0` 是构造保证，不具验收能力。
+- 设计稿见方案 §9.9：A 建图收紧（A1 路径级禁边/A2 必经中转/A3 符号剪枝，**均会作废现有 run**）、
+  B 审计收紧（证据 A/B/C 分级、覆盖率一等指标、`violating(soft)` 改名待复核信号，**不动图**）、
+  C 计功归位（建图层输出约束验收记录，**不动图**）。
+- 建议：C→B→（冻结线拍板）→A。待用户拍板 P1/P2/P3。
+- 本轮**未实施任何一项**，不改图、不改审计代码。
+- 状态：⏳ open（等口径冻结线裁决）。

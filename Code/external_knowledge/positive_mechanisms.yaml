@@ -11,7 +11,7 @@ note: >-
   注入纪律：只有 `sourced: true` 且 `reverse_forbidden: true` 的边反向、以及 `sourced: true` 的
   `forbidden_outgoing` 进入排序期禁边层；其余只作解释层与覆盖率披露。
   不新增数值约束、不改 K2 数值口径、不改 K3 expected_chain。根因定义见方案 §0.5。
-n_entries: 14
+n_entries: 15
 sources:
   E1:
     doc: "USNRC NUREG-0800, Standard Review Plan, §15.6.5 Loss-of-Coolant Accidents Resulting From Spectrum of Postulated Piping Breaks Within the Reactor Coolant Pressure Boundary"
@@ -422,3 +422,28 @@ entries:
     expert_confirmed: false
     review_verdict: accepted
     review_note: "AI 代审：保护动作出边禁到过程量；WUP→压力不禁（排放降压真实）。"
+
+  - id: P15_FLB_PSGA_TAVG_conduction
+    kind: positive_mechanism
+    variable: PSGA
+    name_cn: SG-A 压力（二次侧）
+    unit: bar
+    subsystem: 二回路SG
+    applicable_accidents: [FLB]
+    expected_direction: neg
+    role_in_accident: response_conduction
+    can_be_root: false
+    assertion: not_start
+    asserted_edges:
+      - {from: PSGA, to: TAVG, sign: pos, reverse_forbidden: false, sourced: true, source_ref: E3}
+    forbidden_outgoing: []
+    sourced: true
+    source_ref: [E3]
+    basis: "SRP §15.6.4 主文：蒸汽/给水管道破口→二次侧质量与能量流失→SG 压力与一回路温度/压力响应。FLB 工况下二次侧压力随破口下降，一次侧经传热后的平均温度随之下降，故 PSGA 与 TAVG 同向（pos）。K3 的 FLB expected_chain 中 PSGA 紧邻 TAVG，方向一致，不构成反向冲突。"
+    conflicts_with: []
+    source: "V23-DESIGN-110 外部知识补强（2026-11-15）"
+    date: "2026-11-15"
+    reviewed_by: ai_agent
+    expert_confirmed: false
+    review_verdict: accepted
+    review_note: "AI 代审：E3 为章节级出处，其 supports 已显式列出 PSGA→TAVG 这一对，此前只是未编码成断言；符号由“二次侧降压→一次侧平均温度下降”唯一确定，非习惯说法。reverse_forbidden=false：TAVG 经传热反向影响 SG 压力是真实反馈（同 S30），设禁边会误删真实反馈。本条目只登记极性，不注入正向边、不改图。"
