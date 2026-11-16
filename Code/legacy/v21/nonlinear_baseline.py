@@ -17,12 +17,23 @@ from causalrca.io.logging import logger, log_error
 from legacy.v21.data_utils import build_matrix, standardize
 from legacy.v21.lingam_baseline import adjacency_to_edges
 
+# V23-DESIGN-116：修正 GAM 超参两处来源不一致
+# —— 本文件原先硬编码 n_splines=10 / lam=0.6，而 config/constants_v21.py 声明
+#    GAM_N_SPLINES=6 / GAM_LAM=1.0（且未被任何 ANM 判向代码读取）。
+#    现统一读声明值，硬编码仅作兜底；本实验使用 6 / 1.0。
+try:
+    from causalrca.config.constants_v21 import GAM_LAM, GAM_N_SPLINES
+except Exception:  # pragma: no cover - legacy 独立运行兜底
+    GAM_N_SPLINES, GAM_LAM = 6, 1.0
 
-def _gam_fit_residual(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+
+def _gam_fit_residual(x: np.ndarray, y: np.ndarray,
+                      n_splines: int = GAM_N_SPLINES,
+                      lam: float = GAM_LAM) -> np.ndarray:
     """拟合 y = f(x) + ε（样条 GAM），返回残差 ε。"""
     from pygam import LinearGAM, s
     try:
-        gam = LinearGAM(s(0, n_splines=10, lam=0.6)).fit(x.reshape(-1, 1), y)
+        gam = LinearGAM(s(0, n_splines=n_splines, lam=lam)).fit(x.reshape(-1, 1), y)
         pred = gam.predict(x.reshape(-1, 1))
         return y - pred
     except Exception:
@@ -41,14 +52,16 @@ def _mi(x: np.ndarray, y: np.ndarray) -> float:
     return float(mi[0])
 
 
-def anm_pair_direction(x: np.ndarray, y: np.ndarray) -> Tuple[int, float]:
+def anm_pair_direction(x: np.ndarray, y: np.ndarray,
+                       n_splines: int = GAM_N_SPLINES,
+                       lam: float = GAM_LAM) -> Tuple[int, float]:
     """ANM 成对方向判定。
     返回 (direction, confidence)：
       direction = +1 表示 x→y, -1 表示 y→x, 0 表示无法判定。
       confidence = |MI_rev - MI_fwd|。
     """
-    res_fwd = _gam_fit_residual(x, y)   # y = f(x) + ε
-    res_rev = _gam_fit_residual(y, x)   # x = g(y) + η
+    res_fwd = _gam_fit_residual(x, y, n_splines=n_splines, lam=lam)   # y = f(x) + ε
+    res_rev = _gam_fit_residual(y, x, n_splines=n_splines, lam=lam)   # x = g(y) + η
     mi_fwd = _mi(res_fwd, x)            # ε 与 x 的依赖
     mi_rev = _mi(res_rev, y)            # η 与 y 的依赖
     diff = mi_rev - mi_fwd              # >0 表示正向残差更独立 → x→y
@@ -95,7 +108,7 @@ def anm_total_effect_ranking(data: np.ndarray, variables: List[str],
             continue
         x = data[:, j]
         try:
-            gam = LinearGAM(s(0, n_splines=10, lam=0.6)).fit(x.reshape(-1, 1), y)
+            gam = LinearGAM(s(0, n_splines=GAM_N_SPLINES, lam=GAM_LAM)).fit(x.reshape(-1, 1), y)
             h = np.std(x) * 0.01 + 1e-9
             dydx = (gam.predict((x + h).reshape(-1, 1)) -
                     gam.predict((x - h).reshape(-1, 1))) / (2 * h)
